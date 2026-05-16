@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs wc *)",
+      "PowerShell(Get-ChildItem \"J:\\\\SVN\\\\SVN_26\\\\frontend\\\\src\\\\app\\\\dashboard\\\\\" -Recurse -Filter \"page.tsx\" | ForEach-Object { $_.FullName })"
+    ]
+  }
+}

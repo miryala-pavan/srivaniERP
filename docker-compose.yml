@@ -1,0 +1,33 @@
+﻿services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: srivani_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: srivani_db
+      POSTGRES_USER: srivani
+      POSTGRES_PASSWORD: Srivani2026
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5555:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - srivani_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: srivani_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - srivani_network
+
+networks:
+  srivani_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
