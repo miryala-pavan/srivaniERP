@@ -3,6 +3,7 @@ export declare class CreateProductDto {
     shortName?: string;
     hsnCode: string;
     taxId: string;
+    departmentId?: string;
     categoryId?: string;
     brandId?: string;
     barcode?: string;

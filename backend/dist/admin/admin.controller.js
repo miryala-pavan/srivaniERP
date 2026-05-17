@@ -32,6 +32,12 @@ let AdminController = class AdminController {
     fixProductData(req) {
         return this.adminService.fixProductData(req.user.businessId);
     }
+    seedDepartments(req) {
+        return this.adminService.seedDepartments(req.user.businessId);
+    }
+    migrateOrphansPhase1(req) {
+        return this.adminService.migrateOrphansPhase1(req.user.businessId);
+    }
     resetBillSeries(req, body) {
         return this.adminService.resetBillSeries(req.user.businessId, body);
     }
@@ -59,6 +65,20 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AdminController.prototype, "fixProductData", null);
+__decorate([
+    (0, common_1.Post)('seed-departments'),
+    __param(0, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AdminController.prototype, "seedDepartments", null);
+__decorate([
+    (0, common_1.Post)('migrate-orphans-phase-1'),
+    __param(0, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AdminController.prototype, "migrateOrphansPhase1", null);
 __decorate([
     (0, common_1.Post)('reset-bill-series'),
     (0, common_1.HttpCode)(200),

@@ -17,6 +17,7 @@ import { AdminModule } from './admin/admin.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DayClosureModule } from './day-closure/day-closure.module';
 import { UsersModule } from './users/users.module';
+import { DepartmentsModule } from './departments/departments.module';
 
 @Module({
   controllers: [AppController],
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     BusinessModule,
     ProductsModule,
+    DepartmentsModule,
     SuppliersModule,
     CustomersModule,
     PosModule,

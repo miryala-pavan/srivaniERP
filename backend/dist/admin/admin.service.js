@@ -517,6 +517,302 @@ let AdminService = class AdminService {
             orderBy: { taxRate: 'asc' },
         });
     }
+    async seedDepartments(businessId) {
+        const DEPT_SEED = [
+            { name: 'Food & Grocery', code: 'FOOD', order: 1, categories: [
+                    'Staples & Grains', 'Pulses & Lentils', 'Oils & Ghee', 'Spices & Masalas',
+                    'Condiments & Sauces', 'Sugar & Sweeteners', 'Dairy & Eggs', 'Beverages - Hot',
+                    'Beverages - Cold', 'Snacks & Namkeen', 'Biscuits & Cookies',
+                    'Packaged & Instant Foods', 'Breakfast & Cereals', 'Bakery & Breads',
+                    'Sweets & Mithai', 'Confectionery & Chocolates', 'Frozen Foods',
+                    'Dry Fruits & Nuts', 'Dairy Alternatives', 'Organic & Natural Foods',
+                    'Canned & Preserved Foods', 'Cooking Essentials',
+                ] },
+            { name: 'Fruits & Vegetables', code: 'FRVEG', order: 2, categories: [
+                    'Fresh Fruits', 'Fresh Vegetables', 'Exotic & Imported', 'Herbs & Greens',
+                    'Dry Vegetables', 'Sprouts & Seeds', 'Cut & Ready to Cook',
+                ] },
+            { name: 'Meat Fish & Eggs', code: 'MEAT', order: 3, categories: [
+                    'Chicken & Mutton', 'Fish & Seafood', 'Eggs', 'Frozen Meat', 'Ready to Cook Meat',
+                ] },
+            { name: 'Home Care', code: 'HOMECARE', order: 4, categories: [
+                    'Detergents & Laundry', 'Dishwash', 'Floor & Surface Cleaners', 'Toilet Care',
+                    'Fresheners & Repellents', 'Mosquito Control', 'Garbage & Storage',
+                    'Kitchen Accessories', 'Disposables', 'Pooja & Religious Items',
+                ] },
+            { name: 'Personal Care', code: 'PERSONAL', order: 5, categories: [
+                    'Bath & Body', 'Hair Care', 'Skin Care', 'Oral Care', 'Deodorant & Perfume',
+                    'Shaving & Grooming', 'Feminine Hygiene', 'Cosmetics & Makeup',
+                    'Mens Grooming', 'Foot Care', 'Eye Care',
+                ] },
+            { name: 'Baby Care', code: 'BABY', order: 6, categories: [
+                    'Baby Food & Milk', 'Diapers & Wipes', 'Baby Bath & Skin', 'Baby Health',
+                    'Baby Accessories', 'Baby Clothing', 'Baby Toys',
+                ] },
+            { name: 'Health & Wellness', code: 'HEALTH', order: 7, categories: [
+                    'Health Drinks & Supplements', 'Protein & Fitness', 'OTC Medicines',
+                    'Ayurvedic & Herbal', 'Homeopathic', 'Diabetic & Diet Foods', 'First Aid',
+                    'Surgical & Medical Accessories', 'Senior Care', 'Womens Health',
+                ] },
+            { name: 'Pet Care', code: 'PETCARE', order: 8, categories: [
+                    'Dog Care', 'Cat Care', 'Bird Care', 'Fish & Aquarium',
+                    'Small Animals', 'Pet Accessories', 'Pet Health',
+                ] },
+            { name: 'Stationery & Office', code: 'STATIONERY', order: 9, categories: [
+                    'Stationery', 'Office Supplies', 'Art & Craft', 'School Supplies',
+                    'Books & Magazines', 'Newspapers',
+                ] },
+            { name: 'Electrical & Hardware', code: 'ELECTRICAL', order: 10, categories: [
+                    'Batteries & Torches', 'Bulbs & Lighting', 'Extension & Cables',
+                    'Small Hardware', 'Tape & Adhesives', 'Tools',
+                ] },
+            { name: 'Tobacco & Related', code: 'TOBACCO', order: 11, categories: [
+                    'Cigarettes', 'Bidi', 'Cigars', 'Chewing Tobacco',
+                    'Pan & Gutka', 'Pan Masala', 'Hookah & Accessories',
+                ] },
+            { name: 'Liquor & Beverages', code: 'LIQUOR', order: 12, categories: [
+                    'Beer', 'Wine', 'Whisky & Scotch', 'Rum', 'Vodka & Gin',
+                    'Brandy', 'Country Liquor', 'Non-Alcoholic Mocktails',
+                ] },
+            { name: 'Seasonal & Festive', code: 'SEASONAL', order: 13, categories: [
+                    'Diwali Items', 'Holi Items', 'Christmas Items', 'Eid Items',
+                    'Onam & Pongal', 'Gift Packs & Hampers', 'Decorations',
+                ] },
+            { name: 'Apparel & Clothing', code: 'APPAREL', order: 14, categories: [
+                    'Mens Clothing', 'Womens Clothing', 'Kids Clothing',
+                    'Innerwear & Socks', 'Nightwear', 'Handkerchiefs & Accessories',
+                ] },
+            { name: 'Kitchen & Cookware', code: 'KITCHEN', order: 15, categories: [
+                    'Cookware', 'Bakeware', 'Kitchen Tools', 'Storage Containers',
+                    'Water Bottles & Flasks', 'Pressure Cookers',
+                ] },
+            { name: 'General Merchandise', code: 'GENERAL', order: 16, categories: [
+                    'Footwear', 'Bags & Luggage', 'Toys & Games', 'Gifts & Novelties',
+                    'Candles & Match Box', 'Umbrellas', 'Miscellaneous',
+                ] },
+        ];
+        let deptsSeeded = 0, catsSeeded = 0, subCatsSeeded = 0;
+        for (const d of DEPT_SEED) {
+            let dept = await this.prisma.department.findUnique({
+                where: { businessId_code: { businessId, code: d.code } },
+            });
+            if (!dept) {
+                dept = await this.prisma.department.create({
+                    data: { businessId, name: d.name, code: d.code, sortOrder: d.order },
+                });
+                deptsSeeded++;
+            }
+            for (let ci = 0; ci < d.categories.length; ci++) {
+                const catName = d.categories[ci];
+                const catCode = `${d.code}_${(ci + 1).toString().padStart(2, '0')}`;
+                const label = catName;
+                let cat = await this.prisma.category.findFirst({
+                    where: { businessId, name: catName, departmentId: dept.id, parentId: null },
+                });
+                if (!cat) {
+                    let finalCode = catCode;
+                    const codeExists = await this.prisma.category.findUnique({
+                        where: { businessId_code: { businessId, code: catCode } },
+                    });
+                    if (codeExists)
+                        finalCode = `${catCode}X`;
+                    cat = await this.prisma.category.create({
+                        data: {
+                            businessId,
+                            departmentId: dept.id,
+                            name: catName,
+                            code: finalCode,
+                            label,
+                            sortOrder: ci + 1,
+                        },
+                    });
+                    catsSeeded++;
+                }
+                const exists = await this.prisma.category.findFirst({
+                    where: { businessId, name: 'General', parentId: cat.id },
+                });
+                if (!exists) {
+                    const subCode = `${cat.code}_GEN`;
+                    let finalSubCode = subCode;
+                    const subCodeExists = await this.prisma.category.findUnique({
+                        where: { businessId_code: { businessId, code: subCode } },
+                    });
+                    if (subCodeExists)
+                        finalSubCode = `${subCode}X`;
+                    await this.prisma.category.create({
+                        data: {
+                            businessId,
+                            departmentId: dept.id,
+                            parentId: cat.id,
+                            name: 'General',
+                            code: finalSubCode,
+                            label: 'General',
+                            sortOrder: 1,
+                        },
+                    });
+                    subCatsSeeded++;
+                }
+            }
+        }
+        return {
+            message: `Seeded ${deptsSeeded} depts, ${catsSeeded} cats, ${subCatsSeeded} sub-cats`,
+            deptsSeeded,
+            catsSeeded,
+            subCatsSeeded,
+        };
+    }
+    async migrateOrphansPhase1(businessId) {
+        return this.prisma.$transaction(async (tx) => {
+            const summary = {
+                brand: 'already_existed',
+                brandId: '',
+                deptsCreated: [],
+                catsCreated: [],
+                subCatsCreated: [],
+                productsMovedLog: [],
+            };
+            let brand = await tx.brand.findFirst({ where: { businessId, name: 'Srivani' } });
+            if (!brand) {
+                brand = await tx.brand.create({
+                    data: { businessId, name: 'Srivani', code: 'SRIVANI', isActive: true },
+                });
+                summary.brand = 'created';
+            }
+            summary.brandId = brand.id;
+            const NEW_DEPTS = [
+                { code: 'SUPPLIES', name: 'Raw Materials & Packaging', order: 17 },
+                { code: 'TELECOM', name: 'Telecom & Recharge', order: 18 },
+            ];
+            const deptMap = {};
+            for (const d of NEW_DEPTS) {
+                let dept = await tx.department.findUnique({
+                    where: { businessId_code: { businessId, code: d.code } },
+                });
+                if (!dept) {
+                    dept = await tx.department.create({
+                        data: { businessId, name: d.name, code: d.code, sortOrder: d.order, isActive: true },
+                    });
+                    summary.deptsCreated.push(`${d.code}:${dept.id}`);
+                }
+                deptMap[d.code] = { id: dept.id, code: dept.code };
+            }
+            const NEW_CAT_DEFS = [
+                { deptCode: 'SUPPLIES', name: 'Raw Sugar & Sweeteners', codeBase: 'SUPPLIES_01', sortOrder: 1 },
+                { deptCode: 'SUPPLIES', name: 'Raw Pulses & Dal', codeBase: 'SUPPLIES_02', sortOrder: 2 },
+                { deptCode: 'SUPPLIES', name: 'Raw Rice & Grains', codeBase: 'SUPPLIES_03', sortOrder: 3 },
+                { deptCode: 'SUPPLIES', name: 'Raw Spices & Masalas', codeBase: 'SUPPLIES_04', sortOrder: 4 },
+                { deptCode: 'SUPPLIES', name: 'Raw Dry Fruits & Nuts', codeBase: 'SUPPLIES_05', sortOrder: 5 },
+                { deptCode: 'SUPPLIES', name: 'Raw Oils & Ghee (bulk)', codeBase: 'SUPPLIES_06', sortOrder: 6 },
+                { deptCode: 'SUPPLIES', name: 'Packaging Pouches', codeBase: 'SUPPLIES_07', sortOrder: 7 },
+                { deptCode: 'SUPPLIES', name: 'Labels & Stickers', codeBase: 'SUPPLIES_08', sortOrder: 8 },
+                { deptCode: 'SUPPLIES', name: 'Boxes & Cartons', codeBase: 'SUPPLIES_09', sortOrder: 9 },
+                { deptCode: 'SUPPLIES', name: 'Twine & Tape', codeBase: 'SUPPLIES_10', sortOrder: 10 },
+                { deptCode: 'SUPPLIES', name: 'Other Packaging Supplies', codeBase: 'SUPPLIES_11', sortOrder: 11 },
+                { deptCode: 'TELECOM', name: 'Prepaid Mobile Recharge', codeBase: 'TELECOM_01', sortOrder: 1 },
+                { deptCode: 'TELECOM', name: 'Postpaid Bill Payment', codeBase: 'TELECOM_02', sortOrder: 2 },
+                { deptCode: 'TELECOM', name: 'DTH Recharge', codeBase: 'TELECOM_03', sortOrder: 3 },
+                { deptCode: 'TELECOM', name: 'Gift Cards & Vouchers', codeBase: 'TELECOM_04', sortOrder: 4 },
+                { deptCode: 'TELECOM', name: 'FASTag Recharge', codeBase: 'TELECOM_05', sortOrder: 5 },
+                { deptCode: 'TELECOM', name: 'SIM Cards & New Connections', codeBase: 'TELECOM_06', sortOrder: 6 },
+                { deptCode: 'TELECOM', name: 'Utility Bill Payments', codeBase: 'TELECOM_07', sortOrder: 7 },
+            ];
+            const catMap = {};
+            for (const def of NEW_CAT_DEFS) {
+                const dept = deptMap[def.deptCode];
+                let cat = await tx.category.findFirst({
+                    where: { businessId, name: def.name, departmentId: dept.id, parentId: null },
+                });
+                if (!cat) {
+                    let code = def.codeBase;
+                    const codeExists = await tx.category.findUnique({ where: { businessId_code: { businessId, code } } });
+                    if (codeExists)
+                        code = `${code}X`;
+                    cat = await tx.category.create({
+                        data: { businessId, departmentId: dept.id, name: def.name, code, label: def.name, sortOrder: def.sortOrder, isActive: true },
+                    });
+                    summary.catsCreated.push(`${code}:${cat.id}`);
+                }
+                catMap[`${def.deptCode}::${def.name}`] = { id: cat.id, code: cat.code, departmentId: dept.id };
+            }
+            for (const [, cat] of Object.entries(catMap)) {
+                const exists = await tx.category.findFirst({ where: { businessId, name: 'General', parentId: cat.id } });
+                if (!exists) {
+                    let subCode = `${cat.code}_GEN`;
+                    const subCodeExists = await tx.category.findUnique({ where: { businessId_code: { businessId, code: subCode } } });
+                    if (subCodeExists)
+                        subCode = `${subCode}X`;
+                    const sub = await tx.category.create({
+                        data: { businessId, departmentId: cat.departmentId, parentId: cat.id, name: 'General', code: subCode, label: 'General', sortOrder: 1, isActive: true },
+                    });
+                    summary.subCatsCreated.push(`${subCode}:${sub.id}`);
+                }
+            }
+            const PRODUCT_MAP = [
+                { oldName: 'Skincare & Face', deptCode: 'PERSONAL', catName: 'Skin Care' },
+                { oldName: 'Sunflower Oil', deptCode: 'FOOD', catName: 'Oils & Ghee' },
+                { oldName: 'Groundnut Oil', deptCode: 'FOOD', catName: 'Oils & Ghee' },
+                { oldName: 'Wheat & Atta', deptCode: 'FOOD', catName: 'Staples & Grains' },
+                { oldName: 'Olive Oil', deptCode: 'FOOD', catName: 'Oils & Ghee' },
+                { oldName: 'Toothpaste & Brush', deptCode: 'PERSONAL', catName: 'Oral Care' },
+                { oldName: 'Shampoo & Hair', deptCode: 'PERSONAL', catName: 'Hair Care' },
+                { oldName: 'Chips & Crisps', deptCode: 'FOOD', catName: 'Snacks & Namkeen' },
+                { oldName: 'Dishwash', deptCode: 'HOMECARE', catName: 'Dishwash' },
+                { oldName: 'Milk', deptCode: 'FOOD', catName: 'Dairy & Eggs' },
+                { oldName: 'Salt & Seasoning', deptCode: 'FOOD', catName: 'Cooking Essentials' },
+            ];
+            for (const m of PRODUCT_MAP) {
+                const oldSubCat = await tx.category.findFirst({
+                    where: { businessId, name: m.oldName, departmentId: null, parentId: { not: null } },
+                });
+                if (!oldSubCat)
+                    continue;
+                const targetDept = await tx.department.findUnique({
+                    where: { businessId_code: { businessId, code: m.deptCode } },
+                });
+                if (!targetDept)
+                    continue;
+                const targetCat = await tx.category.findFirst({
+                    where: { businessId, name: m.catName, departmentId: targetDept.id, parentId: null },
+                });
+                if (!targetCat)
+                    continue;
+                const targetSubCat = await tx.category.findFirst({
+                    where: { businessId, name: 'General', parentId: targetCat.id },
+                });
+                if (!targetSubCat)
+                    continue;
+                const products = await tx.product.findMany({
+                    where: { businessId, categoryId: oldSubCat.id },
+                    select: { id: true, name: true },
+                });
+                for (const p of products) {
+                    await tx.product.update({
+                        where: { id: p.id },
+                        data: { departmentId: targetDept.id, categoryId: targetSubCat.id },
+                    });
+                    summary.productsMovedLog.push({
+                        productId: p.id, name: p.name,
+                        oldCategoryId: oldSubCat.id, oldCategoryName: m.oldName,
+                        newDepartmentId: targetDept.id, newDepartmentCode: m.deptCode,
+                        newCategoryId: targetSubCat.id, newCategoryName: 'General', newParentName: m.catName,
+                    });
+                }
+            }
+            return {
+                message: 'Phase 1 migration complete',
+                brand: summary.brand,
+                brandId: summary.brandId,
+                deptsCreated: summary.deptsCreated.length,
+                deptsCreatedIds: summary.deptsCreated,
+                catsCreated: summary.catsCreated.length,
+                catsCreatedIds: summary.catsCreated,
+                subCatsCreated: summary.subCatsCreated.length,
+                subCatsCreatedIds: summary.subCatsCreated,
+                productsMoved: summary.productsMovedLog.length,
+                productsMovedLog: summary.productsMovedLog,
+            };
+        }, { timeout: 60000 });
+    }
 };
 exports.AdminService = AdminService;
 exports.AdminService = AdminService = __decorate([

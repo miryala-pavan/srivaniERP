@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Body, Param, Query, UseGuards, Request,
+  Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Request,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -36,14 +36,62 @@ export class ProductsController {
   }
 
   @Get('categories')
-  getCategories(@Request() req: any) { return this.productsService.getCategories(req.user.businessId); }
+  getCategories(@Request() req: any, @Query('departmentId') deptId?: string) {
+    return this.productsService.getCategories(req.user.businessId, deptId);
+  }
 
   @Get('categories/flat')
   getCategoriesFlat(@Request() req: any) { return this.productsService.getCategoriesFlat(req.user.businessId); }
 
+  @Patch('categories/:id')
+  updateCategory(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { name?: string; sortOrder?: number; isActive?: boolean; departmentId?: string },
+  ) {
+    return this.productsService.updateCategory(req.user.businessId, id, body);
+  }
+
+  @Delete('categories/:id')
+  deleteCategory(@Request() req: any, @Param('id') id: string) {
+    return this.productsService.deleteCategory(req.user.businessId, id);
+  }
+
   @Get('categories/:id/products')
   getCategoryProducts(@Request() req: any, @Param('id') id: string) {
     return this.productsService.getProductsByCategory(req.user.businessId, id);
+  }
+
+  // ─── SUB-CATEGORIES ───────────────────────────────────
+  @Post('subcategories')
+  createSubCategory(
+    @Request() req: any,
+    @Body() body: { name: string; categoryId: string; sortOrder?: number },
+  ) {
+    return this.productsService.createSubCategory(req.user.businessId, body);
+  }
+
+  @Get('subcategories')
+  getSubCategories(
+    @Request() req: any,
+    @Query('categoryId') categoryId?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    return this.productsService.getSubCategories(req.user.businessId, categoryId, departmentId);
+  }
+
+  @Patch('subcategories/:id')
+  updateSubCategory(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { name?: string; sortOrder?: number; isActive?: boolean; categoryId?: string },
+  ) {
+    return this.productsService.updateSubCategory(req.user.businessId, id, body);
+  }
+
+  @Delete('subcategories/:id')
+  deleteSubCategory(@Request() req: any, @Param('id') id: string) {
+    return this.productsService.deleteSubCategory(req.user.businessId, id);
   }
 
   // ─── SEARCH (before :id) ─────────────────────────────

@@ -40,6 +40,73 @@ export declare class ProductsService {
         taxRate: import("@prisma/client/runtime/library").Decimal;
     }[]>;
     createCategory(businessId: string, dto: CreateCategoryDto): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
+        _count: {
+            products: number;
+            children: number;
+        };
+        parent: {
+            id: string;
+            name: string;
+            code: string;
+            label: string;
+        } | null;
+    } & {
+        id: string;
+        businessId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        isActive: boolean;
+        departmentId: string | null;
+        code: string;
+        label: string;
+        parentId: string | null;
+        sortOrder: number;
+        isReturnableDefault: boolean;
+    }>;
+    updateCategory(businessId: string, id: string, body: {
+        name?: string;
+        sortOrder?: number;
+        isActive?: boolean;
+        departmentId?: string;
+    }): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
+        _count: {
+            products: number;
+            children: number;
+        };
+    } & {
+        id: string;
+        businessId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        isActive: boolean;
+        departmentId: string | null;
+        code: string;
+        label: string;
+        parentId: string | null;
+        sortOrder: number;
+        isReturnableDefault: boolean;
+    }>;
+    deleteCategory(businessId: string, id: string): Promise<{
+        message: string;
+    }>;
+    getSubCategories(businessId: string, categoryId?: string, departmentId?: string): Promise<({
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
         _count: {
             products: number;
         };
@@ -56,18 +123,79 @@ export declare class ProductsService {
         updatedAt: Date;
         name: string;
         isActive: boolean;
+        departmentId: string | null;
+        code: string;
+        label: string;
+        parentId: string | null;
+        sortOrder: number;
+        isReturnableDefault: boolean;
+    })[]>;
+    createSubCategory(businessId: string, body: {
+        name: string;
+        categoryId: string;
+        sortOrder?: number;
+    }): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
+        parent: {
+            id: string;
+            name: string;
+            code: string;
+            label: string;
+        } | null;
+    } & {
+        id: string;
+        businessId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        isActive: boolean;
+        departmentId: string | null;
         code: string;
         label: string;
         parentId: string | null;
         sortOrder: number;
         isReturnableDefault: boolean;
     }>;
-    getCategories(businessId: string): Promise<{
+    updateSubCategory(businessId: string, id: string, body: {
+        name?: string;
+        sortOrder?: number;
+        isActive?: boolean;
+        categoryId?: string;
+    }): Promise<{
+        id: string;
+        businessId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        isActive: boolean;
+        departmentId: string | null;
+        code: string;
+        label: string;
+        parentId: string | null;
+        sortOrder: number;
+        isReturnableDefault: boolean;
+    }>;
+    deleteSubCategory(businessId: string, id: string): Promise<{
+        message: string;
+    }>;
+    getCategories(businessId: string, departmentId?: string): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
         id: string;
         _count: {
             products: number;
+            children: number;
         };
         name: string;
+        isActive: boolean;
+        departmentId: string | null;
         code: string;
         label: string;
         parentId: string | null;
@@ -81,8 +209,14 @@ export declare class ProductsService {
         }[];
     }[]>;
     getCategoriesFlat(businessId: string): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
         id: string;
         name: string;
+        departmentId: string | null;
         code: string;
         label: string;
         parentId: string | null;
@@ -121,6 +255,7 @@ export declare class ProductsService {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -204,6 +339,7 @@ export declare class ProductsService {
             updatedAt: Date;
             name: string;
             isActive: boolean;
+            departmentId: string | null;
             code: string;
             label: string;
             parentId: string | null;
@@ -228,6 +364,7 @@ export declare class ProductsService {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -314,6 +451,7 @@ export declare class ProductsService {
             shortName: string | null;
             hsnCode: string;
             taxId: string;
+            departmentId: string | null;
             categoryId: string | null;
             brandId: string | null;
             barcode: string | null;
@@ -397,6 +535,7 @@ export declare class ProductsService {
             updatedAt: Date;
             name: string;
             isActive: boolean;
+            departmentId: string | null;
             code: string;
             label: string;
             parentId: string | null;
@@ -446,6 +585,7 @@ export declare class ProductsService {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -517,6 +657,7 @@ export declare class ProductsService {
             updatedAt: Date;
             name: string;
             isActive: boolean;
+            departmentId: string | null;
             code: string;
             label: string;
             parentId: string | null;
@@ -542,6 +683,7 @@ export declare class ProductsService {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -605,6 +747,7 @@ export declare class ProductsService {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -674,6 +817,7 @@ export declare class ProductsService {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;

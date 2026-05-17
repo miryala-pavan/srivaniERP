@@ -34,10 +34,30 @@ let ProductsController = class ProductsController {
     createCategory(req, dto) {
         return this.productsService.createCategory(req.user.businessId, dto);
     }
-    getCategories(req) { return this.productsService.getCategories(req.user.businessId); }
+    getCategories(req, deptId) {
+        return this.productsService.getCategories(req.user.businessId, deptId);
+    }
     getCategoriesFlat(req) { return this.productsService.getCategoriesFlat(req.user.businessId); }
+    updateCategory(req, id, body) {
+        return this.productsService.updateCategory(req.user.businessId, id, body);
+    }
+    deleteCategory(req, id) {
+        return this.productsService.deleteCategory(req.user.businessId, id);
+    }
     getCategoryProducts(req, id) {
         return this.productsService.getProductsByCategory(req.user.businessId, id);
+    }
+    createSubCategory(req, body) {
+        return this.productsService.createSubCategory(req.user.businessId, body);
+    }
+    getSubCategories(req, categoryId, departmentId) {
+        return this.productsService.getSubCategories(req.user.businessId, categoryId, departmentId);
+    }
+    updateSubCategory(req, id, body) {
+        return this.productsService.updateSubCategory(req.user.businessId, id, body);
+    }
+    deleteSubCategory(req, id) {
+        return this.productsService.deleteSubCategory(req.user.businessId, id);
     }
     search(req, q) {
         return this.productsService.searchProducts(req.user.businessId, q ?? '');
@@ -105,8 +125,9 @@ __decorate([
 __decorate([
     (0, common_1.Get)('categories'),
     __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Query)('departmentId')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", void 0)
 ], ProductsController.prototype, "getCategories", null);
 __decorate([
@@ -117,6 +138,23 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], ProductsController.prototype, "getCategoriesFlat", null);
 __decorate([
+    (0, common_1.Patch)('categories/:id'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "updateCategory", null);
+__decorate([
+    (0, common_1.Delete)('categories/:id'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "deleteCategory", null);
+__decorate([
     (0, common_1.Get)('categories/:id/products'),
     __param(0, (0, common_1.Request)()),
     __param(1, (0, common_1.Param)('id')),
@@ -124,6 +162,40 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", void 0)
 ], ProductsController.prototype, "getCategoryProducts", null);
+__decorate([
+    (0, common_1.Post)('subcategories'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "createSubCategory", null);
+__decorate([
+    (0, common_1.Get)('subcategories'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Query)('categoryId')),
+    __param(2, (0, common_1.Query)('departmentId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "getSubCategories", null);
+__decorate([
+    (0, common_1.Patch)('subcategories/:id'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "updateSubCategory", null);
+__decorate([
+    (0, common_1.Delete)('subcategories/:id'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "deleteSubCategory", null);
 __decorate([
     (0, common_1.Get)('search'),
     __param(0, (0, common_1.Request)()),

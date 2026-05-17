@@ -104,29 +104,154 @@ export class ProductsService {
     if (byCode) throw new ConflictException(`Category code "${code}" already exists`);
 
     return this.prisma.category.create({
-      data: { businessId, name: dto.name, code, label: dto.label.toUpperCase(), parentId: dto.parentId, sortOrder: dto.sortOrder ?? 0, isActive: true },
+      data: {
+        businessId,
+        name: dto.name,
+        code,
+        label: dto.label ?? dto.name,
+        parentId: dto.parentId,
+        departmentId: (dto as any).departmentId ?? null,
+        sortOrder: dto.sortOrder ?? 0,
+        isActive: true,
+      },
       include: {
-        parent: { select: { id: true, name: true, label: true, code: true } },
-        _count:  { select: { products: true } },
+        parent:      { select: { id: true, name: true, label: true, code: true } },
+        department:  { select: { id: true, name: true, code: true } },
+        _count:      { select: { products: true, children: true } },
       },
     });
   }
 
-  async getCategories(businessId: string) {
+  async updateCategory(businessId: string, id: string, body: {
+    name?: string; sortOrder?: number; isActive?: boolean; departmentId?: string;
+  }) {
+    const cat = await this.prisma.category.findFirst({ where: { id, businessId } });
+    if (!cat) throw new NotFoundException('Category not found');
+    return this.prisma.category.update({
+      where: { id },
+      data: {
+        ...(body.name         !== undefined ? { name: body.name.trim(), label: body.name.trim() } : {}),
+        ...(body.sortOrder    !== undefined ? { sortOrder: body.sortOrder } : {}),
+        ...(body.isActive     !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.departmentId !== undefined ? { departmentId: body.departmentId || null } : {}),
+      },
+      include: {
+        department: { select: { id: true, name: true, code: true } },
+        _count:     { select: { products: true, children: true } },
+      },
+    });
+  }
+
+  async deleteCategory(businessId: string, id: string) {
+    const cat = await this.prisma.category.findFirst({
+      where: { id, businessId },
+      include: { _count: { select: { children: true, products: true } } },
+    });
+    if (!cat) throw new NotFoundException('Category not found');
+    if (cat._count.children > 0) {
+      throw new BadRequestException(`Cannot delete — category has ${cat._count.children} sub-categories`);
+    }
+    if (cat._count.products > 0) {
+      throw new BadRequestException(`Cannot delete — category has ${cat._count.products} products`);
+    }
+    await this.prisma.category.delete({ where: { id } });
+    return { message: 'Category deleted' };
+  }
+
+  async getSubCategories(businessId: string, categoryId?: string, departmentId?: string) {
+    const where: any = { businessId, parentId: { not: null } };
+    if (categoryId)   where.parentId     = categoryId;
+    if (departmentId) where.departmentId = departmentId;
+    return this.prisma.category.findMany({
+      where,
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      include: {
+        parent:     { select: { id: true, name: true, label: true, code: true } },
+        department: { select: { id: true, name: true, code: true } },
+        _count:     { select: { products: true } },
+      },
+    });
+  }
+
+  async createSubCategory(businessId: string, body: { name: string; categoryId: string; sortOrder?: number }) {
+    const parent = await this.prisma.category.findFirst({
+      where: { id: body.categoryId, businessId, parentId: null },
+    });
+    if (!parent) throw new NotFoundException('Parent category not found');
+    const code = `${parent.code}_${body.name.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8)}`;
+    let finalCode = code;
+    const codeExists = await this.prisma.category.findUnique({
+      where: { businessId_code: { businessId, code } },
+    });
+    if (codeExists) finalCode = `${code}${Date.now().toString().slice(-4)}`;
+
+    return this.prisma.category.create({
+      data: {
+        businessId,
+        parentId: body.categoryId,
+        departmentId: parent.departmentId,
+        name: body.name.trim(),
+        code: finalCode,
+        label: body.name.trim(),
+        sortOrder: body.sortOrder ?? 0,
+      },
+      include: {
+        parent:     { select: { id: true, name: true, label: true, code: true } },
+        department: { select: { id: true, name: true, code: true } },
+      },
+    });
+  }
+
+  async updateSubCategory(businessId: string, id: string, body: {
+    name?: string; sortOrder?: number; isActive?: boolean; categoryId?: string;
+  }) {
+    const cat = await this.prisma.category.findFirst({
+      where: { id, businessId, parentId: { not: null } },
+    });
+    if (!cat) throw new NotFoundException('Sub-category not found');
+    return this.prisma.category.update({
+      where: { id },
+      data: {
+        ...(body.name       !== undefined ? { name: body.name.trim(), label: body.name.trim() } : {}),
+        ...(body.sortOrder  !== undefined ? { sortOrder: body.sortOrder } : {}),
+        ...(body.isActive   !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.categoryId !== undefined ? { parentId: body.categoryId || null } : {}),
+      },
+    });
+  }
+
+  async deleteSubCategory(businessId: string, id: string) {
+    const cat = await this.prisma.category.findFirst({
+      where: { id, businessId, parentId: { not: null } },
+      include: { _count: { select: { products: true } } },
+    });
+    if (!cat) throw new NotFoundException('Sub-category not found');
+    if (cat._count.products > 0) {
+      throw new BadRequestException(`Cannot delete — sub-category has ${cat._count.products} products`);
+    }
+    await this.prisma.category.delete({ where: { id } });
+    return { message: 'Sub-category deleted' };
+  }
+
+  async getCategories(businessId: string, departmentId?: string) {
+    const where: any = { businessId, isActive: true, parentId: null };
+    if (departmentId) where.departmentId = departmentId;
     const all = await this.prisma.category.findMany({
-      where:   { businessId, isActive: true },
+      where,
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
-        id: true, name: true, code: true, label: true, parentId: true, sortOrder: true,
+        id: true, name: true, code: true, label: true,
+        parentId: true, departmentId: true, sortOrder: true, isActive: true,
+        department: { select: { id: true, name: true, code: true } },
         children: {
           where:   { isActive: true },
           orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
           select:  { id: true, name: true, code: true, label: true, sortOrder: true },
         },
-        _count: { select: { products: true } },
+        _count: { select: { products: true, children: true } },
       },
     });
-    return all.filter((c) => c.parentId === null);
+    return all;
   }
 
   async getCategoriesFlat(businessId: string) {
@@ -134,8 +259,9 @@ export class ProductsService {
       where:   { businessId, isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
-        id: true, name: true, code: true, label: true, parentId: true,
-        parent: { select: { id: true, name: true, label: true, code: true } },
+        id: true, name: true, code: true, label: true, parentId: true, departmentId: true,
+        parent:     { select: { id: true, name: true, label: true, code: true } },
+        department: { select: { id: true, name: true, code: true } },
       },
     });
   }
@@ -213,7 +339,7 @@ export class ProductsService {
       const p = await tx.product.create({
         data: {
           businessId, productCode,
-          taxId: dto.taxId, categoryId: dto.categoryId, brandId: dto.brandId,
+          taxId: dto.taxId, departmentId: dto.departmentId, categoryId: dto.categoryId, brandId: dto.brandId,
           name: tcField(dto.name) ?? dto.name, shortName: tcField(dto.shortName), barcode: dto.barcode,
           hsnCode: dto.hsnCode, unitOfMeasure: dto.unitOfMeasure ?? 'PCS',
           productType: dto.productType ?? 'STANDARD',
@@ -414,7 +540,7 @@ export class ProductsService {
     const updated = await this.prisma.product.update({
       where: { id },
       data: {
-        taxId: dto.taxId, categoryId: dto.categoryId, brandId: dto.brandId,
+        taxId: dto.taxId, departmentId: dto.departmentId, categoryId: dto.categoryId, brandId: dto.brandId,
         name: dto.name !== undefined ? tcField(dto.name) ?? dto.name : undefined,
         shortName: dto.shortName !== undefined ? tcField(dto.shortName) : undefined,
         barcode: dto.barcode,

@@ -25,6 +25,35 @@ export declare class AdminController {
         total: number;
         updated: number;
     }>;
+    seedDepartments(req: any): Promise<{
+        message: string;
+        deptsSeeded: number;
+        catsSeeded: number;
+        subCatsSeeded: number;
+    }>;
+    migrateOrphansPhase1(req: any): Promise<{
+        message: string;
+        brand: string;
+        brandId: string;
+        deptsCreated: number;
+        deptsCreatedIds: string[];
+        catsCreated: number;
+        catsCreatedIds: string[];
+        subCatsCreated: number;
+        subCatsCreatedIds: string[];
+        productsMoved: number;
+        productsMovedLog: {
+            productId: string;
+            name: string;
+            oldCategoryId: string;
+            oldCategoryName: string;
+            newDepartmentId: string;
+            newDepartmentCode: string;
+            newCategoryId: string;
+            newCategoryName: string;
+            newParentName: string;
+        }[];
+    }>;
     resetBillSeries(req: any, body: {
         taxInvoiceStart?: number;
         retailInvoiceStart?: number;

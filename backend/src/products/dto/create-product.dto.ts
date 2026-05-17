@@ -8,6 +8,7 @@ export class CreateProductDto {
   @IsOptional() @IsString() shortName?: string;
   @IsString() @IsNotEmpty() hsnCode: string;
   @IsString() @IsNotEmpty() taxId: string;
+  @IsOptional() @IsString() departmentId?: string;
   @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsString() brandId?: string;
   @IsOptional() @IsString() barcode?: string;

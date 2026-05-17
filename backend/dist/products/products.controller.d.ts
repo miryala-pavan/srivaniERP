@@ -34,8 +34,14 @@ export declare class ProductsController {
         code: string | null;
     }>;
     createCategory(req: any, dto: CreateCategoryDto): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
         _count: {
             products: number;
+            children: number;
         };
         parent: {
             id: string;
@@ -50,18 +56,27 @@ export declare class ProductsController {
         updatedAt: Date;
         name: string;
         isActive: boolean;
+        departmentId: string | null;
         code: string;
         label: string;
         parentId: string | null;
         sortOrder: number;
         isReturnableDefault: boolean;
     }>;
-    getCategories(req: any): Promise<{
+    getCategories(req: any, deptId?: string): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
         id: string;
         _count: {
             products: number;
+            children: number;
         };
         name: string;
+        isActive: boolean;
+        departmentId: string | null;
         code: string;
         label: string;
         parentId: string | null;
@@ -75,8 +90,14 @@ export declare class ProductsController {
         }[];
     }[]>;
     getCategoriesFlat(req: any): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
         id: string;
         name: string;
+        departmentId: string | null;
         code: string;
         label: string;
         parentId: string | null;
@@ -87,6 +108,38 @@ export declare class ProductsController {
             label: string;
         } | null;
     }[]>;
+    updateCategory(req: any, id: string, body: {
+        name?: string;
+        sortOrder?: number;
+        isActive?: boolean;
+        departmentId?: string;
+    }): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
+        _count: {
+            products: number;
+            children: number;
+        };
+    } & {
+        id: string;
+        businessId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        isActive: boolean;
+        departmentId: string | null;
+        code: string;
+        label: string;
+        parentId: string | null;
+        sortOrder: number;
+        isReturnableDefault: boolean;
+    }>;
+    deleteCategory(req: any, id: string): Promise<{
+        message: string;
+    }>;
     getCategoryProducts(req: any, id: string): Promise<({
         tax: {
             id: string;
@@ -115,6 +168,7 @@ export declare class ProductsController {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -168,6 +222,87 @@ export declare class ProductsController {
         disabledReason: string | null;
         autoInactiveReason: string | null;
     })[]>;
+    createSubCategory(req: any, body: {
+        name: string;
+        categoryId: string;
+        sortOrder?: number;
+    }): Promise<{
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
+        parent: {
+            id: string;
+            name: string;
+            code: string;
+            label: string;
+        } | null;
+    } & {
+        id: string;
+        businessId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        isActive: boolean;
+        departmentId: string | null;
+        code: string;
+        label: string;
+        parentId: string | null;
+        sortOrder: number;
+        isReturnableDefault: boolean;
+    }>;
+    getSubCategories(req: any, categoryId?: string, departmentId?: string): Promise<({
+        department: {
+            id: string;
+            name: string;
+            code: string;
+        } | null;
+        _count: {
+            products: number;
+        };
+        parent: {
+            id: string;
+            name: string;
+            code: string;
+            label: string;
+        } | null;
+    } & {
+        id: string;
+        businessId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        isActive: boolean;
+        departmentId: string | null;
+        code: string;
+        label: string;
+        parentId: string | null;
+        sortOrder: number;
+        isReturnableDefault: boolean;
+    })[]>;
+    updateSubCategory(req: any, id: string, body: {
+        name?: string;
+        sortOrder?: number;
+        isActive?: boolean;
+        categoryId?: string;
+    }): Promise<{
+        id: string;
+        businessId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        isActive: boolean;
+        departmentId: string | null;
+        code: string;
+        label: string;
+        parentId: string | null;
+        sortOrder: number;
+        isReturnableDefault: boolean;
+    }>;
+    deleteSubCategory(req: any, id: string): Promise<{
+        message: string;
+    }>;
     search(req: any, q: string): Promise<import("./products.service").ProductSearchResult[]>;
     searchByName(req: any, q: string): Promise<{
         id: string;
@@ -194,6 +329,7 @@ export declare class ProductsController {
             updatedAt: Date;
             name: string;
             isActive: boolean;
+            departmentId: string | null;
             code: string;
             label: string;
             parentId: string | null;
@@ -218,6 +354,7 @@ export declare class ProductsController {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -304,6 +441,7 @@ export declare class ProductsController {
             shortName: string | null;
             hsnCode: string;
             taxId: string;
+            departmentId: string | null;
             categoryId: string | null;
             brandId: string | null;
             barcode: string | null;
@@ -387,6 +525,7 @@ export declare class ProductsController {
             updatedAt: Date;
             name: string;
             isActive: boolean;
+            departmentId: string | null;
             code: string;
             label: string;
             parentId: string | null;
@@ -436,6 +575,7 @@ export declare class ProductsController {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -507,6 +647,7 @@ export declare class ProductsController {
             updatedAt: Date;
             name: string;
             isActive: boolean;
+            departmentId: string | null;
             code: string;
             label: string;
             parentId: string | null;
@@ -532,6 +673,7 @@ export declare class ProductsController {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -595,6 +737,7 @@ export declare class ProductsController {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;
@@ -664,6 +807,7 @@ export declare class ProductsController {
         shortName: string | null;
         hsnCode: string;
         taxId: string;
+        departmentId: string | null;
         categoryId: string | null;
         brandId: string | null;
         barcode: string | null;

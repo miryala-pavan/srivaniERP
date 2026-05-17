@@ -26,6 +26,16 @@ export class AdminController {
     return this.adminService.fixProductData(req.user.businessId);
   }
 
+  @Post('seed-departments')
+  seedDepartments(@Request() req: any) {
+    return this.adminService.seedDepartments(req.user.businessId);
+  }
+
+  @Post('migrate-orphans-phase-1')
+  migrateOrphansPhase1(@Request() req: any) {
+    return this.adminService.migrateOrphansPhase1(req.user.businessId);
+  }
+
   @Post('reset-bill-series')
   @HttpCode(200)
   resetBillSeries(@Request() req: any, @Body() body: {

@@ -26,6 +26,7 @@ const admin_module_1 = require("./admin/admin.module");
 const notifications_module_1 = require("./notifications/notifications.module");
 const day_closure_module_1 = require("./day-closure/day-closure.module");
 const users_module_1 = require("./users/users.module");
+const departments_module_1 = require("./departments/departments.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -38,6 +39,7 @@ exports.AppModule = AppModule = __decorate([
             auth_module_1.AuthModule,
             business_module_1.BusinessModule,
             products_module_1.ProductsModule,
+            departments_module_1.DepartmentsModule,
             suppliers_module_1.SuppliersModule,
             customers_module_1.CustomersModule,
             pos_module_1.PosModule,
