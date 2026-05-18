@@ -83,6 +83,24 @@ let ProductsController = class ProductsController {
     updateTax(req, id, taxId) {
         return this.productsService.updateTax(req.user.businessId, id, taxId, req.user.id);
     }
+    getPlus(req, id) {
+        return this.productsService.getPlusForProduct(req.user.businessId, id);
+    }
+    getActivePlus(req, id) {
+        return this.productsService.getActivePlusForProduct(req.user.businessId, id);
+    }
+    createPlu(req, id, body) {
+        return this.productsService.createPlu(req.user.businessId, id, body);
+    }
+    updatePlu(req, id, pluId, body) {
+        return this.productsService.updatePlu(req.user.businessId, id, pluId, body);
+    }
+    setDefaultPlu(req, id, pluId) {
+        return this.productsService.setDefaultPlu(req.user.businessId, id, pluId);
+    }
+    deactivatePlu(req, id, pluId, body) {
+        return this.productsService.deactivatePlu(req.user.businessId, id, pluId, body?.reason);
+    }
 };
 exports.ProductsController = ProductsController;
 __decorate([
@@ -263,6 +281,60 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, String]),
     __metadata("design:returntype", void 0)
 ], ProductsController.prototype, "updateTax", null);
+__decorate([
+    (0, common_1.Get)(':id/plus'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "getPlus", null);
+__decorate([
+    (0, common_1.Get)(':id/plus/active'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "getActivePlus", null);
+__decorate([
+    (0, common_1.Post)(':id/plus'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "createPlu", null);
+__decorate([
+    (0, common_1.Patch)(':id/plus/:pluId'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Param)('pluId')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, Object]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "updatePlu", null);
+__decorate([
+    (0, common_1.Post)(':id/plus/:pluId/set-default'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Param)('pluId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "setDefaultPlu", null);
+__decorate([
+    (0, common_1.Post)(':id/plus/:pluId/deactivate'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Param)('pluId')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, Object]),
+    __metadata("design:returntype", void 0)
+], ProductsController.prototype, "deactivatePlu", null);
 exports.ProductsController = ProductsController = __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Controller)('products'),

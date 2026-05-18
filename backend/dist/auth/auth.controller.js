@@ -47,6 +47,9 @@ let AuthController = class AuthController {
             throw new common_1.UnauthorizedException('Invalid PIN');
         return { success: true };
     }
+    async refresh(req) {
+        return this.authService.refreshToken(req.user.userId);
+    }
     async getMe(req) {
         return this.authService.getMe(req.user.userId);
     }
@@ -75,6 +78,14 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "verifyPin", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Post)('refresh'),
+    __param(0, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "refresh", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Get)('me'),

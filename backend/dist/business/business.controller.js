@@ -16,7 +16,10 @@ exports.BusinessController = void 0;
 const common_1 = require("@nestjs/common");
 const business_service_1 = require("./business.service");
 const setup_dto_1 = require("./dto/setup.dto");
+const update_business_dto_1 = require("./dto/update-business.dto");
 const jwt_auth_guard_1 = require("../auth/guards/jwt-auth.guard");
+const roles_guard_1 = require("../auth/guards/roles.guard");
+const roles_decorator_1 = require("../auth/decorators/roles.decorator");
 let BusinessController = class BusinessController {
     businessService;
     constructor(businessService) {
@@ -30,6 +33,10 @@ let BusinessController = class BusinessController {
     }
     getInfo(req) {
         return this.businessService.getInfo(req.user.businessId);
+    }
+    update(req, dto) {
+        const u = req.user;
+        return this.businessService.updateBusiness(u.businessId, dto, u.id ?? u.userId, u.fullName ?? u.username ?? 'Admin');
     }
 };
 exports.BusinessController = BusinessController;
@@ -54,6 +61,16 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], BusinessController.prototype, "getInfo", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, roles_decorator_1.Roles)('SUPER_ADMIN'),
+    (0, common_1.Put)(),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, update_business_dto_1.UpdateBusinessDto]),
+    __metadata("design:returntype", void 0)
+], BusinessController.prototype, "update", null);
 exports.BusinessController = BusinessController = __decorate([
     (0, common_1.Controller)('business'),
     __metadata("design:paramtypes", [business_service_1.BusinessService])

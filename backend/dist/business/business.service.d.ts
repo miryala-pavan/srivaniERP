@@ -1,5 +1,6 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { SetupDto } from './dto/setup.dto';
+import { UpdateBusinessDto } from './dto/update-business.dto';
 export declare class BusinessService {
     private prisma;
     constructor(prisma: PrismaService);
@@ -19,6 +20,25 @@ export declare class BusinessService {
             stateName: string;
             address: string | null;
             fssaiLicense: string | null;
+            fssaiExpiry: Date | null;
+            pan: string | null;
+            tan: string | null;
+            professionalTaxNo: string | null;
+            drugLicense: string | null;
+            drugLicenseExpiry: Date | null;
+            tradeLicense: string | null;
+            tradeLicenseExpiry: Date | null;
+            shopEstablishmentLicense: string | null;
+            shopEstablishmentExpiry: Date | null;
+            fireSafetyNoc: string | null;
+            fireSafetyNocExpiry: Date | null;
+            weightsAndMeasuresLicense: string | null;
+            weightsAndMeasuresExpiry: Date | null;
+            liquorLicense: string | null;
+            liquorLicenseExpiry: Date | null;
+            udyamRegistration: string | null;
+            cin: string | null;
+            iecCode: string | null;
             isActive: boolean;
         };
         branch: {
@@ -41,6 +61,39 @@ export declare class BusinessService {
             endDate: Date;
         };
         message: string;
+    }>;
+    updateBusiness(businessId: string, dto: UpdateBusinessDto, userId: string, userName: string): Promise<{
+        gstin: string | null;
+        email: string | null;
+        phone: string | null;
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        stateCode: string;
+        stateName: string;
+        address: string | null;
+        fssaiLicense: string | null;
+        fssaiExpiry: Date | null;
+        pan: string | null;
+        tan: string | null;
+        professionalTaxNo: string | null;
+        drugLicense: string | null;
+        drugLicenseExpiry: Date | null;
+        tradeLicense: string | null;
+        tradeLicenseExpiry: Date | null;
+        shopEstablishmentLicense: string | null;
+        shopEstablishmentExpiry: Date | null;
+        fireSafetyNoc: string | null;
+        fireSafetyNocExpiry: Date | null;
+        weightsAndMeasuresLicense: string | null;
+        weightsAndMeasuresExpiry: Date | null;
+        liquorLicense: string | null;
+        liquorLicenseExpiry: Date | null;
+        udyamRegistration: string | null;
+        cin: string | null;
+        iecCode: string | null;
+        isActive: boolean;
     }>;
     getInfo(businessId: string): Promise<({
         branches: {
@@ -74,6 +127,25 @@ export declare class BusinessService {
         stateName: string;
         address: string | null;
         fssaiLicense: string | null;
+        fssaiExpiry: Date | null;
+        pan: string | null;
+        tan: string | null;
+        professionalTaxNo: string | null;
+        drugLicense: string | null;
+        drugLicenseExpiry: Date | null;
+        tradeLicense: string | null;
+        tradeLicenseExpiry: Date | null;
+        shopEstablishmentLicense: string | null;
+        shopEstablishmentExpiry: Date | null;
+        fireSafetyNoc: string | null;
+        fireSafetyNocExpiry: Date | null;
+        weightsAndMeasuresLicense: string | null;
+        weightsAndMeasuresExpiry: Date | null;
+        liquorLicense: string | null;
+        liquorLicenseExpiry: Date | null;
+        udyamRegistration: string | null;
+        cin: string | null;
+        iecCode: string | null;
         isActive: boolean;
     }) | null>;
     private currentFinancialYear;

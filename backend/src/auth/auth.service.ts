@@ -130,6 +130,41 @@ export class AuthService implements OnModuleInit {
     return argon2.verify(user.passwordHash, pin);
   }
 
+  async refreshToken(userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, status: 'ACTIVE', deletedAt: null },
+      include: {
+        business: { select: { id: true, name: true, gstin: true, stateName: true } },
+      },
+    });
+    if (!user) throw new UnauthorizedException('User not found or inactive');
+
+    const payload = {
+      sub:        user.id,
+      username:   user.username,
+      role:       user.role,
+      businessId: user.businessId,
+      counterId:  user.counterId ?? null,
+    };
+
+    const newToken = this.jwtService.sign(payload, {
+      expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any,
+    });
+
+    return {
+      access_token: newToken,
+      user: {
+        id:         user.id,
+        username:   user.username,
+        fullName:   user.fullName,
+        role:       user.role,
+        businessId: user.businessId,
+        counterId:  user.counterId ?? null,
+        business:   user.business,
+      },
+    };
+  }
+
   async getMe(userId: string) {
     return this.prisma.user.findUnique({
       where: { id: userId },

@@ -28,6 +28,7 @@ export declare class SuppliersService {
     }>;
     findAll(businessId: string, query: SupplierQueryDto): Promise<{
         data: {
+            balanceDue: number;
             gstin: string | null;
             email: string | null;
             phone: string | null;
@@ -40,7 +41,6 @@ export declare class SuppliersService {
             paymentTermsDays: number;
             creditLimit: import("@prisma/client/runtime/library").Decimal;
             isGstRegistered: boolean;
-            outstandingBalance: import("@prisma/client/runtime/library").Decimal;
         }[];
         meta: {
             total: number;
@@ -49,6 +49,7 @@ export declare class SuppliersService {
             totalPages: number;
         };
     }>;
+    getSupplierBalances(businessId: string, supplierIds: string[]): Promise<Record<string, number>>;
     findOne(businessId: string, id: string): Promise<{
         stats: {
             totalOrders: number;
@@ -60,11 +61,11 @@ export declare class SuppliersService {
             id: string;
             status: import(".prisma/client").$Enums.PurchaseStatus;
             createdAt: Date;
-            grandTotal: import("@prisma/client/runtime/library").Decimal;
-            paidAmount: import("@prisma/client/runtime/library").Decimal;
             grnNumber: string | null;
             invoiceNumber: string;
             invoiceDate: Date;
+            grandTotal: import("@prisma/client/runtime/library").Decimal;
+            paidAmount: import("@prisma/client/runtime/library").Decimal;
         }[];
         gstin: string | null;
         email: string | null;
@@ -142,6 +143,7 @@ export declare class SuppliersService {
         totalPaid: number;
         totalCreditNotes: number;
         balance: number;
+        balanceDue: number;
     }>;
     getSupplierLedger(businessId: string, supplierId: string): Promise<{
         supplier: {
@@ -179,9 +181,9 @@ export declare class SuppliersService {
         purchaseId: string | null;
         notes: string | null;
         paymentMode: string;
-        amount: import("@prisma/client/runtime/library").Decimal;
         invoiceReference: string | null;
         paymentDate: Date;
+        amount: import("@prisma/client/runtime/library").Decimal;
         referenceNumber: string | null;
         screenshotUrl: string | null;
     }>;
@@ -193,9 +195,9 @@ export declare class SuppliersService {
         data: ({
             purchase: {
                 id: string;
-                grandTotal: import("@prisma/client/runtime/library").Decimal;
                 grnNumber: string | null;
                 invoiceNumber: string;
+                grandTotal: import("@prisma/client/runtime/library").Decimal;
             } | null;
         } & {
             id: string;
@@ -208,9 +210,9 @@ export declare class SuppliersService {
             purchaseId: string | null;
             notes: string | null;
             paymentMode: string;
-            amount: import("@prisma/client/runtime/library").Decimal;
             invoiceReference: string | null;
             paymentDate: Date;
+            amount: import("@prisma/client/runtime/library").Decimal;
             referenceNumber: string | null;
             screenshotUrl: string | null;
         })[];
@@ -248,16 +250,16 @@ export declare class SuppliersService {
             notes: string | null;
             taxableAmount: import("@prisma/client/runtime/library").Decimal;
             originalGrnId: string | null;
-            totalAmount: import("@prisma/client/runtime/library").Decimal;
-            cgstAmount: import("@prisma/client/runtime/library").Decimal;
-            sgstAmount: import("@prisma/client/runtime/library").Decimal;
-            igstAmount: import("@prisma/client/runtime/library").Decimal;
-            cessAmount: import("@prisma/client/runtime/library").Decimal;
             scnNumber: string;
             originalInvoiceNo: string | null;
             supplierCnNumber: string | null;
             cnDate: Date;
             reason: string;
+            cgstAmount: import("@prisma/client/runtime/library").Decimal;
+            sgstAmount: import("@prisma/client/runtime/library").Decimal;
+            igstAmount: import("@prisma/client/runtime/library").Decimal;
+            cessAmount: import("@prisma/client/runtime/library").Decimal;
+            totalAmount: import("@prisma/client/runtime/library").Decimal;
             itcReversal: boolean;
         }[];
         meta: {

@@ -18,9 +18,39 @@ model Business {
   phone        String?
   email        String?
   fssaiLicense String?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  fssaiExpiry  DateTime?
+
+  // Tax IDs
+  pan               String?
+  tan               String?
+  professionalTaxNo String?
+
+  // Food & Health
+  drugLicense       String?
+  drugLicenseExpiry DateTime?
+
+  // Trade & Premises
+  tradeLicense             String?
+  tradeLicenseExpiry       DateTime?
+  shopEstablishmentLicense String?
+  shopEstablishmentExpiry  DateTime?
+  fireSafetyNoc            String?
+  fireSafetyNocExpiry      DateTime?
+
+  // Operational
+  weightsAndMeasuresLicense String?
+  weightsAndMeasuresExpiry  DateTime?
+  liquorLicense             String?
+  liquorLicenseExpiry       DateTime?
+
+  // Other Registrations
+  udyamRegistration String?
+  cin               String?
+  iecCode           String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   branches            Branch[]
   users               User[]
@@ -278,6 +308,7 @@ model Product {
   purchaseUnit         String   @default("PCS")
   stockUnit            String   @default("PCS")
   cessRate             Decimal  @db.Decimal(5, 2) @default(0)
+  totalStock           Decimal  @db.Decimal(15, 3) @default(0)
   isActive             Boolean  @default(true)
   isManuallyDisabled  Boolean   @default(false)
   disabledById        String?
@@ -314,16 +345,19 @@ model ProductBarcode {
   id           String   @id @default(cuid())
   productId    String
   businessId   String
+  pluId        String?
   barcodeType  String   @default("EAN13") // EAN13/EAN8/CODE128/INTERNAL/SUPPLIER
   barcodeValue String
   isPrimary    Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  product Product @relation(fields: [productId], references: [id])
+  product Product     @relation(fields: [productId], references: [id])
+  plu     ProductPlu? @relation(fields: [pluId], references: [id])
 
   @@unique([businessId, barcodeValue])
   @@index([productId])
+  @@index([pluId])
   @@map("product_barcode")
 }
 
@@ -1028,20 +1062,38 @@ model ProductPlu {
   id                String    @id @default(cuid())
   businessId        String
   productId         String
-  pluCode           String    @unique
+  pluCode           String
   displayName       String?
+  // Cost & price fields
   costPrice         Decimal   @db.Decimal(15, 2)
+  basicCost         Decimal?  @db.Decimal(15, 2)
   mrp               Decimal   @db.Decimal(15, 2)
   sellingPrice      Decimal   @db.Decimal(15, 2)
-  wsPrice           Decimal?  @db.Decimal(15, 2)
+  wholesalePrice    Decimal?  @db.Decimal(15, 2)
+  minSellingPrice   Decimal   @db.Decimal(15, 2) @default(0)
+  // Tax fields
+  gstRate           Decimal?  @db.Decimal(5, 2)
+  cessRate          Decimal   @db.Decimal(5, 2)  @default(0)
+  taxInclusive      Boolean   @default(false)
+  // Margin fields
+  marginPercent     Decimal?  @db.Decimal(8, 4)
+  marginRs          Decimal?  @db.Decimal(15, 2)
+  // Barcode
+  eanCode           String?
+  hsnCode           String?
+  // GRN linkage
   grnId             String?
+  supplierId        String?
   batchNumber       String?
   manufacturingDate DateTime?
   expiryDate        DateTime?
   receivedDate      DateTime  @default(now())
+  effectiveFrom     DateTime  @default(now())
+  // Stock fields
   receivedQty       Decimal   @db.Decimal(10, 3) @default(0)
   soldQty           Decimal   @db.Decimal(10, 3) @default(0)
   stockOnHand       Decimal   @db.Decimal(10, 3) @default(0)
+  // Status flags
   isDefault         Boolean   @default(false)
   isActive          Boolean   @default(true)
   isArchived        Boolean   @default(false)
@@ -1052,9 +1104,11 @@ model ProductPlu {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  product  Product  @relation(fields: [productId], references: [id])
-  business Business @relation(fields: [businessId], references: [id])
+  product  Product         @relation(fields: [productId], references: [id])
+  business Business        @relation(fields: [businessId], references: [id])
+  barcodes ProductBarcode[]
 
+  @@unique([businessId, pluCode])
   @@index([productId])
   @@index([businessId])
   @@index([pluCode])

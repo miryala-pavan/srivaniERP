@@ -216,6 +216,7 @@ export declare class ProductsController {
         stockValuation: string;
         binCode: string | null;
         pluAutoBarcode: boolean;
+        totalStock: import("@prisma/client/runtime/library").Decimal;
         isManuallyDisabled: boolean;
         disabledById: string | null;
         disabledAt: Date | null;
@@ -402,6 +403,7 @@ export declare class ProductsController {
         stockValuation: string;
         binCode: string | null;
         pluAutoBarcode: boolean;
+        totalStock: import("@prisma/client/runtime/library").Decimal;
         isManuallyDisabled: boolean;
         disabledById: string | null;
         disabledAt: Date | null;
@@ -411,6 +413,8 @@ export declare class ProductsController {
     findAll(req: any, query: ProductQueryDto): Promise<{
         data: {
             currentStock: number;
+            defaultPlu: any;
+            activePluCount: number;
             tax: {
                 id: string;
                 taxName: string;
@@ -489,6 +493,7 @@ export declare class ProductsController {
             stockValuation: string;
             binCode: string | null;
             pluAutoBarcode: boolean;
+            totalStock: import("@prisma/client/runtime/library").Decimal;
             isManuallyDisabled: boolean;
             disabledById: string | null;
             disabledAt: Date | null;
@@ -547,6 +552,7 @@ export declare class ProductsController {
             createdAt: Date;
             isActive: boolean;
             productId: string;
+            pluId: string | null;
             barcodeType: string;
             barcodeValue: string;
             isPrimary: boolean;
@@ -559,10 +565,10 @@ export declare class ProductsController {
             sellingPrice: import("@prisma/client/runtime/library").Decimal;
             costPrice: import("@prisma/client/runtime/library").Decimal;
             productId: string;
-            priceListType: string;
             minSellingPrice: import("@prisma/client/runtime/library").Decimal;
-            maxDiscountPct: import("@prisma/client/runtime/library").Decimal;
             effectiveFrom: Date;
+            priceListType: string;
+            maxDiscountPct: import("@prisma/client/runtime/library").Decimal;
             effectiveTo: Date | null;
         }[];
     } & {
@@ -623,6 +629,7 @@ export declare class ProductsController {
         stockValuation: string;
         binCode: string | null;
         pluAutoBarcode: boolean;
+        totalStock: import("@prisma/client/runtime/library").Decimal;
         isManuallyDisabled: boolean;
         disabledById: string | null;
         disabledAt: Date | null;
@@ -721,6 +728,7 @@ export declare class ProductsController {
         stockValuation: string;
         binCode: string | null;
         pluAutoBarcode: boolean;
+        totalStock: import("@prisma/client/runtime/library").Decimal;
         isManuallyDisabled: boolean;
         disabledById: string | null;
         disabledAt: Date | null;
@@ -785,6 +793,7 @@ export declare class ProductsController {
         stockValuation: string;
         binCode: string | null;
         pluAutoBarcode: boolean;
+        totalStock: import("@prisma/client/runtime/library").Decimal;
         isManuallyDisabled: boolean;
         disabledById: string | null;
         disabledAt: Date | null;
@@ -855,10 +864,210 @@ export declare class ProductsController {
         stockValuation: string;
         binCode: string | null;
         pluAutoBarcode: boolean;
+        totalStock: import("@prisma/client/runtime/library").Decimal;
         isManuallyDisabled: boolean;
         disabledById: string | null;
         disabledAt: Date | null;
         disabledReason: string | null;
         autoInactiveReason: string | null;
+    }>;
+    getPlus(req: any, id: string): Promise<({
+        barcodes: {
+            id: string;
+            barcodeType: string;
+            barcodeValue: string;
+            isPrimary: boolean;
+        }[];
+    } & {
+        id: string;
+        businessId: string;
+        createdById: string | null;
+        createdByName: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        isActive: boolean;
+        hsnCode: string | null;
+        mrp: import("@prisma/client/runtime/library").Decimal;
+        sellingPrice: import("@prisma/client/runtime/library").Decimal;
+        costPrice: import("@prisma/client/runtime/library").Decimal;
+        cessRate: import("@prisma/client/runtime/library").Decimal;
+        gstRate: import("@prisma/client/runtime/library").Decimal | null;
+        productId: string;
+        supplierId: string | null;
+        pluCode: string;
+        displayName: string | null;
+        basicCost: import("@prisma/client/runtime/library").Decimal | null;
+        wholesalePrice: import("@prisma/client/runtime/library").Decimal | null;
+        minSellingPrice: import("@prisma/client/runtime/library").Decimal;
+        taxInclusive: boolean;
+        marginPercent: import("@prisma/client/runtime/library").Decimal | null;
+        marginRs: import("@prisma/client/runtime/library").Decimal | null;
+        eanCode: string | null;
+        grnId: string | null;
+        batchNumber: string | null;
+        manufacturingDate: Date | null;
+        expiryDate: Date | null;
+        receivedDate: Date;
+        effectiveFrom: Date;
+        receivedQty: import("@prisma/client/runtime/library").Decimal;
+        soldQty: import("@prisma/client/runtime/library").Decimal;
+        stockOnHand: import("@prisma/client/runtime/library").Decimal;
+        isDefault: boolean;
+        isArchived: boolean;
+        archivedAt: Date | null;
+        archivedReason: string | null;
+    })[]>;
+    getActivePlus(req: any, id: string): Promise<({
+        barcodes: {
+            id: string;
+            barcodeType: string;
+            barcodeValue: string;
+            isPrimary: boolean;
+        }[];
+    } & {
+        id: string;
+        businessId: string;
+        createdById: string | null;
+        createdByName: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        isActive: boolean;
+        hsnCode: string | null;
+        mrp: import("@prisma/client/runtime/library").Decimal;
+        sellingPrice: import("@prisma/client/runtime/library").Decimal;
+        costPrice: import("@prisma/client/runtime/library").Decimal;
+        cessRate: import("@prisma/client/runtime/library").Decimal;
+        gstRate: import("@prisma/client/runtime/library").Decimal | null;
+        productId: string;
+        supplierId: string | null;
+        pluCode: string;
+        displayName: string | null;
+        basicCost: import("@prisma/client/runtime/library").Decimal | null;
+        wholesalePrice: import("@prisma/client/runtime/library").Decimal | null;
+        minSellingPrice: import("@prisma/client/runtime/library").Decimal;
+        taxInclusive: boolean;
+        marginPercent: import("@prisma/client/runtime/library").Decimal | null;
+        marginRs: import("@prisma/client/runtime/library").Decimal | null;
+        eanCode: string | null;
+        grnId: string | null;
+        batchNumber: string | null;
+        manufacturingDate: Date | null;
+        expiryDate: Date | null;
+        receivedDate: Date;
+        effectiveFrom: Date;
+        receivedQty: import("@prisma/client/runtime/library").Decimal;
+        soldQty: import("@prisma/client/runtime/library").Decimal;
+        stockOnHand: import("@prisma/client/runtime/library").Decimal;
+        isDefault: boolean;
+        isArchived: boolean;
+        archivedAt: Date | null;
+        archivedReason: string | null;
+    })[]>;
+    createPlu(req: any, id: string, body: {
+        eanCode?: string;
+        basicCost?: number;
+        costPrice?: number;
+        mrp: number;
+        sellingPrice: number;
+        wholesalePrice?: number;
+        minSellingPrice?: number;
+        gstRate?: number;
+        hsnCode?: string;
+        cessRate?: number;
+        taxInclusive?: boolean;
+        openingStock?: number;
+    }): Promise<{
+        id: string;
+        businessId: string;
+        createdById: string | null;
+        createdByName: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        isActive: boolean;
+        hsnCode: string | null;
+        mrp: import("@prisma/client/runtime/library").Decimal;
+        sellingPrice: import("@prisma/client/runtime/library").Decimal;
+        costPrice: import("@prisma/client/runtime/library").Decimal;
+        cessRate: import("@prisma/client/runtime/library").Decimal;
+        gstRate: import("@prisma/client/runtime/library").Decimal | null;
+        productId: string;
+        supplierId: string | null;
+        pluCode: string;
+        displayName: string | null;
+        basicCost: import("@prisma/client/runtime/library").Decimal | null;
+        wholesalePrice: import("@prisma/client/runtime/library").Decimal | null;
+        minSellingPrice: import("@prisma/client/runtime/library").Decimal;
+        taxInclusive: boolean;
+        marginPercent: import("@prisma/client/runtime/library").Decimal | null;
+        marginRs: import("@prisma/client/runtime/library").Decimal | null;
+        eanCode: string | null;
+        grnId: string | null;
+        batchNumber: string | null;
+        manufacturingDate: Date | null;
+        expiryDate: Date | null;
+        receivedDate: Date;
+        effectiveFrom: Date;
+        receivedQty: import("@prisma/client/runtime/library").Decimal;
+        soldQty: import("@prisma/client/runtime/library").Decimal;
+        stockOnHand: import("@prisma/client/runtime/library").Decimal;
+        isDefault: boolean;
+        isArchived: boolean;
+        archivedAt: Date | null;
+        archivedReason: string | null;
+    }>;
+    updatePlu(req: any, id: string, pluId: string, body: {
+        eanCode?: string;
+        sellingPrice?: number;
+        wholesalePrice?: number;
+        minSellingPrice?: number;
+        gstRate?: number;
+        cessRate?: number;
+        taxInclusive?: boolean;
+    }): Promise<{
+        id: string;
+        businessId: string;
+        createdById: string | null;
+        createdByName: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        isActive: boolean;
+        hsnCode: string | null;
+        mrp: import("@prisma/client/runtime/library").Decimal;
+        sellingPrice: import("@prisma/client/runtime/library").Decimal;
+        costPrice: import("@prisma/client/runtime/library").Decimal;
+        cessRate: import("@prisma/client/runtime/library").Decimal;
+        gstRate: import("@prisma/client/runtime/library").Decimal | null;
+        productId: string;
+        supplierId: string | null;
+        pluCode: string;
+        displayName: string | null;
+        basicCost: import("@prisma/client/runtime/library").Decimal | null;
+        wholesalePrice: import("@prisma/client/runtime/library").Decimal | null;
+        minSellingPrice: import("@prisma/client/runtime/library").Decimal;
+        taxInclusive: boolean;
+        marginPercent: import("@prisma/client/runtime/library").Decimal | null;
+        marginRs: import("@prisma/client/runtime/library").Decimal | null;
+        eanCode: string | null;
+        grnId: string | null;
+        batchNumber: string | null;
+        manufacturingDate: Date | null;
+        expiryDate: Date | null;
+        receivedDate: Date;
+        effectiveFrom: Date;
+        receivedQty: import("@prisma/client/runtime/library").Decimal;
+        soldQty: import("@prisma/client/runtime/library").Decimal;
+        stockOnHand: import("@prisma/client/runtime/library").Decimal;
+        isDefault: boolean;
+        isArchived: boolean;
+        archivedAt: Date | null;
+        archivedReason: string | null;
+    }>;
+    setDefaultPlu(req: any, id: string, pluId: string): Promise<{
+        message: string;
+    }>;
+    deactivatePlu(req: any, id: string, pluId: string, body: {
+        reason?: string;
+    }): Promise<{
+        message: string;
     }>;
 }

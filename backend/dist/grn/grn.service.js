@@ -470,33 +470,8 @@ let GrnService = class GrnService {
             referenceId: purchase.id,
             notes: `GRN ${purchase.grnNumber} approved`,
         }));
-        const priceUpdates = purchase.items.map((item) => {
-            const updateData = {
-                costPrice: Number(item.trueCostPrice) || Number(item.netCostPrice) || Number(item.unitPrice),
-            };
-            if (item.mrp !== null)
-                updateData.mrp = Number(item.mrp);
-            if (item.sellingPrice !== null)
-                updateData.sellingPrice = Number(item.sellingPrice);
-            return this.prisma.product.update({ where: { id: item.productId }, data: updateData });
-        });
-        const priceChangedUpdates = purchase.items
-            .filter((item) => item.sellingPrice !== null && item.product)
-            .map((item) => {
-            const oldPrice = Number(item.product.sellingPrice ?? 0);
-            const newPrice = Number(item.sellingPrice ?? 0);
-            const changed = newPrice > 0 && newPrice !== oldPrice;
-            if (!changed)
-                return null;
-            const changePct = oldPrice > 0 ? this.r2((newPrice - oldPrice) / oldPrice * 100) : null;
-            return this.prisma.purchaseItem.update({
-                where: { id: item.id },
-                data: { priceChanged: true, priceChangePct: changePct },
-            });
-        })
-            .filter((u) => u !== null);
-        await this.prisma.$transaction([
-            this.prisma.purchase.update({
+        await this.prisma.$transaction(async (tx) => {
+            await tx.purchase.update({
                 where: { id },
                 data: {
                     status: 'APPROVED',
@@ -504,44 +479,117 @@ let GrnService = class GrnService {
                     approvedByName: approverName ?? null,
                     ...(notes ? { notes } : {}),
                 },
-            }),
-            ...stockEntries.map((e) => this.prisma.stockLedger.create({ data: e })),
-            ...priceUpdates,
-            ...priceChangedUpdates,
-        ]);
-        this.handlePluUpsert(businessId, purchase.items.map((i) => ({ ...i, purchaseId: id }))).catch(() => { });
+            });
+            for (const e of stockEntries) {
+                await tx.stockLedger.create({ data: e });
+            }
+            for (const item of purchase.items) {
+                if (item.sellingPrice === null || !item.product)
+                    continue;
+                const oldPrice = Number(item.product.sellingPrice ?? 0);
+                const newPrice = Number(item.sellingPrice ?? 0);
+                if (newPrice > 0 && newPrice !== oldPrice) {
+                    const changePct = oldPrice > 0 ? this.r2((newPrice - oldPrice) / oldPrice * 100) : null;
+                    await tx.purchaseItem.update({
+                        where: { id: item.id },
+                        data: { priceChanged: true, priceChangePct: changePct },
+                    });
+                }
+            }
+            await this.syncPluOnApproval(tx, businessId, id, purchase.items, approverName ?? 'System');
+        }, { timeout: 60000 });
         this.handleRestockNotifications(businessId, purchase.branchId, purchase.items, purchase.grnNumber ?? '').catch(() => { });
         return this.findOne(businessId, id);
     }
-    async handlePluUpsert(businessId, items) {
+    async syncPluOnApproval(tx, businessId, grnId, items, approverName) {
         for (const item of items) {
-            if (!item.pluCode)
+            const acceptedQty = Number(item.acceptedQty ?? 0) > 0
+                ? Number(item.acceptedQty)
+                : Number(item.totalQty ?? item.quantity ?? 0);
+            if (acceptedQty <= 0)
                 continue;
-            try {
-                await this.prisma.productPlu.upsert({
-                    where: { pluCode: item.pluCode },
-                    create: {
-                        businessId,
-                        productId: item.productId,
-                        pluCode: item.pluCode,
-                        costPrice: Number(item.netCostPrice ?? item.unitPrice),
-                        mrp: Number(item.mrp ?? 0),
-                        sellingPrice: Number(item.sellingPrice ?? 0),
-                        grnId: item.purchaseId ?? null,
-                        batchNumber: item.batchNumber ?? null,
-                        manufacturingDate: item.manufacturingDate ?? null,
-                        expiryDate: item.expiryDate ?? null,
-                        receivedQty: Number(item.totalQty ?? item.quantity ?? 0),
-                        stockOnHand: Number(item.acceptedQty ?? item.totalQty ?? item.quantity ?? 0),
-                    },
-                    update: {
-                        costPrice: Number(item.netCostPrice ?? item.unitPrice),
-                        mrp: Number(item.mrp ?? 0),
-                        sellingPrice: Number(item.sellingPrice ?? 0),
+            const itemMrp = Number(item.mrp ?? 0);
+            const itemCost = Number(item.netCostPrice ?? item.trueCostPrice ?? item.unitPrice ?? 0);
+            const itemBasicCost = Number(item.basicCostPrice ?? itemCost);
+            const itemSp = Number(item.sellingPrice ?? 0);
+            const itemCessRate = Number(item.cessRate ?? 0);
+            const itemGstRate = Number(item.gstRatePercent ?? 0);
+            const product = await tx.product.findUnique({
+                where: { id: item.productId },
+                select: { id: true, productCode: true, hsnCode: true, gstRatePercent: true, cessRate: true },
+            });
+            if (!product)
+                continue;
+            const marginRs = itemMrp > 0 ? this.r2(itemMrp - itemCost) : 0;
+            const marginPct = itemMrp > 0
+                ? Math.round(((itemMrp - itemCost) / itemMrp * 100) * 10000) / 10000
+                : 0;
+            const activePlu = await tx.productPlu.findFirst({
+                where: { productId: item.productId, isActive: true, isArchived: false, isDefault: true },
+                orderBy: { createdAt: 'desc' },
+            });
+            const priceIsSame = activePlu
+                && Math.abs(Number(activePlu.mrp) - itemMrp) < 0.01
+                && Math.abs(Number(activePlu.costPrice) - itemCost) < 0.01;
+            if (activePlu && priceIsSame) {
+                await tx.productPlu.update({
+                    where: { id: activePlu.id },
+                    data: {
+                        stockOnHand: { increment: acceptedQty },
+                        receivedQty: { increment: acceptedQty },
                     },
                 });
             }
-            catch { }
+            else {
+                const pluCount = await tx.productPlu.count({ where: { productId: item.productId } });
+                const seq = String(pluCount + 1).padStart(3, '0');
+                const newPluCode = `${product.productCode}${seq}`;
+                if (activePlu) {
+                    await tx.productPlu.update({
+                        where: { id: activePlu.id },
+                        data: { isDefault: false },
+                    });
+                }
+                await tx.productPlu.create({
+                    data: {
+                        businessId,
+                        productId: item.productId,
+                        pluCode: newPluCode,
+                        basicCost: itemBasicCost,
+                        costPrice: itemCost,
+                        mrp: itemMrp,
+                        sellingPrice: itemSp,
+                        wholesalePrice: null,
+                        minSellingPrice: 0,
+                        gstRate: itemGstRate || Number(product.gstRatePercent ?? 0),
+                        hsnCode: product.hsnCode,
+                        cessRate: itemCessRate,
+                        taxInclusive: false,
+                        marginPercent: marginPct,
+                        marginRs,
+                        stockOnHand: acceptedQty,
+                        receivedQty: acceptedQty,
+                        soldQty: 0,
+                        isDefault: true,
+                        isActive: true,
+                        isArchived: false,
+                        effectiveFrom: new Date(),
+                        grnId,
+                        batchNumber: item.batchNumber ?? null,
+                        manufacturingDate: item.manufacturingDate ?? null,
+                        expiryDate: item.expiryDate ?? null,
+                        createdByName: approverName,
+                    },
+                });
+            }
+            const agg = await tx.productPlu.aggregate({
+                where: { productId: item.productId, isActive: true, isArchived: false },
+                _sum: { stockOnHand: true },
+            });
+            await tx.product.update({
+                where: { id: item.productId },
+                data: { totalStock: Number(agg._sum.stockOnHand ?? 0) },
+            });
         }
     }
     async handleRestockNotifications(businessId, branchId, items, grnNumber) {
@@ -792,10 +840,6 @@ let GrnService = class GrnService {
                 createdById: userId,
                 createdByName: userName,
             },
-        });
-        await this.prisma.supplier.update({
-            where: { id: dto.supplierId },
-            data: { outstandingBalance: { decrement: total } },
         });
         return { ...cn, isInterstate };
     }

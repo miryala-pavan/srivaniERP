@@ -55,17 +55,16 @@ export declare class GrnService {
             productId: string;
             purchaseId: string;
             pluCode: string | null;
-            wsPrice: import("@prisma/client/runtime/library").Decimal | null;
             batchNumber: string | null;
             manufacturingDate: Date | null;
             expiryDate: Date | null;
             quantity: import("@prisma/client/runtime/library").Decimal;
             taxableAmount: import("@prisma/client/runtime/library").Decimal;
-            totalAmount: import("@prisma/client/runtime/library").Decimal;
             cgstAmount: import("@prisma/client/runtime/library").Decimal;
             sgstAmount: import("@prisma/client/runtime/library").Decimal;
             igstAmount: import("@prisma/client/runtime/library").Decimal;
             cessAmount: import("@prisma/client/runtime/library").Decimal;
+            totalAmount: import("@prisma/client/runtime/library").Decimal;
             unitPrice: import("@prisma/client/runtime/library").Decimal;
             productName: string;
             supplierProductName: string | null;
@@ -95,6 +94,7 @@ export declare class GrnService {
             freeQuantity: import("@prisma/client/runtime/library").Decimal;
             schemeDiscountPercent: import("@prisma/client/runtime/library").Decimal;
             retailerDiscountPercent: import("@prisma/client/runtime/library").Decimal;
+            wsPrice: import("@prisma/client/runtime/library").Decimal | null;
             acceptedQty: import("@prisma/client/runtime/library").Decimal;
             lastCostPrice: import("@prisma/client/runtime/library").Decimal | null;
             priceChanged: boolean;
@@ -110,8 +110,6 @@ export declare class GrnService {
         receivedDate: Date | null;
         branchId: string;
         notes: string | null;
-        grandTotal: import("@prisma/client/runtime/library").Decimal;
-        paidAmount: import("@prisma/client/runtime/library").Decimal;
         supplierName: string;
         supplierGstin: string | null;
         grnNumber: string | null;
@@ -122,6 +120,8 @@ export declare class GrnService {
         cgstTotal: import("@prisma/client/runtime/library").Decimal;
         sgstTotal: import("@prisma/client/runtime/library").Decimal;
         igstTotal: import("@prisma/client/runtime/library").Decimal;
+        grandTotal: import("@prisma/client/runtime/library").Decimal;
+        paidAmount: import("@prisma/client/runtime/library").Decimal;
         approvedById: string | null;
         approvedAt: Date | null;
         invoiceImageUrl: string | null;
@@ -209,17 +209,16 @@ export declare class GrnService {
             productId: string;
             purchaseId: string;
             pluCode: string | null;
-            wsPrice: import("@prisma/client/runtime/library").Decimal | null;
             batchNumber: string | null;
             manufacturingDate: Date | null;
             expiryDate: Date | null;
             quantity: import("@prisma/client/runtime/library").Decimal;
             taxableAmount: import("@prisma/client/runtime/library").Decimal;
-            totalAmount: import("@prisma/client/runtime/library").Decimal;
             cgstAmount: import("@prisma/client/runtime/library").Decimal;
             sgstAmount: import("@prisma/client/runtime/library").Decimal;
             igstAmount: import("@prisma/client/runtime/library").Decimal;
             cessAmount: import("@prisma/client/runtime/library").Decimal;
+            totalAmount: import("@prisma/client/runtime/library").Decimal;
             unitPrice: import("@prisma/client/runtime/library").Decimal;
             productName: string;
             supplierProductName: string | null;
@@ -249,6 +248,7 @@ export declare class GrnService {
             freeQuantity: import("@prisma/client/runtime/library").Decimal;
             schemeDiscountPercent: import("@prisma/client/runtime/library").Decimal;
             retailerDiscountPercent: import("@prisma/client/runtime/library").Decimal;
+            wsPrice: import("@prisma/client/runtime/library").Decimal | null;
             acceptedQty: import("@prisma/client/runtime/library").Decimal;
             lastCostPrice: import("@prisma/client/runtime/library").Decimal | null;
             priceChanged: boolean;
@@ -264,8 +264,6 @@ export declare class GrnService {
         receivedDate: Date | null;
         branchId: string;
         notes: string | null;
-        grandTotal: import("@prisma/client/runtime/library").Decimal;
-        paidAmount: import("@prisma/client/runtime/library").Decimal;
         supplierName: string;
         supplierGstin: string | null;
         grnNumber: string | null;
@@ -276,6 +274,8 @@ export declare class GrnService {
         cgstTotal: import("@prisma/client/runtime/library").Decimal;
         sgstTotal: import("@prisma/client/runtime/library").Decimal;
         igstTotal: import("@prisma/client/runtime/library").Decimal;
+        grandTotal: import("@prisma/client/runtime/library").Decimal;
+        paidAmount: import("@prisma/client/runtime/library").Decimal;
         approvedById: string | null;
         approvedAt: Date | null;
         invoiceImageUrl: string | null;
@@ -324,8 +324,6 @@ export declare class GrnService {
         receivedDate: Date | null;
         branchId: string;
         notes: string | null;
-        grandTotal: import("@prisma/client/runtime/library").Decimal;
-        paidAmount: import("@prisma/client/runtime/library").Decimal;
         supplierName: string;
         supplierGstin: string | null;
         grnNumber: string | null;
@@ -336,6 +334,8 @@ export declare class GrnService {
         cgstTotal: import("@prisma/client/runtime/library").Decimal;
         sgstTotal: import("@prisma/client/runtime/library").Decimal;
         igstTotal: import("@prisma/client/runtime/library").Decimal;
+        grandTotal: import("@prisma/client/runtime/library").Decimal;
+        paidAmount: import("@prisma/client/runtime/library").Decimal;
         approvedById: string | null;
         approvedAt: Date | null;
         invoiceImageUrl: string | null;
@@ -423,17 +423,16 @@ export declare class GrnService {
             productId: string;
             purchaseId: string;
             pluCode: string | null;
-            wsPrice: import("@prisma/client/runtime/library").Decimal | null;
             batchNumber: string | null;
             manufacturingDate: Date | null;
             expiryDate: Date | null;
             quantity: import("@prisma/client/runtime/library").Decimal;
             taxableAmount: import("@prisma/client/runtime/library").Decimal;
-            totalAmount: import("@prisma/client/runtime/library").Decimal;
             cgstAmount: import("@prisma/client/runtime/library").Decimal;
             sgstAmount: import("@prisma/client/runtime/library").Decimal;
             igstAmount: import("@prisma/client/runtime/library").Decimal;
             cessAmount: import("@prisma/client/runtime/library").Decimal;
+            totalAmount: import("@prisma/client/runtime/library").Decimal;
             unitPrice: import("@prisma/client/runtime/library").Decimal;
             productName: string;
             supplierProductName: string | null;
@@ -463,6 +462,7 @@ export declare class GrnService {
             freeQuantity: import("@prisma/client/runtime/library").Decimal;
             schemeDiscountPercent: import("@prisma/client/runtime/library").Decimal;
             retailerDiscountPercent: import("@prisma/client/runtime/library").Decimal;
+            wsPrice: import("@prisma/client/runtime/library").Decimal | null;
             acceptedQty: import("@prisma/client/runtime/library").Decimal;
             lastCostPrice: import("@prisma/client/runtime/library").Decimal | null;
             priceChanged: boolean;
@@ -478,8 +478,6 @@ export declare class GrnService {
         receivedDate: Date | null;
         branchId: string;
         notes: string | null;
-        grandTotal: import("@prisma/client/runtime/library").Decimal;
-        paidAmount: import("@prisma/client/runtime/library").Decimal;
         supplierName: string;
         supplierGstin: string | null;
         grnNumber: string | null;
@@ -490,6 +488,8 @@ export declare class GrnService {
         cgstTotal: import("@prisma/client/runtime/library").Decimal;
         sgstTotal: import("@prisma/client/runtime/library").Decimal;
         igstTotal: import("@prisma/client/runtime/library").Decimal;
+        grandTotal: import("@prisma/client/runtime/library").Decimal;
+        paidAmount: import("@prisma/client/runtime/library").Decimal;
         approvedById: string | null;
         approvedAt: Date | null;
         invoiceImageUrl: string | null;
@@ -528,7 +528,7 @@ export declare class GrnService {
         approvedByName: string | null;
         rejectedByName: string | null;
     }>;
-    private handlePluUpsert;
+    private syncPluOnApproval;
     private handleRestockNotifications;
     reject(businessId: string, id: string, rejectorName?: string, reason?: string): Promise<{
         id: string;
@@ -540,8 +540,6 @@ export declare class GrnService {
         receivedDate: Date | null;
         branchId: string;
         notes: string | null;
-        grandTotal: import("@prisma/client/runtime/library").Decimal;
-        paidAmount: import("@prisma/client/runtime/library").Decimal;
         supplierName: string;
         supplierGstin: string | null;
         grnNumber: string | null;
@@ -552,6 +550,8 @@ export declare class GrnService {
         cgstTotal: import("@prisma/client/runtime/library").Decimal;
         sgstTotal: import("@prisma/client/runtime/library").Decimal;
         igstTotal: import("@prisma/client/runtime/library").Decimal;
+        grandTotal: import("@prisma/client/runtime/library").Decimal;
+        paidAmount: import("@prisma/client/runtime/library").Decimal;
         approvedById: string | null;
         approvedAt: Date | null;
         invoiceImageUrl: string | null;
@@ -600,8 +600,6 @@ export declare class GrnService {
         receivedDate: Date | null;
         branchId: string;
         notes: string | null;
-        grandTotal: import("@prisma/client/runtime/library").Decimal;
-        paidAmount: import("@prisma/client/runtime/library").Decimal;
         supplierName: string;
         supplierGstin: string | null;
         grnNumber: string | null;
@@ -612,6 +610,8 @@ export declare class GrnService {
         cgstTotal: import("@prisma/client/runtime/library").Decimal;
         sgstTotal: import("@prisma/client/runtime/library").Decimal;
         igstTotal: import("@prisma/client/runtime/library").Decimal;
+        grandTotal: import("@prisma/client/runtime/library").Decimal;
+        paidAmount: import("@prisma/client/runtime/library").Decimal;
         approvedById: string | null;
         approvedAt: Date | null;
         invoiceImageUrl: string | null;
@@ -663,8 +663,6 @@ export declare class GrnService {
         receivedDate: Date | null;
         branchId: string;
         notes: string | null;
-        grandTotal: import("@prisma/client/runtime/library").Decimal;
-        paidAmount: import("@prisma/client/runtime/library").Decimal;
         supplierName: string;
         supplierGstin: string | null;
         grnNumber: string | null;
@@ -675,6 +673,8 @@ export declare class GrnService {
         cgstTotal: import("@prisma/client/runtime/library").Decimal;
         sgstTotal: import("@prisma/client/runtime/library").Decimal;
         igstTotal: import("@prisma/client/runtime/library").Decimal;
+        grandTotal: import("@prisma/client/runtime/library").Decimal;
+        paidAmount: import("@prisma/client/runtime/library").Decimal;
         approvedById: string | null;
         approvedAt: Date | null;
         invoiceImageUrl: string | null;
@@ -724,14 +724,14 @@ export declare class GrnService {
             supplierId: string;
             receivedDate: Date | null;
             notes: string | null;
-            grandTotal: import("@prisma/client/runtime/library").Decimal;
-            paidAmount: import("@prisma/client/runtime/library").Decimal;
             supplierName: string;
             grnNumber: string | null;
             invoiceNumber: string;
             invoiceDate: Date;
             taxableAmount: import("@prisma/client/runtime/library").Decimal;
             totalTaxAmount: import("@prisma/client/runtime/library").Decimal;
+            grandTotal: import("@prisma/client/runtime/library").Decimal;
+            paidAmount: import("@prisma/client/runtime/library").Decimal;
             invoiceControlTotal: import("@prisma/client/runtime/library").Decimal | null;
         }[];
         meta: {
@@ -790,17 +790,16 @@ export declare class GrnService {
             productId: string;
             purchaseId: string;
             pluCode: string | null;
-            wsPrice: import("@prisma/client/runtime/library").Decimal | null;
             batchNumber: string | null;
             manufacturingDate: Date | null;
             expiryDate: Date | null;
             quantity: import("@prisma/client/runtime/library").Decimal;
             taxableAmount: import("@prisma/client/runtime/library").Decimal;
-            totalAmount: import("@prisma/client/runtime/library").Decimal;
             cgstAmount: import("@prisma/client/runtime/library").Decimal;
             sgstAmount: import("@prisma/client/runtime/library").Decimal;
             igstAmount: import("@prisma/client/runtime/library").Decimal;
             cessAmount: import("@prisma/client/runtime/library").Decimal;
+            totalAmount: import("@prisma/client/runtime/library").Decimal;
             unitPrice: import("@prisma/client/runtime/library").Decimal;
             productName: string;
             supplierProductName: string | null;
@@ -830,6 +829,7 @@ export declare class GrnService {
             freeQuantity: import("@prisma/client/runtime/library").Decimal;
             schemeDiscountPercent: import("@prisma/client/runtime/library").Decimal;
             retailerDiscountPercent: import("@prisma/client/runtime/library").Decimal;
+            wsPrice: import("@prisma/client/runtime/library").Decimal | null;
             acceptedQty: import("@prisma/client/runtime/library").Decimal;
             lastCostPrice: import("@prisma/client/runtime/library").Decimal | null;
             priceChanged: boolean;
@@ -845,8 +845,6 @@ export declare class GrnService {
         receivedDate: Date | null;
         branchId: string;
         notes: string | null;
-        grandTotal: import("@prisma/client/runtime/library").Decimal;
-        paidAmount: import("@prisma/client/runtime/library").Decimal;
         supplierName: string;
         supplierGstin: string | null;
         grnNumber: string | null;
@@ -857,6 +855,8 @@ export declare class GrnService {
         cgstTotal: import("@prisma/client/runtime/library").Decimal;
         sgstTotal: import("@prisma/client/runtime/library").Decimal;
         igstTotal: import("@prisma/client/runtime/library").Decimal;
+        grandTotal: import("@prisma/client/runtime/library").Decimal;
+        paidAmount: import("@prisma/client/runtime/library").Decimal;
         approvedById: string | null;
         approvedAt: Date | null;
         invoiceImageUrl: string | null;
@@ -935,17 +935,16 @@ export declare class GrnService {
                 productId: string;
                 purchaseId: string;
                 pluCode: string | null;
-                wsPrice: import("@prisma/client/runtime/library").Decimal | null;
                 batchNumber: string | null;
                 manufacturingDate: Date | null;
                 expiryDate: Date | null;
                 quantity: import("@prisma/client/runtime/library").Decimal;
                 taxableAmount: import("@prisma/client/runtime/library").Decimal;
-                totalAmount: import("@prisma/client/runtime/library").Decimal;
                 cgstAmount: import("@prisma/client/runtime/library").Decimal;
                 sgstAmount: import("@prisma/client/runtime/library").Decimal;
                 igstAmount: import("@prisma/client/runtime/library").Decimal;
                 cessAmount: import("@prisma/client/runtime/library").Decimal;
+                totalAmount: import("@prisma/client/runtime/library").Decimal;
                 unitPrice: import("@prisma/client/runtime/library").Decimal;
                 productName: string;
                 supplierProductName: string | null;
@@ -975,6 +974,7 @@ export declare class GrnService {
                 freeQuantity: import("@prisma/client/runtime/library").Decimal;
                 schemeDiscountPercent: import("@prisma/client/runtime/library").Decimal;
                 retailerDiscountPercent: import("@prisma/client/runtime/library").Decimal;
+                wsPrice: import("@prisma/client/runtime/library").Decimal | null;
                 acceptedQty: import("@prisma/client/runtime/library").Decimal;
                 lastCostPrice: import("@prisma/client/runtime/library").Decimal | null;
                 priceChanged: boolean;
@@ -990,8 +990,6 @@ export declare class GrnService {
             receivedDate: Date | null;
             branchId: string;
             notes: string | null;
-            grandTotal: import("@prisma/client/runtime/library").Decimal;
-            paidAmount: import("@prisma/client/runtime/library").Decimal;
             supplierName: string;
             supplierGstin: string | null;
             grnNumber: string | null;
@@ -1002,6 +1000,8 @@ export declare class GrnService {
             cgstTotal: import("@prisma/client/runtime/library").Decimal;
             sgstTotal: import("@prisma/client/runtime/library").Decimal;
             igstTotal: import("@prisma/client/runtime/library").Decimal;
+            grandTotal: import("@prisma/client/runtime/library").Decimal;
+            paidAmount: import("@prisma/client/runtime/library").Decimal;
             approvedById: string | null;
             approvedAt: Date | null;
             invoiceImageUrl: string | null;
@@ -1087,16 +1087,16 @@ export declare class GrnService {
         notes: string | null;
         taxableAmount: import("@prisma/client/runtime/library").Decimal;
         originalGrnId: string | null;
-        totalAmount: import("@prisma/client/runtime/library").Decimal;
-        cgstAmount: import("@prisma/client/runtime/library").Decimal;
-        sgstAmount: import("@prisma/client/runtime/library").Decimal;
-        igstAmount: import("@prisma/client/runtime/library").Decimal;
-        cessAmount: import("@prisma/client/runtime/library").Decimal;
         scnNumber: string;
         originalInvoiceNo: string | null;
         supplierCnNumber: string | null;
         cnDate: Date;
         reason: string;
+        cgstAmount: import("@prisma/client/runtime/library").Decimal;
+        sgstAmount: import("@prisma/client/runtime/library").Decimal;
+        igstAmount: import("@prisma/client/runtime/library").Decimal;
+        cessAmount: import("@prisma/client/runtime/library").Decimal;
+        totalAmount: import("@prisma/client/runtime/library").Decimal;
         itcReversal: boolean;
     }>;
     getSupplierCreditNotes(businessId: string, filters: {
@@ -1124,16 +1124,16 @@ export declare class GrnService {
             notes: string | null;
             taxableAmount: import("@prisma/client/runtime/library").Decimal;
             originalGrnId: string | null;
-            totalAmount: import("@prisma/client/runtime/library").Decimal;
-            cgstAmount: import("@prisma/client/runtime/library").Decimal;
-            sgstAmount: import("@prisma/client/runtime/library").Decimal;
-            igstAmount: import("@prisma/client/runtime/library").Decimal;
-            cessAmount: import("@prisma/client/runtime/library").Decimal;
             scnNumber: string;
             originalInvoiceNo: string | null;
             supplierCnNumber: string | null;
             cnDate: Date;
             reason: string;
+            cgstAmount: import("@prisma/client/runtime/library").Decimal;
+            sgstAmount: import("@prisma/client/runtime/library").Decimal;
+            igstAmount: import("@prisma/client/runtime/library").Decimal;
+            cessAmount: import("@prisma/client/runtime/library").Decimal;
+            totalAmount: import("@prisma/client/runtime/library").Decimal;
             itcReversal: boolean;
         })[];
         meta: {

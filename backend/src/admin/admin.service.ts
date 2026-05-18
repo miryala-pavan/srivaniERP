@@ -684,6 +684,134 @@ export class AdminService {
     };
   }
 
+  async repairProductPlus(businessId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const repairedLog:       string[] = [];
+      const updatedLog:        string[] = [];
+      const barcodesLinkedLog: string[] = [];
+      const errors:            string[] = [];
+
+      const products = await tx.product.findMany({
+        where:   { businessId },
+        orderBy: { productCode: 'asc' },
+        include: {
+          plusList: true,
+          barcodes: { where: { isActive: true } },
+        },
+      });
+
+      for (const product of products) {
+        try {
+          const costPrice    = Number(product.costPrice  ?? 0);
+          const mrp          = Number(product.mrp);
+          const sellingPrice = Number(product.sellingPrice);
+          const gstRate      = product.gstRatePercent != null ? Number(product.gstRatePercent) : null;
+          const cessRate     = Number((product as any).cessRate ?? 0);
+          const marginRs     = mrp > 0 ? Math.round((mrp - costPrice) * 100) / 100 : 0;
+          const marginPct    = mrp > 0 ? Math.round(((mrp - costPrice) / mrp) * 100 * 10000) / 10000 : 0;
+
+          const hasAnyPlu = product.plusList.length > 0;
+
+          if (!hasAnyPlu) {
+            // ── Create missing PLU ────────────────────────────────────────────
+            const pluCode = `${product.productCode}001`;
+
+            const collision = await tx.productPlu.findFirst({
+              where: { businessId, pluCode },
+            });
+            if (collision) {
+              errors.push(`${product.productCode}: pluCode ${pluCode} already exists (id=${collision.id})`);
+              continue;
+            }
+
+            const newPlu = await tx.productPlu.create({
+              data: {
+                businessId,
+                productId:      product.id,
+                pluCode,
+                basicCost:      costPrice,
+                costPrice,
+                mrp,
+                sellingPrice,
+                wholesalePrice: null,
+                minSellingPrice: 0,
+                gstRate,
+                hsnCode:        product.hsnCode,
+                cessRate,
+                taxInclusive:   false,
+                marginPercent:  marginPct,
+                marginRs,
+                stockOnHand:    0,
+                receivedQty:    0,
+                soldQty:        0,
+                isDefault:      true,
+                isActive:       true,
+                isArchived:     false,
+                effectiveFrom:  new Date(),
+                createdByName:  'System (repair)',
+              },
+            });
+            repairedLog.push(`${product.productCode} (${product.name}): PLU ${pluCode} id=${newPlu.id}`);
+
+            // Link any existing barcodes to the new PLU
+            for (const barcode of product.barcodes) {
+              if (!barcode.pluId) {
+                await tx.productBarcode.update({
+                  where: { id: barcode.id },
+                  data:  { pluId: newPlu.id },
+                });
+                barcodesLinkedLog.push(`${product.productCode}: barcode ${barcode.barcodeValue} → PLU ${pluCode}`);
+              }
+            }
+
+          } else {
+            // ── Update new fields on existing PLUs ────────────────────────────
+            for (const plu of product.plusList) {
+              await tx.productPlu.update({
+                where: { id: plu.id },
+                data: {
+                  basicCost:     Number(plu.costPrice),
+                  gstRate,
+                  hsnCode:       product.hsnCode,
+                  cessRate,
+                  marginPercent: marginPct,
+                  marginRs,
+                  effectiveFrom: plu.createdAt,
+                },
+              });
+              updatedLog.push(`${product.productCode} (${product.name}): PLU ${plu.pluCode} updated`);
+
+              // Link barcodes to existing default PLU
+              if (plu.isDefault) {
+                for (const barcode of product.barcodes) {
+                  if (!barcode.pluId) {
+                    await tx.productBarcode.update({
+                      where: { id: barcode.id },
+                      data:  { pluId: plu.id },
+                    });
+                    barcodesLinkedLog.push(`${product.productCode}: barcode ${barcode.barcodeValue} → PLU ${plu.pluCode}`);
+                  }
+                }
+              }
+            }
+          }
+        } catch (err: any) {
+          errors.push(`${product.productCode ?? product.id}: ${err.message}`);
+        }
+      }
+
+      return {
+        repaired:       repairedLog.length,
+        updated:        updatedLog.length,
+        barcodesLinked: barcodesLinkedLog.length,
+        repairedLog,
+        updatedLog,
+        barcodesLinkedLog,
+        errors,
+      };
+    }, { timeout: 60000 });
+  }
+
   async migrateOrphansPhase1(businessId: string) {
     return this.prisma.$transaction(async (tx) => {
       const summary = {

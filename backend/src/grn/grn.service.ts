@@ -521,32 +521,8 @@ export class GrnService {
       notes: `GRN ${purchase.grnNumber} approved`,
     }));
 
-    const priceUpdates = purchase.items.map((item) => {
-      const updateData: any = {
-        costPrice: Number((item as any).trueCostPrice) || Number((item as any).netCostPrice) || Number(item.unitPrice),
-      };
-      if (item.mrp !== null) updateData.mrp = Number(item.mrp);
-      if ((item as any).sellingPrice !== null) updateData.sellingPrice = Number((item as any).sellingPrice);
-      return this.prisma.product.update({ where: { id: item.productId }, data: updateData });
-    });
-
-    const priceChangedUpdates = purchase.items
-      .filter((item) => (item as any).sellingPrice !== null && item.product)
-      .map((item) => {
-        const oldPrice = Number(item.product.sellingPrice ?? 0);
-        const newPrice = Number((item as any).sellingPrice ?? 0);
-        const changed = newPrice > 0 && newPrice !== oldPrice;
-        if (!changed) return null;
-        const changePct = oldPrice > 0 ? this.r2((newPrice - oldPrice) / oldPrice * 100) : null;
-        return this.prisma.purchaseItem.update({
-          where: { id: item.id },
-          data: { priceChanged: true, priceChangePct: changePct } as any,
-        });
-      })
-      .filter((u): u is NonNullable<typeof u> => u !== null);
-
-    await this.prisma.$transaction([
-      this.prisma.purchase.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.purchase.update({
         where: { id },
         data: {
           status: 'APPROVED',
@@ -554,45 +530,141 @@ export class GrnService {
           approvedByName: approverName ?? null,
           ...(notes ? { notes } : {}),
         } as any,
-      }),
-      ...stockEntries.map((e) => this.prisma.stockLedger.create({ data: e })),
-      ...priceUpdates,
-      ...priceChangedUpdates,
-    ]);
+      });
 
-    this.handlePluUpsert(businessId, purchase.items.map((i) => ({ ...i, purchaseId: id }))).catch(() => {});
+      for (const e of stockEntries) {
+        await tx.stockLedger.create({ data: e });
+      }
+
+      // Mark purchase items where sellingPrice changed vs stored product price
+      for (const item of purchase.items) {
+        if ((item as any).sellingPrice === null || !item.product) continue;
+        const oldPrice = Number(item.product.sellingPrice ?? 0);
+        const newPrice = Number((item as any).sellingPrice ?? 0);
+        if (newPrice > 0 && newPrice !== oldPrice) {
+          const changePct = oldPrice > 0 ? this.r2((newPrice - oldPrice) / oldPrice * 100) : null;
+          await tx.purchaseItem.update({
+            where: { id: item.id },
+            data: { priceChanged: true, priceChangePct: changePct } as any,
+          });
+        }
+      }
+
+      await this.syncPluOnApproval(tx, businessId, id, purchase.items, approverName ?? 'System');
+    }, { timeout: 60000 });
+
     this.handleRestockNotifications(businessId, purchase.branchId, purchase.items, purchase.grnNumber ?? '').catch(() => {});
 
     return this.findOne(businessId, id);
   }
 
-  private async handlePluUpsert(businessId: string, items: any[]) {
+  private async syncPluOnApproval(
+    tx: any,
+    businessId: string,
+    grnId: string,
+    items: any[],
+    approverName: string,
+  ) {
     for (const item of items) {
-      if (!item.pluCode) continue;
-      try {
-        await (this.prisma as any).productPlu.upsert({
-          where: { pluCode: item.pluCode },
-          create: {
-            businessId,
-            productId: item.productId,
-            pluCode: item.pluCode,
-            costPrice: Number(item.netCostPrice ?? item.unitPrice),
-            mrp: Number(item.mrp ?? 0),
-            sellingPrice: Number(item.sellingPrice ?? 0),
-            grnId: item.purchaseId ?? null,
-            batchNumber: item.batchNumber ?? null,
-            manufacturingDate: item.manufacturingDate ?? null,
-            expiryDate: item.expiryDate ?? null,
-            receivedQty: Number(item.totalQty ?? item.quantity ?? 0),
-            stockOnHand: Number(item.acceptedQty ?? item.totalQty ?? item.quantity ?? 0),
-          },
-          update: {
-            costPrice: Number(item.netCostPrice ?? item.unitPrice),
-            mrp: Number(item.mrp ?? 0),
-            sellingPrice: Number(item.sellingPrice ?? 0),
+      const acceptedQty = Number((item as any).acceptedQty ?? 0) > 0
+        ? Number((item as any).acceptedQty)
+        : Number((item as any).totalQty ?? item.quantity ?? 0);
+
+      if (acceptedQty <= 0) continue;
+
+      const itemMrp       = Number((item as any).mrp ?? 0);
+      const itemCost      = Number((item as any).netCostPrice ?? (item as any).trueCostPrice ?? item.unitPrice ?? 0);
+      const itemBasicCost = Number((item as any).basicCostPrice ?? itemCost);
+      const itemSp        = Number((item as any).sellingPrice ?? 0);
+      const itemCessRate  = Number((item as any).cessRate ?? 0);
+      const itemGstRate   = Number((item as any).gstRatePercent ?? 0);
+
+      const product = await tx.product.findUnique({
+        where:  { id: item.productId },
+        select: { id: true, productCode: true, hsnCode: true, gstRatePercent: true, cessRate: true },
+      });
+      if (!product) continue;
+
+      const marginRs  = itemMrp > 0 ? this.r2(itemMrp - itemCost) : 0;
+      const marginPct = itemMrp > 0
+        ? Math.round(((itemMrp - itemCost) / itemMrp * 100) * 10000) / 10000
+        : 0;
+
+      // STEP 1: Find active default PLU for this product
+      const activePlu = await tx.productPlu.findFirst({
+        where:   { productId: item.productId, isActive: true, isArchived: false, isDefault: true },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const priceIsSame = activePlu
+        && Math.abs(Number(activePlu.mrp) - itemMrp) < 0.01
+        && Math.abs(Number(activePlu.costPrice) - itemCost) < 0.01;
+
+      if (activePlu && priceIsSame) {
+        // STEP 2A: Same price — add stock to existing PLU
+        await tx.productPlu.update({
+          where: { id: activePlu.id },
+          data: {
+            stockOnHand: { increment: acceptedQty },
+            receivedQty: { increment: acceptedQty },
           },
         });
-      } catch { /* swallow per-item errors */ }
+      } else {
+        // STEP 2B: Price changed (or no PLU yet) — create new default PLU
+        const pluCount   = await tx.productPlu.count({ where: { productId: item.productId } });
+        const seq        = String(pluCount + 1).padStart(3, '0');
+        const newPluCode = `${product.productCode}${seq}`;
+
+        if (activePlu) {
+          // Demote old PLU — keep isActive=true so its stock stays visible
+          await tx.productPlu.update({
+            where: { id: activePlu.id },
+            data:  { isDefault: false },
+          });
+        }
+
+        await tx.productPlu.create({
+          data: {
+            businessId,
+            productId:      item.productId,
+            pluCode:        newPluCode,
+            basicCost:      itemBasicCost,
+            costPrice:      itemCost,
+            mrp:            itemMrp,
+            sellingPrice:   itemSp,
+            wholesalePrice: null,
+            minSellingPrice: 0,
+            gstRate:        itemGstRate || Number(product.gstRatePercent ?? 0),
+            hsnCode:        product.hsnCode,
+            cessRate:       itemCessRate,
+            taxInclusive:   false,
+            marginPercent:  marginPct,
+            marginRs,
+            stockOnHand:    acceptedQty,
+            receivedQty:    acceptedQty,
+            soldQty:        0,
+            isDefault:      true,
+            isActive:       true,
+            isArchived:     false,
+            effectiveFrom:  new Date(),
+            grnId,
+            batchNumber:        (item as any).batchNumber        ?? null,
+            manufacturingDate:  (item as any).manufacturingDate  ?? null,
+            expiryDate:         (item as any).expiryDate         ?? null,
+            createdByName:  approverName,
+          },
+        });
+      }
+
+      // STEP 3: Update Product.totalStock = sum of all active PLU stockOnHand
+      const agg = await tx.productPlu.aggregate({
+        where: { productId: item.productId, isActive: true, isArchived: false },
+        _sum:  { stockOnHand: true },
+      });
+      await tx.product.update({
+        where: { id: item.productId },
+        data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
+      });
     }
   }
 
@@ -870,11 +942,6 @@ export class GrnService {
         createdById:       userId,
         createdByName:     userName,
       },
-    });
-
-    await this.prisma.supplier.update({
-      where: { id: dto.supplierId },
-      data:  { outstandingBalance: { decrement: total } },
     });
 
     return { ...cn, isInterstate };

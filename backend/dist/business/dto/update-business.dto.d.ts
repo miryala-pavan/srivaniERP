@@ -1,0 +1,29 @@
+export declare class UpdateBusinessDto {
+    name?: string;
+    gstin?: string;
+    stateCode?: string;
+    stateName?: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    pan?: string;
+    tan?: string;
+    professionalTaxNo?: string;
+    fssaiLicense?: string;
+    fssaiExpiry?: string;
+    drugLicense?: string;
+    drugLicenseExpiry?: string;
+    tradeLicense?: string;
+    tradeLicenseExpiry?: string;
+    shopEstablishmentLicense?: string;
+    shopEstablishmentExpiry?: string;
+    fireSafetyNoc?: string;
+    fireSafetyNocExpiry?: string;
+    weightsAndMeasuresLicense?: string;
+    weightsAndMeasuresExpiry?: string;
+    liquorLicense?: string;
+    liquorLicenseExpiry?: string;
+    udyamRegistration?: string;
+    cin?: string;
+    iecCode?: string;
+}

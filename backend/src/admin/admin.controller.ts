@@ -31,6 +31,11 @@ export class AdminController {
     return this.adminService.seedDepartments(req.user.businessId);
   }
 
+  @Post('repair-product-plus')
+  repairProductPlus(@Request() req: any) {
+    return this.adminService.repairProductPlus(req.user.businessId);
+  }
+
   @Post('migrate-orphans-phase-1')
   migrateOrphansPhase1(@Request() req: any) {
     return this.adminService.migrateOrphansPhase1(req.user.businessId);

@@ -81,16 +81,54 @@ let SuppliersService = class SuppliersService {
                 select: {
                     id: true, name: true, gstin: true, phone: true, email: true,
                     address: true, stateCode: true, paymentTermsDays: true,
-                    creditLimit: true, outstandingBalance: true, isGstRegistered: true,
+                    creditLimit: true, isGstRegistered: true,
                     isActive: true, createdAt: true,
                 },
             }),
             this.prisma.supplier.count({ where }),
         ]);
+        const ids = suppliers.map((s) => s.id);
+        const balances = await this.getSupplierBalances(businessId, ids);
         return {
-            data: suppliers,
+            data: suppliers.map((s) => ({ ...s, balanceDue: balances[s.id] ?? 0 })),
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
         };
+    }
+    async getSupplierBalances(businessId, supplierIds) {
+        if (supplierIds.length === 0)
+            return {};
+        const [grns, payments, credits, supplierRows] = await Promise.all([
+            this.prisma.purchase.groupBy({
+                by: ['supplierId'],
+                where: { businessId, supplierId: { in: supplierIds }, status: 'APPROVED' },
+                _sum: { grandTotal: true },
+            }),
+            this.prisma.supplierPayment.groupBy({
+                by: ['supplierId'],
+                where: { businessId, supplierId: { in: supplierIds } },
+                _sum: { amount: true },
+            }),
+            this.prisma.supplierCreditNote.groupBy({
+                by: ['supplierId'],
+                where: { businessId, supplierId: { in: supplierIds }, status: 'ACTIVE' },
+                _sum: { totalAmount: true },
+            }),
+            this.prisma.supplier.findMany({
+                where: { businessId, id: { in: supplierIds } },
+                select: { id: true, openingBalance: true, openingBalanceType: true },
+            }),
+        ]);
+        const result = {};
+        for (const supplierId of supplierIds) {
+            const sup = supplierRows.find((s) => s.id === supplierId);
+            const opening = Number(sup?.openingBalance ?? 0);
+            const openingAmt = (sup?.openingBalanceType ?? 'DEBIT') === 'DEBIT' ? opening : -opening;
+            const grnTotal = Number(grns.find((g) => g.supplierId === supplierId)?._sum.grandTotal ?? 0);
+            const paidTotal = Number(payments.find((p) => p.supplierId === supplierId)?._sum.amount ?? 0);
+            const creditTotal = Number(credits.find((c) => c.supplierId === supplierId)?._sum.totalAmount ?? 0);
+            result[supplierId] = openingAmt + grnTotal - paidTotal - creditTotal;
+        }
+        return result;
     }
     async findOne(businessId, id) {
         const supplier = await this.prisma.supplier.findFirst({
@@ -198,6 +236,7 @@ let SuppliersService = class SuppliersService {
             totalPaid,
             totalCreditNotes,
             balance,
+            balanceDue: balance,
         };
     }
     async getSupplierLedger(businessId, supplierId) {

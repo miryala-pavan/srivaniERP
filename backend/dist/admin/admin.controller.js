@@ -35,6 +35,9 @@ let AdminController = class AdminController {
     seedDepartments(req) {
         return this.adminService.seedDepartments(req.user.businessId);
     }
+    repairProductPlus(req) {
+        return this.adminService.repairProductPlus(req.user.businessId);
+    }
     migrateOrphansPhase1(req) {
         return this.adminService.migrateOrphansPhase1(req.user.businessId);
     }
@@ -72,6 +75,13 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AdminController.prototype, "seedDepartments", null);
+__decorate([
+    (0, common_1.Post)('repair-product-plus'),
+    __param(0, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AdminController.prototype, "repairProductPlus", null);
 __decorate([
     (0, common_1.Post)('migrate-orphans-phase-1'),
     __param(0, (0, common_1.Request)()),

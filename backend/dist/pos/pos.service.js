@@ -463,18 +463,32 @@ let PosService = class PosService {
                     const plus = await tx.productPlu.findMany({
                         where: { productId: item.productId, businessId, isActive: true, stockOnHand: { gt: 0 } },
                         orderBy,
+                        select: { id: true, stockOnHand: true },
                     });
                     let remaining = item.quantity;
                     for (const plu of plus) {
                         if (remaining <= 0)
                             break;
                         const deduct = Math.min(remaining, Number(plu.stockOnHand));
+                        const newStock = Number(plu.stockOnHand) - deduct;
                         await tx.productPlu.update({
                             where: { id: plu.id },
-                            data: { stockOnHand: { decrement: deduct } },
+                            data: {
+                                stockOnHand: { decrement: deduct },
+                                soldQty: { increment: deduct },
+                                ...(newStock <= 0 ? { isActive: false } : {}),
+                            },
                         });
                         remaining -= deduct;
                     }
+                    const stockAgg = await tx.productPlu.aggregate({
+                        where: { productId: item.productId, isActive: true, isArchived: false },
+                        _sum: { stockOnHand: true },
+                    });
+                    await tx.product.update({
+                        where: { id: item.productId },
+                        data: { totalStock: Number(stockAgg._sum.stockOnHand ?? 0) },
+                    });
                 }
             }
             if (isEstimate) {
@@ -758,10 +772,33 @@ let PosService = class PosService {
         return { productId, productName: product.name, branchId, currentStock: stock };
     }
     async getProductPlus(barcode, businessId) {
-        const product = await this.prisma.product.findFirst({
-            where: { barcode, businessId, isActive: true },
-            select: { id: true, name: true, barcode: true, taxId: true, unitOfMeasure: true, gstRatePercent: true, cessRate: true, allowNegativeStock: true },
+        const productSelect = {
+            id: true, name: true, barcode: true, taxId: true,
+            unitOfMeasure: true, gstRatePercent: true, cessRate: true, allowNegativeStock: true,
+        };
+        let product = null;
+        const barcodeRec = await this.prisma.productBarcode.findFirst({
+            where: { barcodeValue: barcode, businessId, isActive: true },
+            select: { productId: true },
         });
+        if (barcodeRec) {
+            product = await this.prisma.product.findFirst({
+                where: { id: barcodeRec.productId, businessId, isActive: true },
+                select: productSelect,
+            });
+        }
+        if (!product) {
+            product = await this.prisma.product.findFirst({
+                where: { barcode, businessId, isActive: true },
+                select: productSelect,
+            });
+        }
+        if (!product) {
+            product = await this.prisma.product.findFirst({
+                where: { id: barcode, businessId, isActive: true },
+                select: productSelect,
+            });
+        }
         if (!product)
             throw new common_1.NotFoundException('Product not found');
         const plus = await this.prisma.productPlu.findMany({

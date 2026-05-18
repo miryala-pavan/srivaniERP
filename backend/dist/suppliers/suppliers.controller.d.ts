@@ -28,6 +28,7 @@ export declare class SuppliersController {
     }>;
     findAll(req: any, query: SupplierQueryDto): Promise<{
         data: {
+            balanceDue: number;
             gstin: string | null;
             email: string | null;
             phone: string | null;
@@ -40,7 +41,6 @@ export declare class SuppliersController {
             paymentTermsDays: number;
             creditLimit: import("@prisma/client/runtime/library").Decimal;
             isGstRegistered: boolean;
-            outstandingBalance: import("@prisma/client/runtime/library").Decimal;
         }[];
         meta: {
             total: number;
@@ -58,6 +58,7 @@ export declare class SuppliersController {
         totalPaid: number;
         totalCreditNotes: number;
         balance: number;
+        balanceDue: number;
     }>;
     getLedger(req: any, id: string): Promise<{
         supplier: {
@@ -82,9 +83,9 @@ export declare class SuppliersController {
         data: ({
             purchase: {
                 id: string;
-                grandTotal: import("@prisma/client/runtime/library").Decimal;
                 grnNumber: string | null;
                 invoiceNumber: string;
+                grandTotal: import("@prisma/client/runtime/library").Decimal;
             } | null;
         } & {
             id: string;
@@ -97,9 +98,9 @@ export declare class SuppliersController {
             purchaseId: string | null;
             notes: string | null;
             paymentMode: string;
-            amount: import("@prisma/client/runtime/library").Decimal;
             invoiceReference: string | null;
             paymentDate: Date;
+            amount: import("@prisma/client/runtime/library").Decimal;
             referenceNumber: string | null;
             screenshotUrl: string | null;
         })[];
@@ -126,16 +127,16 @@ export declare class SuppliersController {
             notes: string | null;
             taxableAmount: import("@prisma/client/runtime/library").Decimal;
             originalGrnId: string | null;
-            totalAmount: import("@prisma/client/runtime/library").Decimal;
-            cgstAmount: import("@prisma/client/runtime/library").Decimal;
-            sgstAmount: import("@prisma/client/runtime/library").Decimal;
-            igstAmount: import("@prisma/client/runtime/library").Decimal;
-            cessAmount: import("@prisma/client/runtime/library").Decimal;
             scnNumber: string;
             originalInvoiceNo: string | null;
             supplierCnNumber: string | null;
             cnDate: Date;
             reason: string;
+            cgstAmount: import("@prisma/client/runtime/library").Decimal;
+            sgstAmount: import("@prisma/client/runtime/library").Decimal;
+            igstAmount: import("@prisma/client/runtime/library").Decimal;
+            cessAmount: import("@prisma/client/runtime/library").Decimal;
+            totalAmount: import("@prisma/client/runtime/library").Decimal;
             itcReversal: boolean;
         }[];
         meta: {
@@ -156,9 +157,9 @@ export declare class SuppliersController {
         purchaseId: string | null;
         notes: string | null;
         paymentMode: string;
-        amount: import("@prisma/client/runtime/library").Decimal;
         invoiceReference: string | null;
         paymentDate: Date;
+        amount: import("@prisma/client/runtime/library").Decimal;
         referenceNumber: string | null;
         screenshotUrl: string | null;
     }>;
@@ -197,11 +198,11 @@ export declare class SuppliersController {
             id: string;
             status: import(".prisma/client").$Enums.PurchaseStatus;
             createdAt: Date;
-            grandTotal: import("@prisma/client/runtime/library").Decimal;
-            paidAmount: import("@prisma/client/runtime/library").Decimal;
             grnNumber: string | null;
             invoiceNumber: string;
             invoiceDate: Date;
+            grandTotal: import("@prisma/client/runtime/library").Decimal;
+            paidAmount: import("@prisma/client/runtime/library").Decimal;
         }[];
         gstin: string | null;
         email: string | null;

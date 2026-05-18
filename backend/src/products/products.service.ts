@@ -42,6 +42,21 @@ export interface ProductSearchResult {
   currentStock: number;
   allowNegativeStock: boolean;
   cessRate: number;
+  pluCode: string | null;
+  wholesalePrice: number | null;
+  activePluCount: number;
+  hasMultiplePlus: boolean;
+  defaultPlu: {
+    id: string;
+    pluCode: string;
+    sellingPrice: number;
+    mrp: number;
+    costPrice: number;
+    gstRate: number;
+    cessRate: number;
+    wholesalePrice: number | null;
+    stockOnHand: number;
+  } | null;
 }
 
 @Injectable()
@@ -485,9 +500,33 @@ export class ProductsService {
     const branchId   = await this.getDefaultBranchId(businessId);
     const stockMap   = await this.batchStockCount(productIds, branchId);
 
+    // Batch PLU enrichment
+    const defaultPluMap     = new Map<string, any>();
+    const activePluCountMap = new Map<string, number>();
+
+    if (productIds.length > 0) {
+      const defaultPlus = await this.prisma.productPlu.findMany({
+        where: { productId: { in: productIds }, businessId, isDefault: true, isActive: true, isArchived: false },
+        select: {
+          id: true, productId: true, pluCode: true, sellingPrice: true, mrp: true,
+          costPrice: true, gstRate: true, cessRate: true, wholesalePrice: true, stockOnHand: true,
+        },
+      });
+      defaultPlus.forEach((plu) => defaultPluMap.set(plu.productId, plu));
+
+      const activePluCounts = await this.prisma.productPlu.groupBy({
+        by: ['productId'],
+        where: { productId: { in: productIds }, businessId, isActive: true, isArchived: false },
+        _count: { id: true },
+      });
+      activePluCounts.forEach((row) => activePluCountMap.set(row.productId, row._count.id));
+    }
+
     let enriched = products.map((p) => ({
       ...p,
-      currentStock: stockMap.get(p.id) ?? 0,
+      currentStock:  stockMap.get(p.id) ?? 0,
+      defaultPlu:    defaultPluMap.get(p.id) ?? null,
+      activePluCount: activePluCountMap.get(p.id) ?? 0,
     }));
 
     // Stock status post-filter
@@ -658,61 +697,173 @@ export class ProductsService {
     if (!q?.trim()) return [];
     const term = q.trim();
 
-    const stock = async (productId: string) => branchId ? this.getStockCount(productId, branchId) : 0;
-
-    const fmt = (p: any, s: number): ProductSearchResult => {
-      const cat    = p.category;
-      const parent = cat?.parent;
-      const catLabel = cat ? (parent ? `${cat.label} (${parent.label})` : cat.label) : '';
-      return {
-        id: p.id, productCode: p.productCode ?? '', name: p.name, shortName: p.shortName ?? null,
-        categoryLabel: catLabel, categoryName: cat?.name ?? '',
-        barcode: p.barcode ?? null, sellingPrice: Number(p.sellingPrice), mrp: Number(p.mrp),
-        gstRatePercent: Number(p.gstRatePercent ?? p.tax?.taxRate ?? 0), taxId: p.taxId,
-        unitOfMeasure: p.unitOfMeasure, currentStock: s, allowNegativeStock: p.allowNegativeStock,
-        cessRate: Number((p as any).cessRate ?? 0),
-      };
-    };
-
     const include = {
       tax:      { select: { id: true, taxRate: true } },
       category: { select: { id: true, name: true, label: true, parent: { select: { id: true, name: true, label: true } } } },
     };
 
-    // Base filter: never show manually disabled products in POS
     const posWhere = { businessId, isActive: true, isManuallyDisabled: false };
 
-    // 1. Pure digit → productCode
-    if (/^\d+$/.test(term)) {
-      const padded = term.padStart(6, '0');
-      const byCode = await this.prisma.product.findFirst({ where: { ...posWhere, productCode: padded }, include });
-      if (byCode) {
-        const s = await stock(byCode.id);
-        if (s > 0 || byCode.allowNegativeStock) return [fmt(byCode, s)];
-        return [];
+    const pluSelect = {
+      id: true, pluCode: true, productId: true,
+      sellingPrice: true, mrp: true, costPrice: true,
+      gstRate: true, cessRate: true, wholesalePrice: true, stockOnHand: true,
+      isDefault: true,
+    };
+
+    const hasStock = (p: any) => Number((p as any).totalStock ?? 0) > 0 || p.allowNegativeStock;
+
+    const fmt = (p: any, defaultPlu: any | null, activePlus: any[]): ProductSearchResult => {
+      const cat    = p.category;
+      const parent = cat?.parent;
+      const catLabel = cat ? (parent ? `${cat.label} (${parent.label})` : cat.label) : '';
+      const sellingPrice   = defaultPlu ? Number(defaultPlu.sellingPrice) : Number(p.sellingPrice);
+      const mrp            = defaultPlu ? Number(defaultPlu.mrp) : Number(p.mrp);
+      const gstRatePercent = (defaultPlu && defaultPlu.gstRate != null)
+        ? Number(defaultPlu.gstRate) : Number(p.gstRatePercent ?? p.tax?.taxRate ?? 0);
+      const cessRate = defaultPlu ? Number(defaultPlu.cessRate ?? 0) : Number((p as any).cessRate ?? 0);
+      return {
+        id: p.id, productCode: p.productCode ?? '', name: p.name, shortName: p.shortName ?? null,
+        categoryLabel: catLabel, categoryName: cat?.name ?? '',
+        barcode: p.barcode ?? null, sellingPrice, mrp, gstRatePercent, taxId: p.taxId,
+        unitOfMeasure: p.unitOfMeasure, allowNegativeStock: p.allowNegativeStock,
+        currentStock: Number((p as any).totalStock ?? 0),
+        cessRate,
+        pluCode: defaultPlu?.pluCode ?? null,
+        wholesalePrice: (defaultPlu?.wholesalePrice != null) ? Number(defaultPlu.wholesalePrice) : null,
+        activePluCount: activePlus.length,
+        hasMultiplePlus: activePlus.length > 1,
+        defaultPlu: defaultPlu ? {
+          id: defaultPlu.id, pluCode: defaultPlu.pluCode,
+          sellingPrice: Number(defaultPlu.sellingPrice), mrp: Number(defaultPlu.mrp),
+          costPrice: Number(defaultPlu.costPrice),
+          gstRate: Number(defaultPlu.gstRate ?? 0), cessRate: Number(defaultPlu.cessRate ?? 0),
+          wholesalePrice: (defaultPlu.wholesalePrice != null) ? Number(defaultPlu.wholesalePrice) : null,
+          stockOnHand: Number(defaultPlu.stockOnHand),
+        } : null,
+      };
+    };
+
+    const fetchDefaultPlu = (productId: string) => this.prisma.productPlu.findFirst({
+      where: { productId, businessId, isActive: true, isArchived: false, isDefault: true },
+      orderBy: { createdAt: 'desc' },
+      select: pluSelect,
+    });
+
+    const fetchActivePlus = (productId: string) => this.prisma.productPlu.findMany({
+      where: { productId, businessId, isActive: true, isArchived: false, stockOnHand: { gt: 0 } },
+      orderBy: { receivedDate: 'asc' },
+      select: pluSelect,
+    });
+
+    const batchFmt = async (products: any[]): Promise<ProductSearchResult[]> => {
+      if (products.length === 0) return [];
+      const ids = products.map((p) => p.id);
+      const [defaultPlus, activePlusAll] = await Promise.all([
+        this.prisma.productPlu.findMany({
+          where: { productId: { in: ids }, businessId, isActive: true, isArchived: false, isDefault: true },
+          orderBy: { createdAt: 'desc' }, select: pluSelect,
+        }),
+        this.prisma.productPlu.findMany({
+          where: { productId: { in: ids }, businessId, isActive: true, isArchived: false, stockOnHand: { gt: 0 } },
+          orderBy: { receivedDate: 'asc' }, select: pluSelect,
+        }),
+      ]);
+      const defMap = new Map<string, any>();
+      for (const plu of defaultPlus) {
+        const pid = (plu as any).productId as string;
+        if (!defMap.has(pid)) defMap.set(pid, plu);
+      }
+      const actMap = new Map<string, any[]>();
+      for (const plu of activePlusAll) {
+        const pid = (plu as any).productId as string;
+        if (!actMap.has(pid)) actMap.set(pid, []);
+        actMap.get(pid)!.push(plu);
+      }
+      const results: ProductSearchResult[] = [];
+      for (const p of products) {
+        if (!hasStock(p)) continue;
+        results.push(fmt(p, defMap.get(p.id) ?? null, actMap.get(p.id) ?? []));
+      }
+      return results;
+    };
+
+    // 1. ProductBarcode lookup → use barcode-linked PLU if set
+    const byNewBarcode = await this.prisma.productBarcode.findFirst({
+      where: { businessId, barcodeValue: term, isActive: true },
+      include: { product: { include } },
+    });
+    if (byNewBarcode?.product && !byNewBarcode.product.isManuallyDisabled && byNewBarcode.product.isActive) {
+      const p = byNewBarcode.product;
+      if (!hasStock(p)) return [];
+      let defaultPlu: any = null;
+      if ((byNewBarcode as any).pluId) {
+        defaultPlu = await this.prisma.productPlu.findFirst({
+          where: { id: (byNewBarcode as any).pluId, isActive: true, isArchived: false },
+          select: pluSelect,
+        });
+      }
+      if (!defaultPlu) defaultPlu = await fetchDefaultPlu(p.id);
+      const activePlus = await fetchActivePlus(p.id);
+      return [fmt(p, defaultPlu, activePlus)];
+    }
+
+    // 2. PLU eanCode lookup
+    const byPluEan = await this.prisma.productPlu.findFirst({
+      where: { businessId, eanCode: term, isActive: true, isArchived: false },
+      select: pluSelect,
+    });
+    if (byPluEan) {
+      const p = await this.prisma.product.findFirst({ where: { id: (byPluEan as any).productId, ...posWhere }, include });
+      if (p) {
+        if (!hasStock(p)) return [];
+        const activePlus = await fetchActivePlus(p.id);
+        return [fmt(p, byPluEan, activePlus)];
       }
     }
 
-    // 2. Exact barcode (new table)
-    const byNewBarcode = await this.prisma.productBarcode.findFirst({
-      where:   { businessId, barcodeValue: term, isActive: true },
-      include: { product: { include: { ...include, category: include.category } } },
-    });
-    if (byNewBarcode?.product && !byNewBarcode.product.isManuallyDisabled) {
-      const s = await stock(byNewBarcode.productId);
-      if (s > 0 || byNewBarcode.product.allowNegativeStock) return [fmt(byNewBarcode.product, s)];
-      return [];
+    // 2b + 3. Pure digits → pad and try PLU code (9 digits) then product code (6 digits)
+    if (/^\d+$/.test(term)) {
+      const asPluCode     = term.padStart(9, '0');
+      const asProductCode = term.padStart(6, '0');
+
+      // Try PLU code first (9-digit pad)
+      const byPluCode = await this.prisma.productPlu.findFirst({
+        where: { businessId, pluCode: asPluCode, isActive: true, isArchived: false },
+        select: pluSelect,
+      });
+      if (byPluCode) {
+        const p = await this.prisma.product.findFirst({
+          where: { id: (byPluCode as any).productId, ...posWhere },
+          include,
+        });
+        if (p) {
+          if (!hasStock(p)) return [];
+          const activePlus = await fetchActivePlus(p.id);
+          const result = fmt(p, byPluCode, activePlus);
+          result.hasMultiplePlus = false;
+          return [result];
+        }
+      }
+
+      // Try product code second (6-digit pad)
+      const byCode = await this.prisma.product.findFirst({ where: { ...posWhere, productCode: asProductCode }, include });
+      if (byCode) {
+        if (!hasStock(byCode)) return [];
+        const [defaultPlu, activePlus] = await Promise.all([fetchDefaultPlu(byCode.id), fetchActivePlus(byCode.id)]);
+        return [fmt(byCode, defaultPlu, activePlus)];
+      }
     }
 
-    // 3. Legacy barcode field
+    // 4. Legacy barcode field
     const byBarcode = await this.prisma.product.findFirst({ where: { ...posWhere, barcode: term }, include });
     if (byBarcode) {
-      const s = await stock(byBarcode.id);
-      if (s > 0 || byBarcode.allowNegativeStock) return [fmt(byBarcode, s)];
-      return [];
+      if (!hasStock(byBarcode)) return [];
+      const [defaultPlu, activePlus] = await Promise.all([fetchDefaultPlu(byBarcode.id), fetchActivePlus(byBarcode.id)]);
+      return [fmt(byBarcode, defaultPlu, activePlus)];
     }
 
-    // 4. Category label (incl. sub-category children)
+    // 5. Category label (incl. sub-category children)
     const catMatches = await this.prisma.category.findMany({
       where:  { businessId, label: { contains: term, mode: 'insensitive' } },
       select: { id: true, children: { select: { id: true } } },
@@ -723,19 +874,17 @@ export class ProductsService {
       const byCat = await this.prisma.product.findMany({
         where: { ...posWhere, categoryId: { in: [...catIds] } }, take: 15, orderBy: { productCode: 'asc' }, include,
       });
-      const results = await Promise.all(byCat.map(async (p) => { const s = await stock(p.id); return { p, s }; }));
-      const filtered = results.filter(({ p, s }) => s > 0 || p.allowNegativeStock).map(({ p, s }) => fmt(p, s));
+      const filtered = await batchFmt(byCat);
       if (filtered.length > 0) return filtered;
     }
 
-    // 5. Name / brand partial match
+    // 6. Name / brand partial match
     const byName = await this.prisma.product.findMany({
       where: { ...posWhere, OR: [{ name: { contains: term, mode: 'insensitive' } }, { shortName: { contains: term, mode: 'insensitive' } }, { brand: { name: { contains: term, mode: 'insensitive' } } }] },
       take: 15, orderBy: { productCode: 'asc' },
       include: { ...include, brand: { select: { id: true, name: true } } },
     });
-    const results = await Promise.all(byName.map(async (p) => { const s = await stock(p.id); return { p, s }; }));
-    return results.filter(({ p, s }) => s > 0 || p.allowNegativeStock).map(({ p, s }) => fmt(p, s));
+    return batchFmt(byName);
   }
 
   async searchProducts(businessId: string, q: string) {
@@ -754,6 +903,172 @@ export class ProductsService {
       select: { id: true, name: true, productCode: true, isActive: true },
     });
   }
+
+  // ─── PLU MANAGEMENT ─────────────────────────────────────────────────────────
+
+  async getPlusForProduct(businessId: string, productId: string) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+    return this.prisma.productPlu.findMany({
+      where: { productId, businessId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        barcodes: { where: { isActive: true }, select: { id: true, barcodeValue: true, barcodeType: true, isPrimary: true } },
+      },
+    });
+  }
+
+  async getActivePlusForProduct(businessId: string, productId: string) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+    return this.prisma.productPlu.findMany({
+      where: { productId, businessId, isActive: true, isArchived: false },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        barcodes: { where: { isActive: true }, select: { id: true, barcodeValue: true, barcodeType: true, isPrimary: true } },
+      },
+    });
+  }
+
+  async createPlu(businessId: string, productId: string, body: {
+    eanCode?: string; basicCost?: number; costPrice?: number;
+    mrp: number; sellingPrice: number; wholesalePrice?: number;
+    minSellingPrice?: number; gstRate?: number; hsnCode?: string;
+    cessRate?: number; taxInclusive?: boolean; openingStock?: number;
+  }) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+    if (body.mrp < body.sellingPrice) throw new BadRequestException('MRP must be >= selling price');
+
+    return this.prisma.$transaction(async (tx) => {
+      const existingCount = await tx.productPlu.count({ where: { productId } });
+      let seq = existingCount + 1;
+      let pluCode = `${product.productCode}${String(seq).padStart(3, '0')}`;
+      while (await tx.productPlu.findUnique({ where: { businessId_pluCode: { businessId, pluCode } } })) {
+        seq++;
+        pluCode = `${product.productCode}${String(seq).padStart(3, '0')}`;
+      }
+
+      const costPrice  = body.costPrice ?? body.basicCost ?? 0;
+      const mrp        = body.mrp;
+      const marginRs   = mrp > 0 ? this.r2(mrp - costPrice) : 0;
+      const marginPct  = mrp > 0 ? Math.round(((mrp - costPrice) / mrp) * 100 * 10000) / 10000 : 0;
+      const openStock  = body.openingStock ?? 0;
+
+      await tx.productPlu.updateMany({
+        where: { productId, businessId, isDefault: true },
+        data:  { isDefault: false },
+      });
+
+      const newPlu = await tx.productPlu.create({
+        data: {
+          businessId, productId, pluCode,
+          eanCode:        body.eanCode ?? null,
+          basicCost:      body.basicCost ?? costPrice,
+          costPrice,
+          mrp,
+          sellingPrice:   body.sellingPrice,
+          wholesalePrice: body.wholesalePrice ?? null,
+          minSellingPrice: body.minSellingPrice ?? 0,
+          gstRate:        body.gstRate ?? Number(product.gstRatePercent ?? 0),
+          hsnCode:        body.hsnCode ?? product.hsnCode ?? null,
+          cessRate:       body.cessRate ?? 0,
+          taxInclusive:   body.taxInclusive ?? false,
+          marginPercent:  marginPct,
+          marginRs,
+          stockOnHand:    openStock,
+          receivedQty:    openStock,
+          soldQty:        0,
+          isDefault:      true,
+          isActive:       openStock > 0,
+          isArchived:     false,
+          effectiveFrom:  new Date(),
+          createdByName:  'Manual entry',
+        },
+      });
+
+      if (openStock > 0) {
+        const agg = await tx.productPlu.aggregate({
+          where: { productId, isActive: true, isArchived: false },
+          _sum:  { stockOnHand: true },
+        });
+        await tx.product.update({
+          where: { id: productId },
+          data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
+        });
+      }
+
+      return newPlu;
+    });
+  }
+
+  async updatePlu(businessId: string, productId: string, pluId: string, body: {
+    eanCode?: string; sellingPrice?: number; wholesalePrice?: number;
+    minSellingPrice?: number; gstRate?: number; cessRate?: number; taxInclusive?: boolean;
+  }) {
+    const plu = await this.prisma.productPlu.findFirst({ where: { id: pluId, productId, businessId } });
+    if (!plu) throw new NotFoundException('PLU not found');
+    return this.prisma.productPlu.update({
+      where: { id: pluId },
+      data: {
+        ...(body.eanCode          !== undefined ? { eanCode: body.eanCode }                 : {}),
+        ...(body.sellingPrice     !== undefined ? { sellingPrice: body.sellingPrice }       : {}),
+        ...(body.wholesalePrice   !== undefined ? { wholesalePrice: body.wholesalePrice }   : {}),
+        ...(body.minSellingPrice  !== undefined ? { minSellingPrice: body.minSellingPrice } : {}),
+        ...(body.gstRate          !== undefined ? { gstRate: body.gstRate }                 : {}),
+        ...(body.cessRate         !== undefined ? { cessRate: body.cessRate }               : {}),
+        ...(body.taxInclusive     !== undefined ? { taxInclusive: body.taxInclusive }       : {}),
+      },
+    });
+  }
+
+  async setDefaultPlu(businessId: string, productId: string, pluId: string) {
+    const plu = await this.prisma.productPlu.findFirst({
+      where: { id: pluId, productId, businessId, isActive: true },
+    });
+    if (!plu) throw new NotFoundException('PLU not found or inactive');
+    await this.prisma.$transaction([
+      this.prisma.productPlu.updateMany({ where: { productId, businessId, isDefault: true }, data: { isDefault: false } }),
+      this.prisma.productPlu.update({ where: { id: pluId }, data: { isDefault: true } }),
+    ]);
+    return { message: 'Default PLU updated' };
+  }
+
+  async deactivatePlu(businessId: string, productId: string, pluId: string, reason?: string) {
+    const plu = await this.prisma.productPlu.findFirst({ where: { id: pluId, productId, businessId } });
+    if (!plu) throw new NotFoundException('PLU not found');
+    if (!plu.isActive) throw new BadRequestException('PLU is already inactive');
+
+    await this.prisma.productPlu.update({
+      where: { id: pluId },
+      data: {
+        isActive:       false,
+        archivedReason: reason ?? null,
+        ...(plu.isDefault ? { isDefault: false } : {}),
+      },
+    });
+
+    if (plu.isDefault) {
+      const next = await this.prisma.productPlu.findFirst({
+        where: { productId, businessId, isActive: true, isArchived: false },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (next) await this.prisma.productPlu.update({ where: { id: next.id }, data: { isDefault: true } });
+    }
+
+    const agg = await this.prisma.productPlu.aggregate({
+      where: { productId, isActive: true, isArchived: false },
+      _sum:  { stockOnHand: true },
+    });
+    await this.prisma.product.update({
+      where: { id: productId },
+      data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
+    });
+
+    return { message: 'PLU deactivated' };
+  }
+
+  private r2(n: number) { return Math.round(n * 100) / 100; }
 
   // ─── PRIVATE HELPERS ──────────────────────────────────────────────────────
 

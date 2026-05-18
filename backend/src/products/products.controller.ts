@@ -145,4 +145,61 @@ export class ProductsController {
   ) {
     return this.productsService.updateTax(req.user.businessId, id, taxId, req.user.id);
   }
+
+  // ─── PLU MANAGEMENT ───────────────────────────────────
+  @Get(':id/plus')
+  getPlus(@Request() req: any, @Param('id') id: string) {
+    return this.productsService.getPlusForProduct(req.user.businessId, id);
+  }
+
+  @Get(':id/plus/active')
+  getActivePlus(@Request() req: any, @Param('id') id: string) {
+    return this.productsService.getActivePlusForProduct(req.user.businessId, id);
+  }
+
+  @Post(':id/plus')
+  createPlu(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: {
+      eanCode?: string; basicCost?: number; costPrice?: number;
+      mrp: number; sellingPrice: number; wholesalePrice?: number;
+      minSellingPrice?: number; gstRate?: number; hsnCode?: string;
+      cessRate?: number; taxInclusive?: boolean; openingStock?: number;
+    },
+  ) {
+    return this.productsService.createPlu(req.user.businessId, id, body);
+  }
+
+  @Patch(':id/plus/:pluId')
+  updatePlu(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('pluId') pluId: string,
+    @Body() body: {
+      eanCode?: string; sellingPrice?: number; wholesalePrice?: number;
+      minSellingPrice?: number; gstRate?: number; cessRate?: number; taxInclusive?: boolean;
+    },
+  ) {
+    return this.productsService.updatePlu(req.user.businessId, id, pluId, body);
+  }
+
+  @Post(':id/plus/:pluId/set-default')
+  setDefaultPlu(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('pluId') pluId: string,
+  ) {
+    return this.productsService.setDefaultPlu(req.user.businessId, id, pluId);
+  }
+
+  @Post(':id/plus/:pluId/deactivate')
+  deactivatePlu(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('pluId') pluId: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.productsService.deactivatePlu(req.user.businessId, id, pluId, body?.reason);
+  }
 }

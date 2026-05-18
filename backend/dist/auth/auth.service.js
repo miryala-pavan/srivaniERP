@@ -161,6 +161,38 @@ let AuthService = class AuthService {
             return argon2.verify(user.pin, pin);
         return argon2.verify(user.passwordHash, pin);
     }
+    async refreshToken(userId) {
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId, status: 'ACTIVE', deletedAt: null },
+            include: {
+                business: { select: { id: true, name: true, gstin: true, stateName: true } },
+            },
+        });
+        if (!user)
+            throw new common_1.UnauthorizedException('User not found or inactive');
+        const payload = {
+            sub: user.id,
+            username: user.username,
+            role: user.role,
+            businessId: user.businessId,
+            counterId: user.counterId ?? null,
+        };
+        const newToken = this.jwtService.sign(payload, {
+            expiresIn: (process.env.JWT_EXPIRES_IN || '12h'),
+        });
+        return {
+            access_token: newToken,
+            user: {
+                id: user.id,
+                username: user.username,
+                fullName: user.fullName,
+                role: user.role,
+                businessId: user.businessId,
+                counterId: user.counterId ?? null,
+                business: user.business,
+            },
+        };
+    }
     async getMe(userId) {
         return this.prisma.user.findUnique({
             where: { id: userId },

@@ -31,6 +31,15 @@ export declare class AdminController {
         catsSeeded: number;
         subCatsSeeded: number;
     }>;
+    repairProductPlus(req: any): Promise<{
+        repaired: number;
+        updated: number;
+        barcodesLinked: number;
+        repairedLog: string[];
+        updatedLog: string[];
+        barcodesLinkedLog: string[];
+        errors: string[];
+    }>;
     migrateOrphansPhase1(req: any): Promise<{
         message: string;
         brand: string;

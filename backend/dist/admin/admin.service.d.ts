@@ -39,6 +39,15 @@ export declare class AdminService {
         catsSeeded: number;
         subCatsSeeded: number;
     }>;
+    repairProductPlus(businessId: string): Promise<{
+        repaired: number;
+        updated: number;
+        barcodesLinked: number;
+        repairedLog: string[];
+        updatedLog: string[];
+        barcodesLinkedLog: string[];
+        errors: string[];
+    }>;
     migrateOrphansPhase1(businessId: string): Promise<{
         message: string;
         brand: string;

@@ -32,24 +32,41 @@ export declare class AuthController {
     }, req: any): Promise<{
         success: boolean;
     }>;
-    getMe(req: any): Promise<{
-        business: {
-            gstin: string | null;
+    refresh(req: any): Promise<{
+        access_token: string;
+        user: {
             id: string;
-            name: string;
-            stateCode: string;
-            stateName: string;
+            username: string;
+            fullName: string;
+            role: import(".prisma/client").$Enums.UserRole;
+            businessId: string;
+            counterId: string | null;
+            business: {
+                id: string;
+                name: string;
+                gstin: string | null;
+                stateName: string;
+            };
         };
-        username: string;
-        fullName: string;
-        email: string | null;
-        phone: string | null;
+    }>;
+    getMe(req: any): Promise<{
         id: string;
-        businessId: string;
+        username: string;
+        email: string | null;
+        fullName: string;
+        phone: string | null;
         role: import(".prisma/client").$Enums.UserRole;
         status: import(".prisma/client").$Enums.UserStatus;
         lastLoginAt: Date | null;
         counterId: string | null;
         createdAt: Date;
+        business: {
+            id: string;
+            name: string;
+            gstin: string | null;
+            stateCode: string;
+            stateName: string;
+        };
+        businessId: string;
     } | null>;
 }
