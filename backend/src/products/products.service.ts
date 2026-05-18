@@ -2,6 +2,8 @@ import {
   Injectable, BadRequestException, NotFoundException, ConflictException, ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventsService } from '../events/events.service';
+import { Events } from '../events/event-types';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -61,7 +63,10 @@ export interface ProductSearchResult {
 
 @Injectable()
 export class ProductsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private eventsService: EventsService,
+  ) {}
 
   // ─── AUDIT LOG ──────────────────────────────────────────────────────────────
 
@@ -422,6 +427,13 @@ export class ProductsService {
     });
 
     this.audit(userId ?? null, businessId, 'PRODUCT_CREATED', 'Product', product.id, undefined, { productCode: product.productCode, name: product.name });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PRODUCT_CREATED, {
+        productId:   product.id,
+        productCode: product.productCode,
+        name:        product.name,
+      });
+    } catch (_err) { /* fire-and-forget */ }
     return product;
   }
 
@@ -611,6 +623,12 @@ export class ProductsService {
       { name: product.name, mrp: product.mrp, sellingPrice: product.sellingPrice, isActive: product.isActive },
       { name: updated.name, mrp: updated.mrp, sellingPrice: updated.sellingPrice, isActive: updated.isActive },
     );
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PRODUCT_UPDATED, {
+        productId:   id,
+        productCode: updated.productCode,
+      });
+    } catch (_err) { /* fire-and-forget */ }
 
     // If cost price or MRP changed, archive old default PLU and create new one
     const costChanged = dto.costPrice !== undefined && Number(dto.costPrice) !== Number(product.costPrice);
@@ -627,7 +645,7 @@ export class ProductsService {
           const seq = String(existingPlus + 1).padStart(3, '0');
           const newPluCode = `${updated.productCode}${seq}`;
 
-          await this.prisma.$transaction([
+          const [_archived, newPlu] = await this.prisma.$transaction([
             this.prisma.productPlu.update({
               where: { id: defaultPlu.id },
               data: { isDefault: false, isActive: false, isArchived: true, archivedAt: new Date(), archivedReason: 'Price changed' },
@@ -644,6 +662,14 @@ export class ProductsService {
               },
             }),
           ]);
+          try {
+            this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
+              pluId:         newPlu.id,
+              productId:     id,
+              pluCode:       newPlu.pluCode,
+              archivedPluId: defaultPlu.id,
+            });
+          } catch (_err) { /* fire-and-forget */ }
         }
       } catch { /* PLU archival errors must never block product updates */ }
     }
@@ -940,7 +966,7 @@ export class ProductsService {
     if (!product) throw new NotFoundException('Product not found');
     if (body.mrp < body.sellingPrice) throw new BadRequestException('MRP must be >= selling price');
 
-    return this.prisma.$transaction(async (tx) => {
+    const newPlu = await this.prisma.$transaction(async (tx) => {
       const existingCount = await tx.productPlu.count({ where: { productId } });
       let seq = existingCount + 1;
       let pluCode = `${product.productCode}${String(seq).padStart(3, '0')}`;
@@ -1000,6 +1026,15 @@ export class ProductsService {
 
       return newPlu;
     });
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PLU_CREATED, {
+        pluId: newPlu.id, productId, pluCode: newPlu.pluCode,
+        sellingPrice: Number(newPlu.sellingPrice),
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
+    return newPlu;
   }
 
   async updatePlu(businessId: string, productId: string, pluId: string, body: {
@@ -1008,7 +1043,7 @@ export class ProductsService {
   }) {
     const plu = await this.prisma.productPlu.findFirst({ where: { id: pluId, productId, businessId } });
     if (!plu) throw new NotFoundException('PLU not found');
-    return this.prisma.productPlu.update({
+    const updated = await this.prisma.productPlu.update({
       where: { id: pluId },
       data: {
         ...(body.eanCode          !== undefined ? { eanCode: body.eanCode }                 : {}),
@@ -1020,6 +1055,12 @@ export class ProductsService {
         ...(body.taxInclusive     !== undefined ? { taxInclusive: body.taxInclusive }       : {}),
       },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
+        pluId, productId, pluCode: plu.pluCode,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+    return updated;
   }
 
   async setDefaultPlu(businessId: string, productId: string, pluId: string) {
@@ -1031,6 +1072,11 @@ export class ProductsService {
       this.prisma.productPlu.updateMany({ where: { productId, businessId, isDefault: true }, data: { isDefault: false } }),
       this.prisma.productPlu.update({ where: { id: pluId }, data: { isDefault: true } }),
     ]);
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
+        pluId, productId, pluCode: plu.pluCode,
+      });
+    } catch (_err) { /* fire-and-forget */ }
     return { message: 'Default PLU updated' };
   }
 
@@ -1064,6 +1110,12 @@ export class ProductsService {
       where: { id: productId },
       data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
     });
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PLU_ARCHIVED, {
+        pluId, productId, pluCode: plu.pluCode,
+      });
+    } catch (_err) { /* fire-and-forget */ }
 
     return { message: 'PLU deactivated' };
   }

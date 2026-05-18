@@ -12,10 +12,10 @@ export declare class ExpensesController {
         id: string;
         businessId: string;
         createdAt: Date;
+        description: string | null;
         branchId: string | null;
         paymentMode: string;
         amount: import("@prisma/client/runtime/library").Decimal;
-        description: string | null;
         expenseDate: Date;
         vendorName: string | null;
         referenceNo: string | null;
@@ -27,10 +27,10 @@ export declare class ExpensesController {
             id: string;
             businessId: string;
             createdAt: Date;
+            description: string | null;
             branchId: string | null;
             paymentMode: string;
             amount: import("@prisma/client/runtime/library").Decimal;
-            description: string | null;
             expenseDate: Date;
             vendorName: string | null;
             referenceNo: string | null;

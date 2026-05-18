@@ -22,8 +22,8 @@ export declare class UsersController {
     getCounters(req: any): Promise<{
         id: string;
         name: string;
-        code: string;
         description: string | null;
+        code: string;
     }[]>;
     findOne(id: string, req: any): Promise<{
         isActive: boolean;

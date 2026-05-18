@@ -6,21 +6,20 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PosModule = void 0;
+exports.EventsModule = void 0;
 const common_1 = require("@nestjs/common");
-const pos_service_1 = require("./pos.service");
-const pos_controller_1 = require("./pos.controller");
-const products_module_1 = require("../products/products.module");
-const notifications_module_1 = require("../notifications/notifications.module");
-const events_module_1 = require("../events/events.module");
-let PosModule = class PosModule {
+const jwt_1 = require("@nestjs/jwt");
+const config_1 = require("@nestjs/config");
+const events_gateway_1 = require("./events.gateway");
+const events_service_1 = require("./events.service");
+let EventsModule = class EventsModule {
 };
-exports.PosModule = PosModule;
-exports.PosModule = PosModule = __decorate([
+exports.EventsModule = EventsModule;
+exports.EventsModule = EventsModule = __decorate([
     (0, common_1.Module)({
-        imports: [products_module_1.ProductsModule, notifications_module_1.NotificationsModule, events_module_1.EventsModule],
-        providers: [pos_service_1.PosService],
-        controllers: [pos_controller_1.PosController],
+        imports: [jwt_1.JwtModule, config_1.ConfigModule],
+        providers: [events_gateway_1.EventsGateway, events_service_1.EventsService],
+        exports: [events_service_1.EventsService],
     })
-], PosModule);
-//# sourceMappingURL=pos.module.js.map
+], EventsModule);
+//# sourceMappingURL=events.module.js.map

@@ -1,6 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EventsService } from '../events/events.service';
+import { Events } from '../events/event-types';
 
 function todayRange() {
   const start = new Date();
@@ -24,6 +26,7 @@ export class DayClosureService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private eventsService: EventsService,
   ) {}
 
   private async getDefaultBranchId(businessId: string) {
@@ -195,6 +198,15 @@ export class DayClosureService {
       message:  `Sales: ₹${summary.totalSales} · Cash: ₹${summary.totalCash} · UPI: ₹${summary.totalUpi} · Diff: ₹${cashDiff}`,
     }).catch(() => {});
 
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.DAY_CLOSED, {
+        closureId:       closure.id,
+        closureDate:     closureDate.toISOString(),
+        totalSales:      summary.totalSales,
+        cashDifference:  cashDiff,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
     return closure;
   }
 
@@ -210,11 +222,18 @@ export class DayClosureService {
       throw new BadRequestException('Day is already open.');
     }
 
-    await this.prisma.dayClosure.upsert({
+    const dayRecord = await this.prisma.dayClosure.upsert({
       where: { businessId_branchId_closureDate: { businessId, branchId, closureDate } },
       create: { businessId, branchId, closureDate, status: 'PENDING', openedById: userId, openedByName: userName },
       update: { status: 'PENDING', closedById: null, closedAt: null, openedById: userId, openedByName: userName },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.DAY_OPENED, {
+        closureId:   dayRecord.id,
+        closureDate: closureDate.toISOString(),
+        branchId,
+      });
+    } catch (_err) { /* fire-and-forget */ }
     return { opened: true, date: closureDate };
   }
 

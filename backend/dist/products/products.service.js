@@ -12,6 +12,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProductsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const events_service_1 = require("../events/events.service");
+const event_types_1 = require("../events/event-types");
 function tcField(s) {
     if (!s)
         return s ?? undefined;
@@ -35,8 +37,10 @@ const DEFAULT_TAXES = [
 ];
 let ProductsService = class ProductsService {
     prisma;
-    constructor(prisma) {
+    eventsService;
+    constructor(prisma, eventsService) {
         this.prisma = prisma;
+        this.eventsService = eventsService;
     }
     async audit(userId, businessId, actionType, entityType, entityId, oldValues, newValues) {
         try {
@@ -363,6 +367,14 @@ let ProductsService = class ProductsService {
             return { ...p, pluCode };
         });
         this.audit(userId ?? null, businessId, 'PRODUCT_CREATED', 'Product', product.id, undefined, { productCode: product.productCode, name: product.name });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.PRODUCT_CREATED, {
+                productId: product.id,
+                productCode: product.productCode,
+                name: product.name,
+            });
+        }
+        catch (_err) { }
         return product;
     }
     async getProducts(businessId, query) {
@@ -532,6 +544,13 @@ let ProductsService = class ProductsService {
             include: { category: true, brand: true, tax: true },
         });
         this.audit(userId ?? null, businessId, 'PRODUCT_UPDATED', 'Product', id, { name: product.name, mrp: product.mrp, sellingPrice: product.sellingPrice, isActive: product.isActive }, { name: updated.name, mrp: updated.mrp, sellingPrice: updated.sellingPrice, isActive: updated.isActive });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.PRODUCT_UPDATED, {
+                productId: id,
+                productCode: updated.productCode,
+            });
+        }
+        catch (_err) { }
         const costChanged = dto.costPrice !== undefined && Number(dto.costPrice) !== Number(product.costPrice);
         const mrpChanged = dto.mrp !== undefined && Number(dto.mrp) !== Number(product.mrp);
         if (costChanged || mrpChanged) {
@@ -544,7 +563,7 @@ let ProductsService = class ProductsService {
                     const existingPlus = await this.prisma.productPlu.count({ where: { productId: id } });
                     const seq = String(existingPlus + 1).padStart(3, '0');
                     const newPluCode = `${updated.productCode}${seq}`;
-                    await this.prisma.$transaction([
+                    const [_archived, newPlu] = await this.prisma.$transaction([
                         this.prisma.productPlu.update({
                             where: { id: defaultPlu.id },
                             data: { isDefault: false, isActive: false, isArchived: true, archivedAt: new Date(), archivedReason: 'Price changed' },
@@ -561,6 +580,15 @@ let ProductsService = class ProductsService {
                             },
                         }),
                     ]);
+                    try {
+                        this.eventsService.emitToBusiness(businessId, event_types_1.Events.PLU_UPDATED, {
+                            pluId: newPlu.id,
+                            productId: id,
+                            pluCode: newPlu.pluCode,
+                            archivedPluId: defaultPlu.id,
+                        });
+                    }
+                    catch (_err) { }
                 }
             }
             catch { }
@@ -828,7 +856,7 @@ let ProductsService = class ProductsService {
             throw new common_1.NotFoundException('Product not found');
         if (body.mrp < body.sellingPrice)
             throw new common_1.BadRequestException('MRP must be >= selling price');
-        return this.prisma.$transaction(async (tx) => {
+        const newPlu = await this.prisma.$transaction(async (tx) => {
             const existingCount = await tx.productPlu.count({ where: { productId } });
             let seq = existingCount + 1;
             let pluCode = `${product.productCode}${String(seq).padStart(3, '0')}`;
@@ -883,12 +911,20 @@ let ProductsService = class ProductsService {
             }
             return newPlu;
         });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.PLU_CREATED, {
+                pluId: newPlu.id, productId, pluCode: newPlu.pluCode,
+                sellingPrice: Number(newPlu.sellingPrice),
+            });
+        }
+        catch (_err) { }
+        return newPlu;
     }
     async updatePlu(businessId, productId, pluId, body) {
         const plu = await this.prisma.productPlu.findFirst({ where: { id: pluId, productId, businessId } });
         if (!plu)
             throw new common_1.NotFoundException('PLU not found');
-        return this.prisma.productPlu.update({
+        const updated = await this.prisma.productPlu.update({
             where: { id: pluId },
             data: {
                 ...(body.eanCode !== undefined ? { eanCode: body.eanCode } : {}),
@@ -900,6 +936,13 @@ let ProductsService = class ProductsService {
                 ...(body.taxInclusive !== undefined ? { taxInclusive: body.taxInclusive } : {}),
             },
         });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.PLU_UPDATED, {
+                pluId, productId, pluCode: plu.pluCode,
+            });
+        }
+        catch (_err) { }
+        return updated;
     }
     async setDefaultPlu(businessId, productId, pluId) {
         const plu = await this.prisma.productPlu.findFirst({
@@ -911,6 +954,12 @@ let ProductsService = class ProductsService {
             this.prisma.productPlu.updateMany({ where: { productId, businessId, isDefault: true }, data: { isDefault: false } }),
             this.prisma.productPlu.update({ where: { id: pluId }, data: { isDefault: true } }),
         ]);
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.PLU_UPDATED, {
+                pluId, productId, pluCode: plu.pluCode,
+            });
+        }
+        catch (_err) { }
         return { message: 'Default PLU updated' };
     }
     async deactivatePlu(businessId, productId, pluId, reason) {
@@ -943,6 +992,12 @@ let ProductsService = class ProductsService {
             where: { id: productId },
             data: { totalStock: Number(agg._sum.stockOnHand ?? 0) },
         });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.PLU_ARCHIVED, {
+                pluId, productId, pluCode: plu.pluCode,
+            });
+        }
+        catch (_err) { }
         return { message: 'PLU deactivated' };
     }
     r2(n) { return Math.round(n * 100) / 100; }
@@ -971,6 +1026,7 @@ let ProductsService = class ProductsService {
 exports.ProductsService = ProductsService;
 exports.ProductsService = ProductsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        events_service_1.EventsService])
 ], ProductsService);
 //# sourceMappingURL=products.service.js.map

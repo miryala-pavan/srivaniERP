@@ -18,6 +18,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { DayClosureModule } from './day-closure/day-closure.module';
 import { UsersModule } from './users/users.module';
 import { DepartmentsModule } from './departments/departments.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   controllers: [AppController],
@@ -40,6 +41,7 @@ import { DepartmentsModule } from './departments/departments.module';
     NotificationsModule,
     DayClosureModule,
     UsersModule,
+    EventsModule,
   ],
 })
 export class AppModule {}

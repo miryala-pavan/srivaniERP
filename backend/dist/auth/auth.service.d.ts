@@ -9,17 +9,17 @@ export declare class AuthService implements OnModuleInit {
     onModuleInit(): Promise<void>;
     validateUser(username: string, password: string): Promise<{
         business: {
+            gstin: string | null;
             id: string;
             name: string;
-            gstin: string | null;
             stateName: string;
         };
+        username: string;
+        fullName: string;
+        email: string | null;
+        phone: string | null;
         id: string;
         businessId: string;
-        username: string;
-        email: string | null;
-        fullName: string;
-        phone: string | null;
         role: import(".prisma/client").$Enums.UserRole;
         status: import(".prisma/client").$Enums.UserStatus;
         failedLoginAttempts: number;
@@ -38,17 +38,17 @@ export declare class AuthService implements OnModuleInit {
     } | null>;
     validateUserByPin(username: string, pinInput: string): Promise<{
         business: {
+            gstin: string | null;
             id: string;
             name: string;
-            gstin: string | null;
             stateName: string;
         };
+        username: string;
+        fullName: string;
+        email: string | null;
+        phone: string | null;
         id: string;
         businessId: string;
-        username: string;
-        email: string | null;
-        fullName: string;
-        phone: string | null;
         role: import(".prisma/client").$Enums.UserRole;
         status: import(".prisma/client").$Enums.UserStatus;
         failedLoginAttempts: number;
@@ -99,32 +99,32 @@ export declare class AuthService implements OnModuleInit {
             businessId: string;
             counterId: string | null;
             business: {
+                gstin: string | null;
                 id: string;
                 name: string;
-                gstin: string | null;
                 stateName: string;
             };
         };
     }>;
     getMe(userId: string): Promise<{
+        business: {
+            gstin: string | null;
+            id: string;
+            name: string;
+            stateCode: string;
+            stateName: string;
+        };
+        username: string;
+        fullName: string;
+        email: string | null;
+        phone: string | null;
         id: string;
         businessId: string;
-        username: string;
-        email: string | null;
-        fullName: string;
-        phone: string | null;
         role: import(".prisma/client").$Enums.UserRole;
         status: import(".prisma/client").$Enums.UserStatus;
         lastLoginAt: Date | null;
         counterId: string | null;
         createdAt: Date;
-        business: {
-            id: string;
-            name: string;
-            gstin: string | null;
-            stateCode: string;
-            stateName: string;
-        };
     } | null>;
     private seedTestUser;
 }

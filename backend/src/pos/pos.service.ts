@@ -7,6 +7,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EventsService } from '../events/events.service';
+import { Events } from '../events/event-types';
 import { CreateCounterDto } from './dto/create-counter.dto';
 import { OpenShiftDto } from './dto/open-shift.dto';
 import { CloseShiftDto } from './dto/close-shift.dto';
@@ -60,6 +62,7 @@ export class PosService {
     private prisma: PrismaService,
     private products: ProductsService,
     private notifications: NotificationsService,
+    private eventsService: EventsService,
   ) {}
 
   // ─── COUNTER ──────────────────────────────────────────
@@ -144,6 +147,15 @@ export class PosService {
         cashier: { select: { id: true, fullName: true, username: true, role: true } },
       },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.SHIFT_OPENED, {
+        shiftId:     newShift.id,
+        cashierId:   userId,
+        counterId:   dto.counterId,
+        openingCash: dto.openingCash,
+        startTime:   newShift.startTime.toISOString(),
+      });
+    } catch (_err) { /* fire-and-forget */ }
     return { shift: newShift, resumed: false };
   }
 
@@ -203,7 +215,7 @@ export class PosService {
     const openingCash = Number(shift.openingCash);
     const expectedCash = r2(openingCash + totalCash);
 
-    return this.prisma.posShift.update({
+    const closed = await this.prisma.posShift.update({
       where: { id: shiftId },
       data: {
         status:       'CLOSED',
@@ -217,6 +229,17 @@ export class PosService {
         cashier: { select: { id: true, fullName: true, username: true } },
       },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.SHIFT_CLOSED, {
+        shiftId,
+        cashierId:   shift.cashierId,
+        counterId:   shift.counterId,
+        closingCash: 0,
+        cashDiff:    r2(0 - expectedCash),
+        forceClose:  true,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+    return closed;
   }
 
   async closeShift(businessId: string, userId: string, shiftId: string, dto: CloseShiftDto) {
@@ -230,7 +253,7 @@ export class PosService {
     const expectedCash = r2(openingCash + totalCash);
     const cashDiff     = r2(dto.closingCash - expectedCash);
 
-    return this.prisma.posShift.update({
+    const closed = await this.prisma.posShift.update({
       where: { id: shiftId },
       data: {
         closingCash:  dto.closingCash,
@@ -245,6 +268,17 @@ export class PosService {
         cashier: { select: { id: true, fullName: true, username: true } },
       },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.SHIFT_CLOSED, {
+        shiftId,
+        cashierId:   userId,
+        counterId:   shift.counterId,
+        closingCash: dto.closingCash,
+        cashDiff,
+        forceClose:  false,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+    return closed;
   }
 
   // ─── BILLING ──────────────────────────────────────────
@@ -615,6 +649,16 @@ export class PosService {
     // Fire-and-forget stock check (skip for estimates)
     if (!isEstimate) {
       this.checkStockAfterSale(businessId, counter.branchId, dto.items.map((i) => i.productId)).catch(() => {});
+      try {
+        this.eventsService.emitToBusiness(businessId, Events.BILL_CREATED, {
+          billId:     bill?.id ?? '',
+          billNumber: bill?.billNumber ?? '',
+          billType:   bill?.billType ?? '',
+          grandTotal,
+          counterId:  dto.counterId,
+          cashierId:  userId,
+        });
+      } catch (_err) { /* fire-and-forget */ }
     }
 
     return bill;
@@ -1263,6 +1307,15 @@ export class PosService {
       title:    `Bill Voided: ${bill.billNumber}`,
       message:  `Voided by ${userName}. Reason: ${reason}`,
     }).catch(() => {});
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.BILL_VOIDED, {
+        billId:       billId,
+        billNumber:   bill.billNumber,
+        voidedById:   userId,
+        voidedByName: userName,
+      });
+    } catch (_err) { /* fire-and-forget */ }
 
     return {
       success:       true,

@@ -1,6 +1,7 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GrnCalculationsService } from './grn-calculations.service';
+import { EventsService } from '../events/events.service';
 import { CreateGrnDto } from './dto/create-grn.dto';
 import { UpdateGrnDto } from './dto/update-grn.dto';
 import { GrnQueryDto } from './dto/grn-query.dto';
@@ -8,7 +9,8 @@ export declare class GrnService {
     private prisma;
     private calc;
     private notifications;
-    constructor(prisma: PrismaService, calc: GrnCalculationsService, notifications: NotificationsService);
+    private eventsService;
+    constructor(prisma: PrismaService, calc: GrnCalculationsService, notifications: NotificationsService, eventsService: EventsService);
     private r2;
     searchProductsForGrn(q: string, businessId: string): Promise<{
         id: string;

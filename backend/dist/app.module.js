@@ -27,6 +27,7 @@ const notifications_module_1 = require("./notifications/notifications.module");
 const day_closure_module_1 = require("./day-closure/day-closure.module");
 const users_module_1 = require("./users/users.module");
 const departments_module_1 = require("./departments/departments.module");
+const events_module_1 = require("./events/events.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -52,6 +53,7 @@ exports.AppModule = AppModule = __decorate([
             notifications_module_1.NotificationsModule,
             day_closure_module_1.DayClosureModule,
             users_module_1.UsersModule,
+            events_module_1.EventsModule,
         ],
     })
 ], AppModule);

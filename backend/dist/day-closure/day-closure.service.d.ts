@@ -1,9 +1,11 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EventsService } from '../events/events.service';
 export declare class DayClosureService {
     private prisma;
     private notifications;
-    constructor(prisma: PrismaService, notifications: NotificationsService);
+    private eventsService;
+    constructor(prisma: PrismaService, notifications: NotificationsService, eventsService: EventsService);
     private getDefaultBranchId;
     getToday(businessId: string, branchId?: string): Promise<{
         branchId: string | null;

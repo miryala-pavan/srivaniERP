@@ -27,9 +27,9 @@ export declare class PosController {
         status: import(".prisma/client").$Enums.CounterStatus;
         createdAt: Date;
         name: string;
+        description: string | null;
         code: string;
         branchId: string;
-        description: string | null;
     }>;
     getCounters(req: any): Promise<({
         branch: {
@@ -76,9 +76,9 @@ export declare class PosController {
         status: import(".prisma/client").$Enums.CounterStatus;
         createdAt: Date;
         name: string;
+        description: string | null;
         code: string;
         branchId: string;
-        description: string | null;
     })[]>;
     openShift(req: any, dto: OpenShiftDto): Promise<{
         shift: {
@@ -88,9 +88,9 @@ export declare class PosController {
                 status: import(".prisma/client").$Enums.CounterStatus;
                 createdAt: Date;
                 name: string;
+                description: string | null;
                 code: string;
                 branchId: string;
-                description: string | null;
             };
             cashier: {
                 username: string;
@@ -130,9 +130,9 @@ export declare class PosController {
                 status: import(".prisma/client").$Enums.CounterStatus;
                 createdAt: Date;
                 name: string;
+                description: string | null;
                 code: string;
                 branchId: string;
-                description: string | null;
             };
             cashier: {
                 username: string;
@@ -171,9 +171,9 @@ export declare class PosController {
                 status: import(".prisma/client").$Enums.CounterStatus;
                 createdAt: Date;
                 name: string;
+                description: string | null;
                 code: string;
                 branchId: string;
-                description: string | null;
             };
             cashier: {
                 username: string;
@@ -277,9 +277,9 @@ export declare class PosController {
             status: import(".prisma/client").$Enums.CounterStatus;
             createdAt: Date;
             name: string;
+            description: string | null;
             code: string;
             branchId: string;
-            description: string | null;
         };
         cashier: {
             username: string;
@@ -354,9 +354,9 @@ export declare class PosController {
             status: import(".prisma/client").$Enums.CounterStatus;
             createdAt: Date;
             name: string;
+            description: string | null;
             code: string;
             branchId: string;
-            description: string | null;
         } | null;
         items: {
             id: string;
@@ -446,9 +446,9 @@ export declare class PosController {
                 status: import(".prisma/client").$Enums.CounterStatus;
                 createdAt: Date;
                 name: string;
+                description: string | null;
                 code: string;
                 branchId: string;
-                description: string | null;
             } | null;
             _count: {
                 items: number;
@@ -744,9 +744,9 @@ export declare class PosController {
             status: import(".prisma/client").$Enums.CounterStatus;
             createdAt: Date;
             name: string;
+            description: string | null;
             code: string;
             branchId: string;
-            description: string | null;
         } | null;
         posShift: ({
             cashier: {

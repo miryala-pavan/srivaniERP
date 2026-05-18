@@ -14,6 +14,8 @@ const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const products_service_1 = require("../products/products.service");
 const notifications_service_1 = require("../notifications/notifications.service");
+const events_service_1 = require("../events/events.service");
+const event_types_1 = require("../events/event-types");
 const create_bill_dto_1 = require("./dto/create-bill.dto");
 const VALID_GST_RATES = new Set([0, 0.1, 0.25, 1.5, 3, 5, 6, 12, 18, 28]);
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -44,10 +46,12 @@ let PosService = class PosService {
     prisma;
     products;
     notifications;
-    constructor(prisma, products, notifications) {
+    eventsService;
+    constructor(prisma, products, notifications, eventsService) {
         this.prisma = prisma;
         this.products = products;
         this.notifications = notifications;
+        this.eventsService = eventsService;
     }
     async createCounter(businessId, dto) {
         const branchId = dto.branchId ?? await this.getFirstBranchId(businessId);
@@ -121,6 +125,16 @@ let PosService = class PosService {
                 cashier: { select: { id: true, fullName: true, username: true, role: true } },
             },
         });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.SHIFT_OPENED, {
+                shiftId: newShift.id,
+                cashierId: userId,
+                counterId: dto.counterId,
+                openingCash: dto.openingCash,
+                startTime: newShift.startTime.toISOString(),
+            });
+        }
+        catch (_err) { }
         return { shift: newShift, resumed: false };
     }
     async getMyShift(userId) {
@@ -177,7 +191,7 @@ let PosService = class PosService {
         const totalCash = Number(shift.totalCash);
         const openingCash = Number(shift.openingCash);
         const expectedCash = r2(openingCash + totalCash);
-        return this.prisma.posShift.update({
+        const closed = await this.prisma.posShift.update({
             where: { id: shiftId },
             data: {
                 status: 'CLOSED',
@@ -191,6 +205,18 @@ let PosService = class PosService {
                 cashier: { select: { id: true, fullName: true, username: true } },
             },
         });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.SHIFT_CLOSED, {
+                shiftId,
+                cashierId: shift.cashierId,
+                counterId: shift.counterId,
+                closingCash: 0,
+                cashDiff: r2(0 - expectedCash),
+                forceClose: true,
+            });
+        }
+        catch (_err) { }
+        return closed;
     }
     async closeShift(businessId, userId, shiftId, dto) {
         const shift = await this.prisma.posShift.findFirst({
@@ -202,7 +228,7 @@ let PosService = class PosService {
         const openingCash = Number(shift.openingCash);
         const expectedCash = r2(openingCash + totalCash);
         const cashDiff = r2(dto.closingCash - expectedCash);
-        return this.prisma.posShift.update({
+        const closed = await this.prisma.posShift.update({
             where: { id: shiftId },
             data: {
                 closingCash: dto.closingCash,
@@ -217,6 +243,18 @@ let PosService = class PosService {
                 cashier: { select: { id: true, fullName: true, username: true } },
             },
         });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.SHIFT_CLOSED, {
+                shiftId,
+                cashierId: userId,
+                counterId: shift.counterId,
+                closingCash: dto.closingCash,
+                cashDiff,
+                forceClose: false,
+            });
+        }
+        catch (_err) { }
+        return closed;
     }
     async createBill(businessId, userId, dto) {
         const business = await this.prisma.business.findUnique({ where: { id: businessId } });
@@ -529,6 +567,17 @@ let PosService = class PosService {
         }, { timeout: 15000 });
         if (!isEstimate) {
             this.checkStockAfterSale(businessId, counter.branchId, dto.items.map((i) => i.productId)).catch(() => { });
+            try {
+                this.eventsService.emitToBusiness(businessId, event_types_1.Events.BILL_CREATED, {
+                    billId: bill?.id ?? '',
+                    billNumber: bill?.billNumber ?? '',
+                    billType: bill?.billType ?? '',
+                    grandTotal,
+                    counterId: dto.counterId,
+                    cashierId: userId,
+                });
+            }
+            catch (_err) { }
         }
         return bill;
     }
@@ -1091,6 +1140,15 @@ let PosService = class PosService {
             title: `Bill Voided: ${bill.billNumber}`,
             message: `Voided by ${userName}. Reason: ${reason}`,
         }).catch(() => { });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.BILL_VOIDED, {
+                billId: billId,
+                billNumber: bill.billNumber,
+                voidedById: userId,
+                voidedByName: userName,
+            });
+        }
+        catch (_err) { }
         return {
             success: true,
             stockReversed: true,
@@ -1505,6 +1563,7 @@ exports.PosService = PosService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         products_service_1.ProductsService,
-        notifications_service_1.NotificationsService])
+        notifications_service_1.NotificationsService,
+        events_service_1.EventsService])
 ], PosService);
 //# sourceMappingURL=pos.service.js.map

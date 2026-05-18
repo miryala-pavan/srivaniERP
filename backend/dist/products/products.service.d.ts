@@ -1,4 +1,5 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { EventsService } from '../events/events.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -37,7 +38,8 @@ export interface ProductSearchResult {
 }
 export declare class ProductsService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private eventsService;
+    constructor(prisma: PrismaService, eventsService: EventsService);
     private audit;
     createNotification(businessId: string, type: string, title: string, message: string, productId?: string): Promise<void>;
     seedTaxes(businessId: string): Promise<{

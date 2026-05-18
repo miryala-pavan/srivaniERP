@@ -42,31 +42,31 @@ export declare class AuthController {
             businessId: string;
             counterId: string | null;
             business: {
+                gstin: string | null;
                 id: string;
                 name: string;
-                gstin: string | null;
                 stateName: string;
             };
         };
     }>;
     getMe(req: any): Promise<{
-        id: string;
+        business: {
+            gstin: string | null;
+            id: string;
+            name: string;
+            stateCode: string;
+            stateName: string;
+        };
         username: string;
-        email: string | null;
         fullName: string;
+        email: string | null;
         phone: string | null;
+        id: string;
+        businessId: string;
         role: import(".prisma/client").$Enums.UserRole;
         status: import(".prisma/client").$Enums.UserStatus;
         lastLoginAt: Date | null;
         counterId: string | null;
         createdAt: Date;
-        business: {
-            id: string;
-            name: string;
-            gstin: string | null;
-            stateCode: string;
-            stateName: string;
-        };
-        businessId: string;
     } | null>;
 }

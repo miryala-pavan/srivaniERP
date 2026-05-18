@@ -13,12 +13,13 @@ const grn_controller_1 = require("./grn.controller");
 const grn_calculations_service_1 = require("./grn-calculations.service");
 const notifications_module_1 = require("../notifications/notifications.module");
 const suppliers_module_1 = require("../suppliers/suppliers.module");
+const events_module_1 = require("../events/events.module");
 let GrnModule = class GrnModule {
 };
 exports.GrnModule = GrnModule;
 exports.GrnModule = GrnModule = __decorate([
     (0, common_1.Module)({
-        imports: [notifications_module_1.NotificationsModule, suppliers_module_1.SuppliersModule],
+        imports: [notifications_module_1.NotificationsModule, suppliers_module_1.SuppliersModule, events_module_1.EventsModule],
         providers: [grn_service_1.GrnService, grn_calculations_service_1.GrnCalculationsService],
         controllers: [grn_controller_1.GrnController],
     })

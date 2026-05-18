@@ -4,6 +4,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GrnCalculationsService } from './grn-calculations.service';
+import { EventsService } from '../events/events.service';
+import { Events } from '../events/event-types';
 import { CreateGrnDto } from './dto/create-grn.dto';
 import { UpdateGrnDto } from './dto/update-grn.dto';
 import { GrnQueryDto } from './dto/grn-query.dto';
@@ -14,6 +16,7 @@ export class GrnService {
     private prisma: PrismaService,
     private calc: GrnCalculationsService,
     private notifications: NotificationsService,
+    private eventsService: EventsService,
   ) {}
 
   private r2(n: number) { return Math.round(n * 100) / 100; }
@@ -333,6 +336,16 @@ export class GrnService {
       }).catch(() => {});
     }
 
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.GRN_CREATED, {
+        grnId:       purchase.id,
+        grnNumber:   purchase.grnNumber,
+        status:      purchase.status,
+        supplierId:  purchase.supplierId,
+        totalAmount: Number(purchase.grandTotal),
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
     return purchase;
   }
 
@@ -463,6 +476,15 @@ export class GrnService {
       }
     });
 
+    try {
+      const updated = await this.prisma.purchase.findFirst({ where: { id, businessId }, select: { grnNumber: true, status: true } });
+      this.eventsService.emitToBusiness(businessId, Events.GRN_UPDATED, {
+        grnId:     id,
+        grnNumber: updated?.grnNumber ?? null,
+        status:    updated?.status ?? 'DRAFT',
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
     return this.findOne(businessId, id);
   }
 
@@ -488,6 +510,13 @@ export class GrnService {
       actionUrl: '/dashboard/grn',
       actionLabel: 'Review GRN',
     }).catch(() => {});
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.GRN_SUBMITTED, {
+        grnId:     id,
+        grnNumber: grnNumber,
+      });
+    } catch (_err) { /* fire-and-forget */ }
 
     return updated;
   }
@@ -554,6 +583,15 @@ export class GrnService {
     }, { timeout: 60000 });
 
     this.handleRestockNotifications(businessId, purchase.branchId, purchase.items, purchase.grnNumber ?? '').catch(() => {});
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.GRN_APPROVED, {
+        grnId:       id,
+        grnNumber:   purchase.grnNumber,
+        supplierId:  purchase.supplierId,
+        totalAmount: Number(purchase.grandTotal),
+      });
+    } catch (_err) { /* fire-and-forget */ }
 
     return this.findOne(businessId, id);
   }
@@ -709,7 +747,7 @@ export class GrnService {
     if (!['PENDING_APPROVAL', 'DRAFT'].includes(purchase.status)) {
       throw new BadRequestException(`Cannot reject a GRN with status ${purchase.status}`);
     }
-    return this.prisma.purchase.update({
+    const rejected = await this.prisma.purchase.update({
       where: { id },
       data: {
         status: 'REJECTED',
@@ -717,6 +755,16 @@ export class GrnService {
         ...(reason ? { notes: reason } : {}),
       } as any,
     });
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.GRN_REJECTED, {
+        grnId:      id,
+        grnNumber:  purchase.grnNumber,
+        supplierId: purchase.supplierId,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
+    return rejected;
   }
 
   async cancel(businessId: string, id: string) {

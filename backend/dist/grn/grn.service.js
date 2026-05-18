@@ -14,14 +14,18 @@ const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notifications_service_1 = require("../notifications/notifications.service");
 const grn_calculations_service_1 = require("./grn-calculations.service");
+const events_service_1 = require("../events/events.service");
+const event_types_1 = require("../events/event-types");
 let GrnService = class GrnService {
     prisma;
     calc;
     notifications;
-    constructor(prisma, calc, notifications) {
+    eventsService;
+    constructor(prisma, calc, notifications, eventsService) {
         this.prisma = prisma;
         this.calc = calc;
         this.notifications = notifications;
+        this.eventsService = eventsService;
     }
     r2(n) { return Math.round(n * 100) / 100; }
     async searchProductsForGrn(q, businessId) {
@@ -300,6 +304,16 @@ let GrnService = class GrnService {
                 actionLabel: 'Review GRN',
             }).catch(() => { });
         }
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.GRN_CREATED, {
+                grnId: purchase.id,
+                grnNumber: purchase.grnNumber,
+                status: purchase.status,
+                supplierId: purchase.supplierId,
+                totalAmount: Number(purchase.grandTotal),
+            });
+        }
+        catch (_err) { }
         return purchase;
     }
     async update(businessId, id, dto) {
@@ -416,6 +430,15 @@ let GrnService = class GrnService {
                 }
             }
         });
+        try {
+            const updated = await this.prisma.purchase.findFirst({ where: { id, businessId }, select: { grnNumber: true, status: true } });
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.GRN_UPDATED, {
+                grnId: id,
+                grnNumber: updated?.grnNumber ?? null,
+                status: updated?.status ?? 'DRAFT',
+            });
+        }
+        catch (_err) { }
         return this.findOne(businessId, id);
     }
     async submit(businessId, id) {
@@ -440,6 +463,13 @@ let GrnService = class GrnService {
             actionUrl: '/dashboard/grn',
             actionLabel: 'Review GRN',
         }).catch(() => { });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.GRN_SUBMITTED, {
+                grnId: id,
+                grnNumber: grnNumber,
+            });
+        }
+        catch (_err) { }
         return updated;
     }
     async approve(businessId, id, approverName, notes) {
@@ -499,6 +529,15 @@ let GrnService = class GrnService {
             await this.syncPluOnApproval(tx, businessId, id, purchase.items, approverName ?? 'System');
         }, { timeout: 60000 });
         this.handleRestockNotifications(businessId, purchase.branchId, purchase.items, purchase.grnNumber ?? '').catch(() => { });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.GRN_APPROVED, {
+                grnId: id,
+                grnNumber: purchase.grnNumber,
+                supplierId: purchase.supplierId,
+                totalAmount: Number(purchase.grandTotal),
+            });
+        }
+        catch (_err) { }
         return this.findOne(businessId, id);
     }
     async syncPluOnApproval(tx, businessId, grnId, items, approverName) {
@@ -629,7 +668,7 @@ let GrnService = class GrnService {
         if (!['PENDING_APPROVAL', 'DRAFT'].includes(purchase.status)) {
             throw new common_1.BadRequestException(`Cannot reject a GRN with status ${purchase.status}`);
         }
-        return this.prisma.purchase.update({
+        const rejected = await this.prisma.purchase.update({
             where: { id },
             data: {
                 status: 'REJECTED',
@@ -637,6 +676,15 @@ let GrnService = class GrnService {
                 ...(reason ? { notes: reason } : {}),
             },
         });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.GRN_REJECTED, {
+                grnId: id,
+                grnNumber: purchase.grnNumber,
+                supplierId: purchase.supplierId,
+            });
+        }
+        catch (_err) { }
+        return rejected;
     }
     async cancel(businessId, id) {
         const purchase = await this.prisma.purchase.findFirst({ where: { id, businessId } });
@@ -877,6 +925,7 @@ exports.GrnService = GrnService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         grn_calculations_service_1.GrnCalculationsService,
-        notifications_service_1.NotificationsService])
+        notifications_service_1.NotificationsService,
+        events_service_1.EventsService])
 ], GrnService);
 //# sourceMappingURL=grn.service.js.map

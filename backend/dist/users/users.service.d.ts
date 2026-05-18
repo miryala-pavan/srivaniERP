@@ -82,7 +82,7 @@ export declare class UsersService {
     getCounters(businessId: string): Promise<{
         id: string;
         name: string;
-        code: string;
         description: string | null;
+        code: string;
     }[]>;
 }

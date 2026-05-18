@@ -13,6 +13,8 @@ exports.DayClosureService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notifications_service_1 = require("../notifications/notifications.service");
+const events_service_1 = require("../events/events.service");
+const event_types_1 = require("../events/event-types");
 function todayRange() {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
@@ -31,9 +33,11 @@ function yesterdayRange() {
 let DayClosureService = class DayClosureService {
     prisma;
     notifications;
-    constructor(prisma, notifications) {
+    eventsService;
+    constructor(prisma, notifications, eventsService) {
         this.prisma = prisma;
         this.notifications = notifications;
+        this.eventsService = eventsService;
     }
     async getDefaultBranchId(businessId) {
         const branch = await this.prisma.branch.findFirst({
@@ -185,6 +189,15 @@ let DayClosureService = class DayClosureService {
             title: `Day Closed — ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`,
             message: `Sales: ₹${summary.totalSales} · Cash: ₹${summary.totalCash} · UPI: ₹${summary.totalUpi} · Diff: ₹${cashDiff}`,
         }).catch(() => { });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.DAY_CLOSED, {
+                closureId: closure.id,
+                closureDate: closureDate.toISOString(),
+                totalSales: summary.totalSales,
+                cashDifference: cashDiff,
+            });
+        }
+        catch (_err) { }
         return closure;
     }
     async open(businessId, userId, userName) {
@@ -199,11 +212,19 @@ let DayClosureService = class DayClosureService {
         if (existing?.status === 'PENDING') {
             throw new common_1.BadRequestException('Day is already open.');
         }
-        await this.prisma.dayClosure.upsert({
+        const dayRecord = await this.prisma.dayClosure.upsert({
             where: { businessId_branchId_closureDate: { businessId, branchId, closureDate } },
             create: { businessId, branchId, closureDate, status: 'PENDING', openedById: userId, openedByName: userName },
             update: { status: 'PENDING', closedById: null, closedAt: null, openedById: userId, openedByName: userName },
         });
+        try {
+            this.eventsService.emitToBusiness(businessId, event_types_1.Events.DAY_OPENED, {
+                closureId: dayRecord.id,
+                closureDate: closureDate.toISOString(),
+                branchId,
+            });
+        }
+        catch (_err) { }
         return { opened: true, date: closureDate };
     }
     async getHistory(businessId) {
@@ -235,6 +256,7 @@ exports.DayClosureService = DayClosureService;
 exports.DayClosureService = DayClosureService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        notifications_service_1.NotificationsService])
+        notifications_service_1.NotificationsService,
+        events_service_1.EventsService])
 ], DayClosureService);
 //# sourceMappingURL=day-closure.service.js.map

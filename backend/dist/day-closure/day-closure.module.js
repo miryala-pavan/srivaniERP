@@ -11,12 +11,13 @@ const common_1 = require("@nestjs/common");
 const day_closure_service_1 = require("./day-closure.service");
 const day_closure_controller_1 = require("./day-closure.controller");
 const notifications_module_1 = require("../notifications/notifications.module");
+const events_module_1 = require("../events/events.module");
 let DayClosureModule = class DayClosureModule {
 };
 exports.DayClosureModule = DayClosureModule;
 exports.DayClosureModule = DayClosureModule = __decorate([
     (0, common_1.Module)({
-        imports: [notifications_module_1.NotificationsModule],
+        imports: [notifications_module_1.NotificationsModule, events_module_1.EventsModule],
         providers: [day_closure_service_1.DayClosureService],
         controllers: [day_closure_controller_1.DayClosureController],
     })
