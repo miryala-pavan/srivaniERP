@@ -1,0 +1,18 @@
+/storage/
+
+# Secrets — never commit
+.env
+*.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+.next/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
