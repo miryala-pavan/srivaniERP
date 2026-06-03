@@ -14,6 +14,9 @@ export class CreateCategoryDto {
   @IsOptional() @IsString()
   parentId?: string;
 
+  @IsOptional() @IsString()
+  hsnCode?: string;
+
   @IsOptional() @Type(() => Number) @IsInt() @Min(0)
   sortOrder?: number;
 }

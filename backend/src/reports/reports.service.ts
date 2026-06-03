@@ -12,6 +12,7 @@ const n = (v: any): number => {
   return parseFloat(String(v)) || 0;
 };
 
+const r2 = (v: number) => Math.round(v * 100) / 100;
 const dayStart = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const dayEnd   = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
 
@@ -466,9 +467,30 @@ export class ReportsService {
         where: { businessId, status: 'PENDING_APPROVAL' },
       }),
 
-      this.prisma.supplier.count({
-        where: { businessId, outstandingBalance: { gt: 0 }, isActive: true },
-      }),
+      this.prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+        SELECT COUNT(DISTINCT s.id)::bigint AS count
+        FROM supplier s
+        WHERE s."businessId" = ${businessId}
+          AND s."isActive" = true
+          AND (
+            COALESCE(s."openingBalance", 0) * CASE WHEN s."openingBalanceType" = 'DEBIT' THEN 1 ELSE -1 END
+            + COALESCE((
+                SELECT SUM(p."grandTotal")
+                FROM purchase p
+                WHERE p."supplierId" = s.id AND p."businessId" = ${businessId} AND p.status = 'APPROVED'
+              ), 0)
+            - COALESCE((
+                SELECT SUM(sp.amount)
+                FROM supplier_payment sp
+                WHERE sp."supplierId" = s.id AND sp."businessId" = ${businessId}
+              ), 0)
+            - COALESCE((
+                SELECT SUM(cn."totalAmount")
+                FROM supplier_credit_note cn
+                WHERE cn."supplierId" = s.id AND cn."businessId" = ${businessId} AND cn.status = 'ACTIVE'
+              ), 0)
+          ) > 0
+      `),
 
       this.prisma.$queryRaw<Array<{
         product_id: string;
@@ -515,7 +537,7 @@ export class ReportsService {
         cashMismatch:    n(cashMismatchRows[0]?.count),
         lowStockCount:   n(lowStockRows[0]?.count),
         pendingGRNs,
-        pendingPayments: pendingPaymentSuppliers,
+        pendingPayments: n(pendingPaymentSuppliers[0]?.count),
       },
       topSellingProducts: topProductRows.map((r) => ({
         productId:    r.product_id,
@@ -526,5 +548,279 @@ export class ReportsService {
       })),
       onlineOrdersPending: 0,
     };
+  }
+
+  // ─── 7. PRODUCT-WISE SALES ────────────────────────────
+
+  async getProductSalesReport(businessId: string, query: DateRangeDto & { limit?: number }) {
+    const end   = query.endDate   ? new Date(query.endDate)   : new Date();
+    const start = query.startDate ? new Date(query.startDate) : new Date(end.getFullYear(), end.getMonth(), 1);
+    const limit = Math.min(query.limit ?? 100, 500);
+
+    type Row = {
+      product_id: string; product_name: string; product_code: string | null;
+      category_name: string | null; unit_of_measure: string;
+      total_qty: string; total_revenue: string; taxable_amount: string;
+      bill_count: bigint; avg_price: string;
+    };
+
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT
+        si."productId"                                    AS product_id,
+        p.name                                            AS product_name,
+        p."productCode"                                   AS product_code,
+        c.label                                           AS category_name,
+        p."unitOfMeasure"                                 AS unit_of_measure,
+        COALESCE(SUM(si.quantity),        0)::text        AS total_qty,
+        COALESCE(SUM(si."totalAmount"),   0)::text        AS total_revenue,
+        COALESCE(SUM(si."taxableAmount"), 0)::text        AS taxable_amount,
+        COUNT(DISTINCT si."billId")                       AS bill_count,
+        CASE WHEN SUM(si.quantity) > 0
+             THEN (SUM(si."totalAmount") / SUM(si.quantity))::text
+             ELSE '0' END                                 AS avg_price
+      FROM sales_item si
+      JOIN sales_bill sb  ON sb.id = si."billId"
+      JOIN product    p   ON p.id  = si."productId"
+      LEFT JOIN category c ON c.id = p."categoryId"
+      WHERE sb."businessId" = ${businessId}
+        AND sb.status        = 'FINAL'
+        AND sb."billDate"   >= ${dayStart(start)}
+        AND sb."billDate"   <= ${dayEnd(end)}
+        AND p."isActive"     = true
+      GROUP BY si."productId", p.name, p."productCode", c.label, p."unitOfMeasure"
+      ORDER BY SUM(si."totalAmount") DESC
+      LIMIT ${limit}
+    `);
+
+    const totalRevenue = rows.reduce((s, r) => s + n(r.total_revenue), 0);
+
+    const products = rows.map((r) => ({
+      productId:     r.product_id,
+      productName:   r.product_name,
+      productCode:   r.product_code,
+      categoryName:  r.category_name,
+      unitOfMeasure: r.unit_of_measure,
+      totalQty:      n(r.total_qty),
+      totalRevenue:  n(r.total_revenue),
+      taxableAmount: n(r.taxable_amount),
+      billCount:     n(r.bill_count),
+      avgPrice:      n(r.avg_price),
+      revenuePct:    totalRevenue > 0 ? parseFloat(((n(r.total_revenue) / totalRevenue) * 100).toFixed(1)) : 0,
+    }));
+
+    return {
+      period:       { startDate: start, endDate: end },
+      products,
+      summary: {
+        totalProducts: products.length,
+        totalRevenue,
+        totalQty: products.reduce((s, p) => s + p.totalQty, 0),
+      },
+    };
+  }
+
+  // ─── RECEIVABLES AGEING ───────────────────────────────
+  // Outstanding credit bills bucketed by age: 0-30 / 31-60 / 61-90 / 90+ days.
+
+  async getReceivablesAgeing(businessId: string, asOf?: string) {
+    const today = asOf ? dayEnd(new Date(asOf)) : new Date();
+
+    // Unpaid / partially-paid credit bills
+    const bills = await this.prisma.salesBill.findMany({
+      where: {
+        businessId,
+        status:        'FINAL' as any,
+        isVoided:      false,
+        saleType:      'CREDIT' as any,
+        balanceAmount: { gt: 0 },
+      },
+      select: {
+        id: true, billNumber: true, billDate: true, balanceAmount: true,
+        customerId: true, customerName: true, customerPhone: true,
+      },
+      orderBy: { billDate: 'asc' },
+    });
+
+    type Cust = {
+      customerId: string | null; customerName: string; customerPhone: string | null;
+      b0_30: number; b31_60: number; b61_90: number; b90_plus: number;
+      total: number; billCount: number; oldestDays: number;
+    };
+    const map = new Map<string, Cust>();
+
+    for (const b of bills) {
+      const bal  = n(b.balanceAmount);
+      const days = Math.max(0, Math.floor((today.getTime() - new Date(b.billDate).getTime()) / 86400000));
+      const key  = b.customerId ?? `walkin:${b.customerName ?? 'Unknown'}`;
+
+      const c = map.get(key) ?? {
+        customerId: b.customerId, customerName: b.customerName ?? 'Walk-in',
+        customerPhone: b.customerPhone ?? null,
+        b0_30: 0, b31_60: 0, b61_90: 0, b90_plus: 0,
+        total: 0, billCount: 0, oldestDays: 0,
+      };
+
+      if      (days <= 30) c.b0_30    = r2(c.b0_30    + bal);
+      else if (days <= 60) c.b31_60   = r2(c.b31_60   + bal);
+      else if (days <= 90) c.b61_90   = r2(c.b61_90   + bal);
+      else                 c.b90_plus = r2(c.b90_plus + bal);
+
+      c.total      = r2(c.total + bal);
+      c.billCount += 1;
+      c.oldestDays = Math.max(c.oldestDays, days);
+      map.set(key, c);
+    }
+
+    const customers = [...map.values()].sort((a, b) => b.total - a.total);
+
+    const totals = customers.reduce(
+      (acc, c) => ({
+        b0_30:    r2(acc.b0_30    + c.b0_30),
+        b31_60:   r2(acc.b31_60   + c.b31_60),
+        b61_90:   r2(acc.b61_90   + c.b61_90),
+        b90_plus: r2(acc.b90_plus + c.b90_plus),
+        total:    r2(acc.total    + c.total),
+      }),
+      { b0_30: 0, b31_60: 0, b61_90: 0, b90_plus: 0, total: 0 },
+    );
+
+    return {
+      asOf:     today.toISOString(),
+      customers,
+      totals,
+      summary: {
+        customerCount:  customers.length,
+        billCount:      bills.length,
+        totalOutstanding: totals.total,
+      },
+    };
+  }
+
+  // ─── DAY BOOK + CASH BOOK ─────────────────────────────
+  // Day Book: chronological list of the day's money movements (all modes).
+  // Cash Book: cash-only opening / receipts / payments / closing.
+
+  async getDayBook(businessId: string, dateStr?: string) {
+    const date  = dateStr ? new Date(dateStr) : new Date();
+    const start = dayStart(date);
+    const end   = dayEnd(date);
+
+    const [bills, custPayments, expenses, supplierPayments, shifts] = await Promise.all([
+      this.prisma.salesBill.findMany({
+        where: {
+          businessId, status: 'FINAL' as any, isVoided: false,
+          billType: { in: ['TAX_INVOICE', 'RETAIL_INVOICE'] },
+          billDate: { gte: start, lte: end },
+        },
+        select: {
+          id: true, billNumber: true, billDate: true, grandTotal: true,
+          paymentMode: true, saleType: true, customerName: true,
+          cashAmount: true, upiAmount: true, cardAmount: true, paidAmount: true,
+        },
+        orderBy: { billDate: 'asc' },
+      }),
+      this.prisma.customerPayment.findMany({
+        where: { businessId, paymentDate: { gte: start, lte: end } },
+        select: { id: true, paymentDate: true, amount: true, paymentMode: true, reference: true,
+          customer: { select: { name: true } } },
+        orderBy: { paymentDate: 'asc' },
+      }),
+      this.prisma.expense.findMany({
+        where: { businessId, expenseDate: { gte: start, lte: end } },
+        select: { id: true, expenseDate: true, amount: true, paymentMode: true,
+          category: true, vendorName: true, description: true },
+        orderBy: { expenseDate: 'asc' },
+      }),
+      this.prisma.supplierAdvance.findMany({
+        where: { businessId, paymentDate: { gte: start, lte: end } },
+        select: { id: true, paymentDate: true, amount: true, paymentMode: true, referenceNo: true,
+          supplier: { select: { name: true } } },
+        orderBy: { paymentDate: 'asc' },
+      }),
+      this.prisma.posShift.findMany({
+        where: { counter: { businessId }, startTime: { gte: start, lte: end } },
+        select: { openingCash: true },
+      }),
+    ]);
+
+    const isCash = (m?: string | null) => (m ?? '').toUpperCase() === 'CASH';
+
+    type Entry = {
+      time: string; type: 'SALE' | 'RECEIPT' | 'EXPENSE' | 'SUPPLIER_PAYMENT';
+      reference: string; particulars: string; mode: string;
+      moneyIn: number; moneyOut: number; isCash: boolean;
+    };
+    const entries: Entry[] = [];
+
+    for (const b of bills) {
+      entries.push({
+        time: b.billDate.toISOString(), type: 'SALE',
+        reference: b.billNumber ?? b.id,
+        particulars: b.customerName ?? 'Walk-in',
+        mode: b.paymentMode ?? 'CASH',
+        moneyIn: n(b.paidAmount), moneyOut: 0,
+        // SPLIT bills may carry a partial cash component
+        isCash: isCash(b.paymentMode) || n(b.cashAmount) > 0,
+      });
+    }
+    for (const p of custPayments) {
+      entries.push({
+        time: p.paymentDate.toISOString(), type: 'RECEIPT',
+        reference: p.reference ?? '—',
+        particulars: `${p.customer?.name ?? 'Customer'} (payment)`,
+        mode: p.paymentMode, moneyIn: n(p.amount), moneyOut: 0, isCash: isCash(p.paymentMode),
+      });
+    }
+    for (const e of expenses) {
+      entries.push({
+        time: e.expenseDate.toISOString(), type: 'EXPENSE',
+        reference: e.category ?? 'Expense',
+        particulars: e.vendorName ?? e.description ?? 'Expense',
+        mode: e.paymentMode, moneyIn: 0, moneyOut: n(e.amount), isCash: isCash(e.paymentMode),
+      });
+    }
+    for (const s of supplierPayments) {
+      entries.push({
+        time: s.paymentDate.toISOString(), type: 'SUPPLIER_PAYMENT',
+        reference: s.referenceNo ?? '—',
+        particulars: `${s.supplier?.name ?? 'Supplier'} (payment)`,
+        mode: s.paymentMode, moneyIn: 0, moneyOut: n(s.amount), isCash: isCash(s.paymentMode),
+      });
+    }
+
+    entries.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+    // Cash component for SPLIT/cash sales uses cashAmount when present
+    const cashInFromSales = bills.reduce((sum, b) =>
+      sum + (n(b.cashAmount) > 0 ? n(b.cashAmount) : (isCash(b.paymentMode) ? n(b.paidAmount) : 0)), 0);
+    const cashInFromReceipts = custPayments.filter(p => isCash(p.paymentMode)).reduce((s, p) => s + n(p.amount), 0);
+    const cashOutExpenses    = expenses.filter(e => isCash(e.paymentMode)).reduce((s, e) => s + n(e.amount), 0);
+    const cashOutSuppliers   = supplierPayments.filter(s => isCash(s.paymentMode)).reduce((s, x) => s + n(x.amount), 0);
+    const openingCash        = shifts.reduce((s, sh) => s + n(sh.openingCash), 0);
+
+    const cashIn  = r2(cashInFromSales + cashInFromReceipts);
+    const cashOut = r2(cashOutExpenses + cashOutSuppliers);
+
+    const dayBook = {
+      totalIn:  r2(entries.reduce((s, e) => s + e.moneyIn, 0)),
+      totalOut: r2(entries.reduce((s, e) => s + e.moneyOut, 0)),
+      salesTotal:    r2(bills.reduce((s, b) => s + n(b.paidAmount), 0)),
+      receiptsTotal: r2(custPayments.reduce((s, p) => s + n(p.amount), 0)),
+      expenseTotal:  r2(expenses.reduce((s, e) => s + n(e.amount), 0)),
+      supplierTotal: r2(supplierPayments.reduce((s, x) => s + n(x.amount), 0)),
+    };
+
+    const cashBook = {
+      openingCash:  r2(openingCash),
+      cashIn,
+      cashInFromSales:    r2(cashInFromSales),
+      cashInFromReceipts: r2(cashInFromReceipts),
+      cashOut,
+      cashOutExpenses:  r2(cashOutExpenses),
+      cashOutSuppliers: r2(cashOutSuppliers),
+      expectedClosing: r2(openingCash + cashIn - cashOut),
+    };
+
+    return { date: start.toISOString(), entries, dayBook, cashBook };
   }
 }

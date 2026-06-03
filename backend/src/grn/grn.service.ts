@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GrnCalculationsService } from './grn-calculations.service';
 import { EventsService } from '../events/events.service';
+import { SuppliersService } from '../suppliers/suppliers.service';
 import { Events } from '../events/event-types';
 import { CreateGrnDto } from './dto/create-grn.dto';
 import { UpdateGrnDto } from './dto/update-grn.dto';
@@ -17,6 +18,7 @@ export class GrnService {
     private calc: GrnCalculationsService,
     private notifications: NotificationsService,
     private eventsService: EventsService,
+    private suppliersService: SuppliersService,
   ) {}
 
   private r2(n: number) { return Math.round(n * 100) / 100; }
@@ -143,7 +145,13 @@ export class GrnService {
 
     const rawCalcs = items.map((item) => {
       const product = productMap.get(item.productId)!;
-      return this.calc.calculateItemTotals(item, Number(product.tax.taxRate), taxType, isInterState);
+      // Prefer the rate the user selected in the GRN panel (sent as gstRatePercent).
+      // Fall back to the product's DB tax rate only when not provided.
+      // This ensures backend and frontend totals always match.
+      const gstRate = item.gstRatePercent !== undefined && item.gstRatePercent !== null
+        ? Number(item.gstRatePercent)
+        : Number(product.tax.taxRate);
+      return this.calc.calculateItemTotals(item, gstRate, taxType, isInterState);
     });
 
     const spreadCalcs = this.calc.spreadAdjustments(rawCalcs, freightCharges, hamaliCharges);
@@ -151,7 +159,9 @@ export class GrnService {
     return items.map((item, i) => {
       const product = productMap.get(item.productId)!;
       const c = spreadCalcs[i];
-      const gstRate = Number(product.tax.taxRate);
+      const gstRate = item.gstRatePercent !== undefined && item.gstRatePercent !== null
+        ? Number(item.gstRatePercent)
+        : Number(product.tax.taxRate);
       const rejectedQty = item.rejectedQty ?? 0;
       const acceptedQty = this.r2(c.totalReceivedQty - rejectedQty);
 
@@ -346,7 +356,27 @@ export class GrnService {
       });
     } catch (_err) { /* fire-and-forget */ }
 
-    return purchase;
+    // Credit limit warning (non-blocking)
+    let warning: object | null = null;
+    try {
+      const creditLimit = Number(supplier.creditLimit ?? 0);
+      if (creditLimit > 0) {
+        const currentOutstanding = await this.suppliersService.computeOutstanding(dto.supplierId, businessId);
+        const projectedTotal     = currentOutstanding + billTotals.grandTotal;
+        if (projectedTotal > creditLimit) {
+          warning = {
+            type:               'CREDIT_LIMIT_EXCEEDED',
+            currentOutstanding: Math.round(currentOutstanding * 100) / 100,
+            newTotal:           Math.round(billTotals.grandTotal * 100) / 100,
+            projectedTotal:     Math.round(projectedTotal * 100) / 100,
+            creditLimit,
+            exceededBy:         Math.round((projectedTotal - creditLimit) * 100) / 100,
+          };
+        }
+      }
+    } catch (_err) { /* non-critical — don't fail the request */ }
+
+    return { ...purchase, warning };
   }
 
   async update(businessId: string, id: string, dto: UpdateGrnDto) {

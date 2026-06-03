@@ -1043,6 +1043,16 @@ export class PosService {
       },
     });
 
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.BILL_HELD, {
+        holdBillId: held.id,
+        holdNumber: held.holdNumber,
+        cashierId:  userId,
+        itemCount:  dto.itemCount,
+        total:      dto.grandTotal,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
     return { id: held.id, holdNumber: held.holdNumber };
   }
 
@@ -1089,6 +1099,13 @@ export class PosService {
     const hold = await this.prisma.heldBill.findFirst({ where: { id, businessId, status: 'HELD' } });
     if (!hold) throw new NotFoundException('Held bill not found');
     await this.prisma.heldBill.update({ where: { id }, data: { status: 'COMPLETED' } });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.BILL_RETRIEVED, {
+        holdBillId:          hold.id,
+        holdNumber:          hold.holdNumber,
+        retrievedByCashierId: hold.createdByUserId,
+      });
+    } catch (_err) { /* fire-and-forget */ }
     return { success: true };
   }
 

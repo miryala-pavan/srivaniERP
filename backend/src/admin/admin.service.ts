@@ -1,6 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
+import * as fs from 'fs';
+import * as path from 'path';
 
 function tcField(s: string | null | undefined): string | undefined {
   if (!s) return s ?? undefined;
@@ -810,6 +812,94 @@ export class AdminService {
         errors,
       };
     }, { timeout: 60000 });
+  }
+
+  async linkProductIcons(businessId: string) {
+    const iconsDir = path.join(
+      process.env.PRODUCT_IMAGES_DIR
+        ?? path.join(process.cwd(), '..', 'storage', 'product-images'),
+      'products',
+      'icons',
+    );
+
+    if (!fs.existsSync(iconsDir)) {
+      return { message: 'Icons directory not found', iconsDir, matched: 0, noProduct: 0, noFile: 0 };
+    }
+
+    const files = fs.readdirSync(iconsDir).filter(f => {
+      if (!f.endsWith('.png')) return false;
+      const stem = f.slice(0, -4);
+      // Skip files with double dots or non-numeric stems
+      if (stem.includes('.')) return false;
+      if (!/^\d{6}$/.test(stem)) return false;
+      return true;
+    });
+
+    const fileStemSet = new Set(files.map(f => f.slice(0, -4)));
+
+    // Load all products for this business (code + current imageUrl)
+    const products = await this.prisma.product.findMany({
+      where: { businessId, productCode: { not: null } },
+      select: { id: true, productCode: true, imageUrl: true },
+    });
+
+    const productByCode = new Map<string, { id: string; imageUrl: string | null }>();
+    for (const p of products) {
+      if (p.productCode) productByCode.set(p.productCode, { id: p.id, imageUrl: p.imageUrl });
+    }
+
+    let matched   = 0;
+    let noProduct = 0;
+    const matchedCodes: string[] = [];
+    const noProductFiles: string[] = [];
+
+    for (const stem of fileStemSet) {
+      const product = productByCode.get(stem);
+      if (!product) {
+        noProduct++;
+        noProductFiles.push(stem);
+        continue;
+      }
+
+      const targetUrl = `/uploads/products/products/icons/${stem}.png`;
+
+      // Skip if already set to this icon URL (idempotent re-run)
+      if (product.imageUrl === targetUrl) {
+        matched++;
+        matchedCodes.push(`${stem} (already set)`);
+        continue;
+      }
+
+      // Skip if imageUrl is set to something else (manual upload — don't overwrite)
+      if (product.imageUrl !== null) {
+        noProduct++;
+        noProductFiles.push(`${stem} (skipped — has manual imageUrl)`);
+        continue;
+      }
+
+      await this.prisma.product.update({
+        where: { id: product.id },
+        data:  { imageUrl: targetUrl },
+      });
+      matched++;
+      matchedCodes.push(stem);
+    }
+
+    // Count products with no matching icon file
+    let noFile = 0;
+    for (const [code] of productByCode) {
+      if (!fileStemSet.has(code)) noFile++;
+    }
+
+    return {
+      message:     'Icon link complete',
+      iconsScanned: files.length,
+      matched,
+      noProduct,
+      noFile,
+      matchedCodes,
+      noProductSample: noProductFiles.slice(0, 20),
+    };
   }
 
   async migrateOrphansPhase1(businessId: string) {

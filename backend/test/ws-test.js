@@ -3,13 +3,13 @@ const axios = require('axios');
 
 (async () => {
   const login = await axios.post(
-    'http://localhost:3001/api/auth/login',
+    'http://localhost:4001/api/auth/login',
     { username: 'admin', password: 'Admin@2026' }
   );
   const token = login.data.access_token;
   console.log('Token OK');
 
-  const socket = io('http://localhost:3001/events', {
+  const socket = io('http://localhost:4001/events', {
     auth: { token },
   });
 

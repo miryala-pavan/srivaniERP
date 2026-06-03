@@ -59,6 +59,33 @@ export class ReportsController {
     return this.reportsService.getCashSummary(req.user.businessId, query);
   }
 
+  // ─── PRODUCT SALES ────────────────────────────────────
+
+  @Roles(...MANAGER_ROLES)
+  @Get('products/top-selling')
+  getProductSalesReport(@Request() req: any, @Query() query: DateRangeDto & { limit?: string }) {
+    return this.reportsService.getProductSalesReport(req.user.businessId, {
+      ...query,
+      limit: query.limit ? Number(query.limit) : undefined,
+    });
+  }
+
+  // ─── RECEIVABLES AGEING ───────────────────────────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON')
+  @Get('receivables/ageing')
+  getReceivablesAgeing(@Request() req: any, @Query('asOf') asOf?: string) {
+    return this.reportsService.getReceivablesAgeing(req.user.businessId, asOf);
+  }
+
+  // ─── DAY BOOK / CASH BOOK ─────────────────────────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON')
+  @Get('day-book')
+  getDayBook(@Request() req: any, @Query('date') date?: string) {
+    return this.reportsService.getDayBook(req.user.businessId, date);
+  }
+
   // ─── DASHBOARD ────────────────────────────────────────
 
   @Roles(...MANAGER_ROLES)

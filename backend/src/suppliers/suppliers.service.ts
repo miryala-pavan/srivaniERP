@@ -1,8 +1,12 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventsService } from '../events/events.service';
+import { Events } from '../events/event-types';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SupplierQueryDto } from './dto/supplier-query.dto';
+import { wildcardFilter } from '../common/helpers/search.helper';
 
 function tcField(s: string | undefined | null): string | undefined {
   if (!s) return s ?? undefined;
@@ -16,7 +20,37 @@ function tcField(s: string | undefined | null): string | undefined {
 
 @Injectable()
 export class SuppliersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private eventsService: EventsService,
+  ) {}
+
+  async computeOutstanding(supplierId: string, businessId: string): Promise<number> {
+    const [supplier, purchaseAgg, paymentAgg, creditNoteAgg] = await Promise.all([
+      this.prisma.supplier.findFirst({
+        where:  { id: supplierId, businessId },
+        select: { openingBalance: true, openingBalanceType: true },
+      }),
+      this.prisma.purchase.aggregate({
+        where: { supplierId, businessId, status: 'APPROVED' },
+        _sum:  { grandTotal: true },
+      }),
+      this.prisma.supplierPayment.aggregate({
+        where: { supplierId, businessId },
+        _sum:  { amount: true },
+      }),
+      this.prisma.supplierCreditNote.aggregate({
+        where:  { supplierId, businessId, status: 'ACTIVE' },
+        _sum:   { totalAmount: true },
+      }),
+    ]);
+    const openingBal  = Number(supplier?.openingBalance ?? 0);
+    const openingAmt  = (supplier?.openingBalanceType ?? 'DEBIT') === 'DEBIT' ? openingBal : -openingBal;
+    const grnTotal    = Number(purchaseAgg._sum.grandTotal   ?? 0);
+    const paidTotal   = Number(paymentAgg._sum.amount        ?? 0);
+    const creditTotal = Number(creditNoteAgg._sum.totalAmount ?? 0);
+    return openingAmt + grnTotal - paidTotal - creditTotal;
+  }
 
   async create(businessId: string, dto: CreateSupplierDto) {
     if (dto.gstin) {
@@ -56,10 +90,12 @@ export class SuppliersService {
       where.isActive = true;
     }
     if (query.search) {
+      const wf = wildcardFilter(query.search);
       where.OR = [
-        { name:  { contains: query.search, mode: 'insensitive' } },
-        { phone: { contains: query.search } },
-        { gstin: { contains: query.search } },
+        { name:  wf },
+        { phone: wf },
+        { gstin: wf },
+        { email: wf },
       ];
     }
 
@@ -131,31 +167,45 @@ export class SuppliersService {
     });
     if (!supplier) throw new NotFoundException('Supplier not found');
 
-    const stats = await this.prisma.purchase.aggregate({
-      where: { supplierId: id, businessId, status: 'APPROVED' },
-      _sum:   { grandTotal: true, paidAmount: true },
-      _count: { id: true },
-    });
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const recentPurchases = await this.prisma.purchase.findMany({
-      where: { supplierId: id, businessId },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: {
-        id: true, grnNumber: true, invoiceNumber: true, invoiceDate: true,
-        grandTotal: true, paidAmount: true, status: true, createdAt: true,
-      },
-    });
+    const [stats, thisMonthStats, lastPayment, lastGrn, outstandingBalance] = await Promise.all([
+      this.prisma.purchase.aggregate({
+        where: { supplierId: id, businessId, status: 'APPROVED' },
+        _sum: { grandTotal: true, paidAmount: true }, _count: { id: true },
+      }),
+      this.prisma.purchase.aggregate({
+        where: { supplierId: id, businessId, status: 'APPROVED', invoiceDate: { gte: startOfMonth } },
+        _sum: { grandTotal: true },
+      }),
+      this.prisma.supplierPayment.findFirst({
+        where: { supplierId: id, businessId },
+        orderBy: { paymentDate: 'desc' },
+        select: { paymentDate: true, amount: true, paymentMode: true },
+      }),
+      this.prisma.purchase.findFirst({
+        where: { supplierId: id, businessId, status: 'APPROVED' },
+        orderBy: { invoiceDate: 'desc' },
+        select: { invoiceDate: true, grnNumber: true },
+      }),
+      this.computeOutstanding(id, businessId),
+    ]);
 
     return {
       ...supplier,
       stats: {
-        totalOrders:       stats._count.id,
-        totalPurchased:    Number(stats._sum.grandTotal ?? 0),
-        totalPaid:         Number(stats._sum.paidAmount ?? 0),
-        outstandingBalance: Number(supplier.outstandingBalance),
+        totalOrders:        stats._count.id,
+        totalPurchased:     Number(stats._sum.grandTotal ?? 0),
+        totalPaid:          Number(stats._sum.paidAmount ?? 0),
+        thisMonthPurchased: Number(thisMonthStats._sum.grandTotal ?? 0),
+        outstandingBalance,
+        lastPaymentDate:    lastPayment?.paymentDate ?? null,
+        lastPaymentAmount:  lastPayment ? Number(lastPayment.amount) : null,
+        lastPaymentMode:    lastPayment?.paymentMode ?? null,
+        lastGrnDate:        lastGrn?.invoiceDate ?? null,
+        lastGrnNumber:      lastGrn?.grnNumber ?? null,
       },
-      recentPurchases,
     };
   }
 
@@ -357,24 +407,44 @@ export class SuppliersService {
       if (!purchase) throw new NotFoundException('GRN not found for this supplier');
     }
 
-    return this.prisma.supplierPayment.create({
-      data: {
-        businessId,
-        supplierId,
-        purchaseId:       dto.purchaseId ?? null,
-        invoiceReference: dto.invoiceReference ?? null,
-        paymentDate:      dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
-        amount:           dto.amount,
-        paymentMode:      dto.paymentMode,
-        referenceNumber:  dto.referenceNumber ?? null,
-        notes:            dto.notes ?? null,
-        createdById:      dto.createdById ?? null,
-        createdByName:    dto.createdByName,
-      },
+    const payment = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.supplierPayment.create({
+        data: {
+          businessId,
+          supplierId,
+          purchaseId:       dto.purchaseId ?? null,
+          invoiceReference: dto.invoiceReference ?? null,
+          paymentDate:      dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
+          amount:           dto.amount,
+          paymentMode:      dto.paymentMode,
+          referenceNumber:  dto.referenceNumber ?? null,
+          notes:            dto.notes ?? null,
+          createdById:      dto.createdById ?? null,
+          createdByName:    dto.createdByName,
+        },
+      });
+      if (dto.purchaseId) {
+        await tx.purchase.update({
+          where: { id: dto.purchaseId },
+          data:  { paidAmount: { increment: dto.amount } },
+        });
+      }
+      return created;
     });
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.SUPPLIER_PAYMENT_RECORDED, {
+        paymentId:   payment.id,
+        supplierId,
+        amount:      dto.amount,
+        paymentDate: payment.paymentDate.toISOString(),
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
+    return payment;
   }
 
-  async getPayments(businessId: string, supplierId: string, query: { purchaseId?: string; page?: string; limit?: string }) {
+  async getPayments(businessId: string, supplierId: string, query: { purchaseId?: string; page?: string; limit?: string; dateFrom?: string; dateTo?: string; method?: string }) {
     const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId } });
     if (!supplier) throw new NotFoundException('Supplier not found');
 
@@ -383,7 +453,14 @@ export class SuppliersService {
     const skip  = (page - 1) * limit;
 
     const where: any = { businessId, supplierId };
-    if (query.purchaseId) where.purchaseId = query.purchaseId;
+    if (query.purchaseId)  where.purchaseId  = query.purchaseId;
+    if (query.method)      where.paymentMode = query.method;
+    if (query.dateFrom || query.dateTo) {
+      where.paymentDate = {
+        ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+        ...(query.dateTo   ? { lte: new Date(query.dateTo)   } : {}),
+      };
+    }
 
     const [payments, total] = await this.prisma.$transaction([
       this.prisma.supplierPayment.findMany({
@@ -407,7 +484,24 @@ export class SuppliersService {
     });
     if (!payment) throw new NotFoundException('Payment not found');
 
-    await this.prisma.supplierPayment.delete({ where: { id: paymentId } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.supplierPayment.delete({ where: { id: paymentId } });
+      if (payment.purchaseId) {
+        await tx.purchase.update({
+          where: { id: payment.purchaseId },
+          data:  { paidAmount: { decrement: Number(payment.amount) } },
+        });
+      }
+    });
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.SUPPLIER_PAYMENT_DELETED, {
+        paymentId,
+        supplierId,
+        amount: Number(payment.amount),
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
     return { message: 'Payment deleted' };
   }
 
@@ -473,5 +567,188 @@ export class SuppliersService {
     ]);
 
     return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+  }
+
+  async getSupplierGrns(
+    businessId: string,
+    supplierId: string,
+    query: { page?: string; limit?: string; status?: string; dateFrom?: string; dateTo?: string },
+  ) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    const page  = Math.max(1, parseInt(query.page  ?? '1'));
+    const limit = Math.min(100, parseInt(query.limit ?? '20'));
+    const skip  = (page - 1) * limit;
+
+    const where: any = { businessId, supplierId };
+    if (query.status) where.status = query.status;
+    if (query.dateFrom || query.dateTo) {
+      where.invoiceDate = {
+        ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+        ...(query.dateTo   ? { lte: new Date(query.dateTo)   } : {}),
+      };
+    }
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.purchase.findMany({
+        where,
+        orderBy: { invoiceDate: 'desc' },
+        skip, take: limit,
+        select: {
+          id: true, grnNumber: true, invoiceNumber: true, invoiceDate: true,
+          grandTotal: true, paidAmount: true, status: true, createdAt: true,
+          branch: { select: { id: true, name: true } },
+        },
+      }),
+      this.prisma.purchase.count({ where }),
+    ]);
+
+    return { data, total, page, totalPages: Math.ceil(total / limit) };
+  }
+
+  async getSupplierProducts(businessId: string, supplierId: string) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    const rows = await this.prisma.$queryRaw<Array<{
+      productId: string;
+      productName: string;
+      timesOrdered: bigint;
+      lastOrderDate: Date | null;
+      lastUnitCost: string | null;
+      totalQty: string | null;
+    }>>(Prisma.sql`
+      SELECT
+        pi."productId",
+        pi."productName",
+        COUNT(DISTINCT p.id)::bigint AS "timesOrdered",
+        MAX(p."invoiceDate")         AS "lastOrderDate",
+        MAX(pi."netCostPrice")::text AS "lastUnitCost",
+        SUM(pi."totalReceivedQty")::text AS "totalQty"
+      FROM purchase_item pi
+      JOIN purchase p ON pi."purchaseId" = p.id
+      WHERE p."supplierId" = ${supplierId}
+        AND p."businessId" = ${businessId}
+        AND p.status = 'APPROVED'
+      GROUP BY pi."productId", pi."productName"
+      ORDER BY COUNT(DISTINCT p.id) DESC, pi."productName" ASC
+    `);
+
+    return rows.map((r) => ({
+      productId:    r.productId,
+      productName:  r.productName,
+      timesOrdered: Number(r.timesOrdered),
+      lastOrderDate: r.lastOrderDate,
+      lastUnitCost:  r.lastUnitCost  ? Number(r.lastUnitCost)  : null,
+      totalQty:      r.totalQty      ? Number(r.totalQty)      : null,
+    }));
+  }
+
+  async getSupplierStatement(
+    businessId: string,
+    supplierId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    const dateFrom = query.dateFrom ? new Date(query.dateFrom) : undefined;
+    const dateTo   = query.dateTo   ? new Date(query.dateTo)   : undefined;
+
+    const dateRange = (dateFrom || dateTo) ? {
+      ...(dateFrom ? { gte: dateFrom } : {}),
+      ...(dateTo   ? { lte: dateTo   } : {}),
+    } : undefined;
+
+    const [purchases, payments, creditNotes] = await Promise.all([
+      this.prisma.purchase.findMany({
+        where: { supplierId, businessId, status: 'APPROVED', ...(dateRange ? { invoiceDate: dateRange } : {}) },
+        select: { id: true, grnNumber: true, invoiceNumber: true, invoiceDate: true, grandTotal: true },
+        orderBy: { invoiceDate: 'asc' },
+      }),
+      this.prisma.supplierPayment.findMany({
+        where: { supplierId, businessId, ...(dateRange ? { paymentDate: dateRange } : {}) },
+        orderBy: { paymentDate: 'asc' },
+      }),
+      this.prisma.supplierCreditNote.findMany({
+        where: { supplierId, businessId, status: 'ACTIVE', ...(dateRange ? { cnDate: dateRange } : {}) },
+        orderBy: { cnDate: 'asc' },
+      }),
+    ]);
+
+    type Entry = {
+      date: Date; type: 'OPENING' | 'GRN' | 'PAYMENT' | 'CREDIT_NOTE';
+      ref: string; refId: string | null; debit: number; credit: number; runningBalance?: number;
+    };
+
+    const entries: Entry[] = [];
+
+    // Opening balance — always shown as starting point (no date filter applied to it)
+    if (Number(supplier.openingBalance) !== 0) {
+      entries.push({
+        date:   supplier.openingBalanceDate ?? supplier.createdAt,
+        type:   'OPENING',
+        ref:    supplier.openingBalanceNote ?? 'Opening Balance',
+        refId:  null,
+        debit:  supplier.openingBalanceType === 'DEBIT'  ? Number(supplier.openingBalance) : 0,
+        credit: supplier.openingBalanceType === 'CREDIT' ? Number(supplier.openingBalance) : 0,
+      });
+    }
+
+    for (const p of purchases) {
+      entries.push({
+        date:  p.invoiceDate, type: 'GRN',
+        ref:   [p.grnNumber ? `GRN#${p.grnNumber}` : '', `Inv ${p.invoiceNumber}`].filter(Boolean).join(' / '),
+        refId: p.id, debit: Number(p.grandTotal), credit: 0,
+      });
+    }
+
+    for (const pay of payments) {
+      entries.push({
+        date:  pay.paymentDate, type: 'PAYMENT',
+        ref:   `${pay.paymentMode}${pay.referenceNumber ? ' / ' + pay.referenceNumber : ''}`,
+        refId: pay.id, debit: 0, credit: Number(pay.amount),
+      });
+    }
+
+    for (const cn of creditNotes) {
+      entries.push({
+        date:  cn.cnDate, type: 'CREDIT_NOTE',
+        ref:   `${cn.scnNumber} - ${cn.reason}`,
+        refId: cn.id, debit: 0, credit: Number(cn.totalAmount),
+      });
+    }
+
+    entries.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    let runningBalance = 0;
+    return entries.map((e) => {
+      runningBalance = runningBalance + e.debit - e.credit;
+      return { ...e, runningBalance };
+    });
+  }
+
+  async recomputePurchasePaidAmounts(businessId: string): Promise<{ updated: number }> {
+    const purchases = await this.prisma.purchase.findMany({
+      where:  { businessId },
+      select: { id: true },
+    });
+
+    let updated = 0;
+    for (const purchase of purchases) {
+      const agg = await this.prisma.supplierPayment.aggregate({
+        where: { purchaseId: purchase.id, businessId },
+        _sum:  { amount: true },
+      });
+      const correctPaidAmount = Number(agg._sum.amount ?? 0);
+      await this.prisma.purchase.update({
+        where: { id: purchase.id },
+        data:  { paidAmount: correctPaidAmount },
+      });
+      updated++;
+    }
+
+    return { updated };
   }
 }

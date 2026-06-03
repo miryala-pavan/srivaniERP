@@ -48,20 +48,40 @@ export class GstReportsService {
     // B2B — bills with a customer GSTIN
     const b2b = bills
       .filter((b) => b.isB2B || !!b.customerGstin)
-      .map((b) => ({
-        billNumber:      b.billNumber ?? '',
-        billDate:        b.billDate.toISOString(),
-        customerName:    b.customerName ?? 'Walk-in',
-        customerGstin:   b.customerGstin ?? '',
-        supplyStateCode: b.supplyStateCode ?? '',
-        billType:        b.billType,
-        taxableAmount:   Number(b.taxableAmount),
-        cgst:            Number(b.cgstTotal),
-        sgst:            Number(b.sgstTotal),
-        igst:            Number(b.igstTotal),
-        cess:            Number(b.cessTotal),
-        grandTotal:      Number(b.grandTotal),
-      }));
+      .map((b) => {
+        // Group items by GST rate for GSTR-1 itms[] structure
+        const rateMap = new Map<number, { txval: number; camt: number; samt: number; iamt: number; csamt: number }>();
+        for (const item of b.items) {
+          const rt  = Number(item.gstRatePercent);
+          const cur = rateMap.get(rt) ?? { txval: 0, camt: 0, samt: 0, iamt: 0, csamt: 0 };
+          rateMap.set(rt, {
+            txval:  r2(cur.txval  + Number(item.taxableAmount)),
+            camt:   r2(cur.camt   + Number(item.cgstAmount)),
+            samt:   r2(cur.samt   + Number(item.sgstAmount)),
+            iamt:   r2(cur.iamt   + Number(item.igstAmount)),
+            csamt:  r2(cur.csamt  + Number(item.cessAmount)),
+          });
+        }
+        const itemsByRate = [...rateMap.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([rt, vals], idx) => ({ num: idx + 1, rt, ...vals }));
+
+        return {
+          billNumber:      b.billNumber ?? '',
+          billDate:        b.billDate.toISOString(),
+          customerName:    b.customerName ?? 'Walk-in',
+          customerGstin:   b.customerGstin ?? '',
+          supplyStateCode: b.supplyStateCode ?? '',
+          billType:        b.billType,
+          taxableAmount:   Number(b.taxableAmount),
+          cgst:            Number(b.cgstTotal),
+          sgst:            Number(b.sgstTotal),
+          igst:            Number(b.igstTotal),
+          cess:            Number(b.cessTotal),
+          grandTotal:      Number(b.grandTotal),
+          itemsByRate,
+        };
+      });
 
     // B2C — consolidated by supplyStateCode + gstRatePercent
     const b2cBills = bills.filter((b) => !b.isB2B && !b.customerGstin);
@@ -337,22 +357,37 @@ export class GstReportsService {
       inv: invList.map((bill) => {
         const d = new Date(bill.billDate);
         const idt = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+        // Build itms: one entry per GST rate (GSTR-1 schema requirement)
+        const itms = bill.itemsByRate.length > 0
+          ? bill.itemsByRate.map((r) => ({
+              num:     r.num,
+              itm_det: {
+                txval: r.txval,
+                rt:    r.rt,
+                camt:  r.camt,
+                samt:  r.samt,
+                ...(r.iamt > 0 ? { iamt: r.iamt } : {}),
+                csamt: r.csamt,
+              },
+            }))
+          : [{
+              num:     1,
+              itm_det: {
+                txval: bill.taxableAmount,
+                rt:    0,
+                camt:  bill.cgst,
+                samt:  bill.sgst,
+                csamt: bill.cess,
+              },
+            }];
+
         return {
           inum:  bill.billNumber,
           idt,
           val:   bill.grandTotal,
           pos:   bill.supplyStateCode || '36',
           rchrg: 'N',
-          itms:  [{
-            num:     1,
-            itm_det: {
-              txval: bill.taxableAmount,
-              rt:    0,
-              camt:  bill.cgst,
-              samt:  bill.sgst,
-              csamt: bill.cess,
-            },
-          }],
+          itms,
         };
       }),
     }));

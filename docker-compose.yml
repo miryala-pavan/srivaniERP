@@ -9,7 +9,7 @@
       POSTGRES_PASSWORD: Srivani2026
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5555:5432"
+      - "4432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backups:/backups
@@ -21,7 +21,7 @@
     container_name: srivani_redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "4379:6379"
     networks:
       - srivani_network
 

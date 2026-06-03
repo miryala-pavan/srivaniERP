@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EventsService } from '../events/events.service';
+import { Events } from '../events/event-types';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { MovementQueryDto } from './dto/movement-query.dto';
 import { StockTakeDto } from './dto/stock-take.dto';
@@ -10,6 +12,7 @@ export class InventoryService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private eventsService: EventsService,
   ) {}
 
   async adjust(businessId: string, dto: AdjustStockDto) {
@@ -110,6 +113,7 @@ export class InventoryService {
   }
 
   async stockTake(businessId: string, userId: string, dto: StockTakeDto) {
+    const stockTakeId = `ST-${Date.now()}`;
     const branch = await this.prisma.branch.findFirst({
       where: { id: dto.branchId, businessId },
     });
@@ -117,7 +121,7 @@ export class InventoryService {
 
     const productIds = dto.items.map(i => i.productId);
     const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds }, businessId, isActive: true },
+      where: { id: { in: productIds }, businessId },
       select: { id: true },
     });
     const validIds = new Set(products.map(p => p.id));
@@ -127,7 +131,7 @@ export class InventoryService {
 
     for (const item of dto.items) {
       if (!validIds.has(item.productId)) {
-        errors.push({ productId: item.productId, error: 'Product not found or inactive' });
+        errors.push({ productId: item.productId, error: 'Product not found' });
         continue;
       }
       creates.push({
@@ -145,13 +149,22 @@ export class InventoryService {
       await this.prisma.stockLedger.createMany({ data: creates });
     }
 
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.INVENTORY_STOCK_ADJUSTED, {
+        stockTakeId,
+        productCount: creates.length,
+        branchId:     dto.branchId,
+        performedBy:  userId,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+
     return { created: creates.length, errors };
   }
 
   async getStockTakeTemplate(businessId: string): Promise<string> {
     const products = await this.prisma.product.findMany({
-      where: { businessId, isActive: true },
-      select: { id: true, name: true, barcode: true, unitOfMeasure: true },
+      where: { businessId },
+      select: { id: true, name: true, barcode: true, unitOfMeasure: true, isActive: true },
       orderBy: { name: 'asc' },
     });
 
@@ -163,21 +176,30 @@ export class InventoryService {
   }
 
   async getStockLevels(businessId: string, branchId?: string) {
-    const where: any = { businessId };
-    if (branchId) where.branchId = branchId;
+    // Start from product catalog so products with no ledger entries show currentStock: 0
+    const products = await this.prisma.product.findMany({
+      where: { businessId },
+      select: { id: true, name: true, barcode: true, unitOfMeasure: true, reorderLevel: true, isActive: true, isManuallyDisabled: true },
+      orderBy: { name: 'asc' },
+    });
+
+    const productIds = products.map(p => p.id);
+
+    const ledgerWhere: any = { businessId, productId: { in: productIds } };
+    if (branchId) ledgerWhere.branchId = branchId;
 
     const ledger = await this.prisma.stockLedger.groupBy({
       by: ['productId', 'branchId'],
-      where,
+      where: ledgerWhere,
       _sum: { quantity: true },
     });
 
-    const productIds = [...new Set(ledger.map(r => r.productId))];
-    const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds } },
-      select: { id: true, name: true, barcode: true, unitOfMeasure: true, reorderLevel: true },
-    });
-    const productMap = new Map(products.map(p => [p.id, p]));
+    // Build map: productId → branchId → stock sum
+    const stockMap = new Map<string, Map<string, number>>();
+    for (const row of ledger) {
+      if (!stockMap.has(row.productId)) stockMap.set(row.productId, new Map());
+      stockMap.get(row.productId)!.set(row.branchId, Number(row._sum.quantity ?? 0));
+    }
 
     const branches = await this.prisma.branch.findMany({
       where: { businessId },
@@ -185,13 +207,27 @@ export class InventoryService {
     });
     const branchMap = new Map(branches.map(b => [b.id, b]));
 
-    return ledger.map(row => ({
-      productId:   row.productId,
-      branchId:    row.branchId,
-      product:     productMap.get(row.productId),
-      branch:      branchMap.get(row.branchId),
-      currentStock: Number(row._sum.quantity ?? 0),
-    }));
+    const targetBranchIds = branchId ? [branchId] : branches.map(b => b.id);
+
+    const results: Array<{
+      productId: string; branchId: string; currentStock: number;
+      product: typeof products[0]; branch: typeof branches[0] | undefined;
+    }> = [];
+
+    for (const product of products) {
+      for (const bId of targetBranchIds) {
+        const currentStock = stockMap.get(product.id)?.get(bId) ?? 0;
+        results.push({
+          productId: product.id,
+          branchId:  bId,
+          currentStock,
+          product,
+          branch: branchMap.get(bId),
+        });
+      }
+    }
+
+    return results;
   }
 
   async getOpeningStockSummary(businessId: string, branchId?: string) {

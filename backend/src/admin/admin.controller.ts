@@ -41,6 +41,11 @@ export class AdminController {
     return this.adminService.migrateOrphansPhase1(req.user.businessId);
   }
 
+  @Post('link-product-icons')
+  linkProductIcons(@Request() req: any) {
+    return this.adminService.linkProductIcons(req.user.businessId);
+  }
+
   @Post('reset-bill-series')
   @HttpCode(200)
   resetBillSeries(@Request() req: any, @Body() body: {

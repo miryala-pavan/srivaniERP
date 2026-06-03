@@ -1,11 +1,14 @@
 import {
   IsString, IsNotEmpty, IsOptional, IsEmail,
-  IsEnum, Matches, MaxLength,
+  IsEnum, Matches, MaxLength, IsBoolean,
+  IsNumber, IsDateString, Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
-export enum CustomerType {
-  REGULAR = 'REGULAR',
-  WALKIN  = 'WALKIN',
+export enum CustomerChannelDto {
+  POS    = 'POS',
+  ONLINE = 'ONLINE',
+  BOTH   = 'BOTH',
 }
 
 export class CreateCustomerDto {
@@ -39,6 +42,59 @@ export class CreateCustomerDto {
   stateCode?: string;
 
   @IsOptional()
-  @IsEnum(CustomerType)
-  customerType?: CustomerType;
+  @IsString()
+  customerType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  companyName?: string;
+
+  @IsOptional()
+  @IsString()
+  billingAddress?: string;
+
+  @IsOptional()
+  @IsEnum(CustomerChannelDto)
+  channel?: CustomerChannelDto;
+
+  @IsOptional()
+  @IsString()
+  customerGroup?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  creditLimit?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  openingBalance?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  whatsappOptIn?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  smsOptIn?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  emailOptIn?: boolean;
+
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsDateString()
+  anniversary?: string;
+
+  @IsOptional()
+  @IsDateString()
+  consentGivenAt?: string;
 }

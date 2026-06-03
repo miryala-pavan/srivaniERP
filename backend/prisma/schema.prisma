@@ -216,6 +216,7 @@ model Category {
   code         String
   label        String
   parentId     String?
+  hsnCode      String?
   sortOrder    Int      @default(0)
   isActive     Boolean  @default(true)
   isReturnableDefault Boolean @default(true)
@@ -302,6 +303,8 @@ model Product {
   nonReturnableReason  String?
   availableOnline      Boolean  @default(false)
   imageUrl             String?
+  description          String?
+  keywords             String?
   defaultPackSize      Int      @default(1)
   brandName            String?
   pluAutoBarcode       Boolean  @default(false)
@@ -331,6 +334,7 @@ model Product {
   batches         ProductBatch[]
   plusList        ProductPlu[]
   supplierAliases SupplierItemAlias[]
+  productImages   ProductImage[]
 
   @@unique([businessId, barcode])
   @@unique([businessId, productCode])
@@ -338,6 +342,20 @@ model Product {
   @@index([barcode])
   @@index([businessId, productCode])
   @@map("product")
+}
+
+// ─── PRODUCT IMAGE ───────────────────────────────────
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  sortOrder Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_image")
 }
 
 // ─── PRODUCT BARCODE ─────────────────────────────────
@@ -421,7 +439,6 @@ model Supplier {
   stateCode          String?
   paymentTermsDays   Int      @default(0)
   creditLimit        Decimal  @db.Decimal(15, 2) @default(0)
-  outstandingBalance Decimal  @db.Decimal(15, 2) @default(0)
   isGstRegistered    Boolean  @default(true)
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
@@ -444,7 +461,7 @@ model Supplier {
 
 // ─── CUSTOMER ─────────────────────────────────────────
 model Customer {
-  id                 String   @id @default(cuid())
+  id                 String          @id @default(cuid())
   businessId         String
   name               String
   phone              String?
@@ -452,19 +469,50 @@ model Customer {
   gstin              String?
   address            String?
   stateCode          String?
-  customerType       String   @default("REGULAR")
-  creditLimit        Decimal  @db.Decimal(15, 2) @default(0)
-  outstandingBalance Decimal  @db.Decimal(15, 2) @default(0)
-  loyaltyPoints      Int      @default(0)
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  customerType       String          @default("REGULAR")
+  creditLimit        Decimal         @db.Decimal(15, 2) @default(0)
+  outstandingBalance Decimal         @db.Decimal(15, 2) @default(0)
+  loyaltyPoints      Int             @default(0)
+  isActive           Boolean         @default(true)
+  // Extended fields
+  customerCode       String?
+  passwordHash       String?
+  channel            CustomerChannel @default(POS)
+  status             CustomerStatus  @default(ACTIVE)
+  companyName        String?
+  billingAddress     String?
+  openingBalance     Decimal         @db.Decimal(15, 2) @default(0)
+  whatsappOptIn      Boolean         @default(false)
+  smsOptIn           Boolean         @default(false)
+  emailOptIn         Boolean         @default(false)
+  dateOfBirth        DateTime?
+  anniversary        DateTime?
+  customerGroup      String?
+  consentGivenAt     DateTime?
+  isSystemDefault    Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
 
-  business   Business    @relation(fields: [businessId], references: [id])
+  business   Business          @relation(fields: [businessId], references: [id])
   salesBills SalesBill[]
+  addresses  CustomerAddress[]
+  payments   CustomerPayment[]
 
+  @@unique([businessId, customerCode])
   @@index([businessId, phone])
   @@map("customer")
+}
+
+enum CustomerChannel {
+  POS
+  ONLINE
+  BOTH
+}
+
+enum CustomerStatus {
+  ACTIVE
+  BLOCKED
+  INACTIVE
 }
 
 // ─── BILL SERIES ──────────────────────────────────────
@@ -546,14 +594,15 @@ model SalesBill {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  branch        Branch        @relation(fields: [branchId], references: [id])
-  financialYear FinancialYear @relation(fields: [financialYearId], references: [id])
-  customer      Customer?     @relation(fields: [customerId], references: [id])
-  createdBy     User?         @relation(fields: [createdById], references: [id])
-  billSeries    BillSeries?   @relation(fields: [billSeriesId], references: [id])
-  posCounter    PosCounter?   @relation(fields: [counterId], references: [id])
-  posShift      PosShift?     @relation(fields: [shiftId], references: [id])
-  items         SalesItem[]
+  branch           Branch           @relation(fields: [branchId], references: [id])
+  financialYear    FinancialYear    @relation(fields: [financialYearId], references: [id])
+  customer         Customer?        @relation(fields: [customerId], references: [id])
+  createdBy        User?            @relation(fields: [createdById], references: [id])
+  billSeries       BillSeries?      @relation(fields: [billSeriesId], references: [id])
+  posCounter       PosCounter?      @relation(fields: [counterId], references: [id])
+  posShift         PosShift?        @relation(fields: [shiftId], references: [id])
+  items            SalesItem[]
+  customerPayments CustomerPayment[]
 
   @@index([branchId, billDate])
   @@index([status])
@@ -1057,6 +1106,43 @@ model SystemSetting {
   @@map("system_setting")
 }
 
+// ─── PLU BUNDLE (Bulk ↔ Single linking) ──────────────
+model PluBundle {
+  id              String   @id @default(cuid())
+  businessId      String
+  bulkPluId       String   @unique   // e.g. PLU 000278002 (box of 10)
+  singlePluId     String             // e.g. PLU 000278001 (single blade)
+  conversionQty   Int                // 1 bulk = conversionQty singles
+  notes           String?            // "1 box = 10 blades"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  bulkPlu   ProductPlu @relation("BulkPlu",   fields: [bulkPluId],   references: [id])
+  singlePlu ProductPlu @relation("SinglePlu", fields: [singlePluId], references: [id])
+
+  @@index([businessId])
+  @@index([singlePluId])
+  @@map("plu_bundle")
+}
+
+// ─── BREAK BULK LOG ───────────────────────────────────
+model BreakBulkLog {
+  id              String   @id @default(cuid())
+  businessId      String
+  pluBundleId     String
+  bulkPluId       String
+  singlePluId     String
+  bulkQtyBroken   Int                // how many bulk units were broken
+  singlesCreated  Int                // = bulkQtyBroken × conversionQty
+  notes           String?
+  createdById     String?
+  createdByName   String?
+  createdAt       DateTime @default(now())
+
+  @@index([businessId, createdAt])
+  @@map("break_bulk_log")
+}
+
 // ─── PRODUCT PLU ──────────────────────────────────────
 model ProductPlu {
   id                String    @id @default(cuid())
@@ -1093,6 +1179,10 @@ model ProductPlu {
   receivedQty       Decimal   @db.Decimal(10, 3) @default(0)
   soldQty           Decimal   @db.Decimal(10, 3) @default(0)
   stockOnHand       Decimal   @db.Decimal(10, 3) @default(0)
+  // Online catalog fields
+  availableOnline   Boolean   @default(false)
+  onlinePrice       Decimal?  @db.Decimal(15, 2)
+  onlineStockCap    Int?      // null = no cap (sell up to totalStock); set to limit online channel
   // Status flags
   isDefault         Boolean   @default(false)
   isActive          Boolean   @default(true)
@@ -1104,9 +1194,11 @@ model ProductPlu {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  product  Product         @relation(fields: [productId], references: [id])
-  business Business        @relation(fields: [businessId], references: [id])
-  barcodes ProductBarcode[]
+  product   Product         @relation(fields: [productId], references: [id])
+  business  Business        @relation(fields: [businessId], references: [id])
+  barcodes  ProductBarcode[]
+  asBulk    PluBundle?      @relation("BulkPlu")
+  asSingle  PluBundle[]     @relation("SinglePlu")
 
   @@unique([businessId, pluCode])
   @@index([productId])
@@ -1255,4 +1347,47 @@ model SupplierPayment {
   @@index([businessId, purchaseId])
   @@index([paymentDate])
   @@map("supplier_payment")
+}
+
+// ─── CUSTOMER ADDRESS ────────────────────────────────
+model CustomerAddress {
+  id         String   @id @default(cuid())
+  businessId String
+  customerId String
+  label      String?
+  line1      String
+  line2      String?
+  city       String?
+  state      String?
+  pincode    String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@map("customer_address")
+}
+
+// ─── CUSTOMER PAYMENT ────────────────────────────────
+model CustomerPayment {
+  id            String    @id @default(cuid())
+  businessId    String
+  customerId    String
+  amount        Decimal   @db.Decimal(15, 2)
+  paymentMode   String
+  reference     String?
+  notes         String?
+  billId        String?
+  paymentDate   DateTime  @default(now())
+  createdBy     String
+  createdByName String?
+  createdAt     DateTime  @default(now())
+
+  customer Customer   @relation(fields: [customerId], references: [id])
+  bill     SalesBill? @relation(fields: [billId], references: [id])
+
+  @@index([customerId])
+  @@index([businessId, paymentDate])
+  @@map("customer_payment")
 }

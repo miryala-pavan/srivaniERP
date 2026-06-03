@@ -2,12 +2,17 @@ import {
   Injectable, BadRequestException, NotFoundException, ConflictException, ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
+import * as path from 'path';
+import * as fs from 'fs';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
+import { canViewCost } from '../common/helpers/cost-visibility';
+import { wildcardFilter, hasWildcard, toSqlLike } from '../common/helpers/search.helper';
 
 function tcField(s: string | undefined | null): string | undefined {
   if (!s) return s ?? undefined;
@@ -123,7 +128,7 @@ export class ProductsService {
     });
     if (byCode) throw new ConflictException(`Category code "${code}" already exists`);
 
-    return this.prisma.category.create({
+    const created = await this.prisma.category.create({
       data: {
         businessId,
         name: dto.name,
@@ -140,6 +145,12 @@ export class ProductsService {
         _count:      { select: { products: true, children: true } },
       },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.CATEGORY_CREATED, {
+        categoryId: created.id, code: created.code, name: created.name,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+    return created;
   }
 
   async updateCategory(businessId: string, id: string, body: {
@@ -147,7 +158,7 @@ export class ProductsService {
   }) {
     const cat = await this.prisma.category.findFirst({ where: { id, businessId } });
     if (!cat) throw new NotFoundException('Category not found');
-    return this.prisma.category.update({
+    const updated = await this.prisma.category.update({
       where: { id },
       data: {
         ...(body.name         !== undefined ? { name: body.name.trim(), label: body.name.trim() } : {}),
@@ -160,6 +171,12 @@ export class ProductsService {
         _count:     { select: { products: true, children: true } },
       },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.CATEGORY_UPDATED, {
+        categoryId: id, code: updated.code, name: updated.name,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+    return updated;
   }
 
   async deleteCategory(businessId: string, id: string) {
@@ -175,6 +192,11 @@ export class ProductsService {
       throw new BadRequestException(`Cannot delete — category has ${cat._count.products} products`);
     }
     await this.prisma.category.delete({ where: { id } });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.CATEGORY_DELETED, {
+        categoryId: id, code: cat.code,
+      });
+    } catch (_err) { /* fire-and-forget */ }
     return { message: 'Category deleted' };
   }
 
@@ -193,19 +215,31 @@ export class ProductsService {
     });
   }
 
-  async createSubCategory(businessId: string, body: { name: string; categoryId: string; sortOrder?: number }) {
+  async createSubCategory(businessId: string, body: { name: string; categoryId: string; sortOrder?: number; hsnCode?: string }) {
     const parent = await this.prisma.category.findFirst({
       where: { id: body.categoryId, businessId, parentId: null },
     });
     if (!parent) throw new NotFoundException('Parent category not found');
-    const code = `${parent.code}_${body.name.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8)}`;
-    let finalCode = code;
-    const codeExists = await this.prisma.category.findUnique({
-      where: { businessId_code: { businessId, code } },
-    });
-    if (codeExists) finalCode = `${code}${Date.now().toString().slice(-4)}`;
 
-    return this.prisma.category.create({
+    const existing = await this.prisma.category.findMany({
+      where: { businessId, parentId: body.categoryId },
+      select: { code: true },
+    });
+    const prefix = `${parent.code}_`;
+    const codeSet = new Set(existing.map((c) => c.code));
+    let nn = existing.reduce((max, c) => {
+      if (!c.code.startsWith(prefix)) return max;
+      const suffix = c.code.slice(prefix.length);
+      if (!/^\d+$/.test(suffix)) return max;
+      return Math.max(max, parseInt(suffix, 10));
+    }, 0) + 1;
+    let finalCode = `${parent.code}_${String(nn).padStart(2, '0')}`;
+    while (codeSet.has(finalCode)) {
+      nn++;
+      finalCode = `${parent.code}_${String(nn).padStart(2, '0')}`;
+    }
+
+    const created = await this.prisma.category.create({
       data: {
         businessId,
         parentId: body.categoryId,
@@ -214,30 +248,44 @@ export class ProductsService {
         code: finalCode,
         label: body.name.trim(),
         sortOrder: body.sortOrder ?? 0,
+        ...(body.hsnCode ? { hsnCode: body.hsnCode.trim() } : {}),
       },
       include: {
         parent:     { select: { id: true, name: true, label: true, code: true } },
         department: { select: { id: true, name: true, code: true } },
       },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.SUBCATEGORY_CREATED, {
+        subcategoryId: created.id, code: created.code, name: created.name, parentId: body.categoryId,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+    return created;
   }
 
   async updateSubCategory(businessId: string, id: string, body: {
-    name?: string; sortOrder?: number; isActive?: boolean; categoryId?: string;
+    name?: string; sortOrder?: number; isActive?: boolean; categoryId?: string; hsnCode?: string | null;
   }) {
     const cat = await this.prisma.category.findFirst({
       where: { id, businessId, parentId: { not: null } },
     });
     if (!cat) throw new NotFoundException('Sub-category not found');
-    return this.prisma.category.update({
+    const updated = await this.prisma.category.update({
       where: { id },
       data: {
         ...(body.name       !== undefined ? { name: body.name.trim(), label: body.name.trim() } : {}),
         ...(body.sortOrder  !== undefined ? { sortOrder: body.sortOrder } : {}),
         ...(body.isActive   !== undefined ? { isActive: body.isActive } : {}),
         ...(body.categoryId !== undefined ? { parentId: body.categoryId || null } : {}),
+        ...(body.hsnCode    !== undefined ? { hsnCode: body.hsnCode ? body.hsnCode.trim() : null } : {}),
       },
     });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.SUBCATEGORY_UPDATED, {
+        subcategoryId: id, code: updated.code, name: updated.name,
+      });
+    } catch (_err) { /* fire-and-forget */ }
+    return updated;
   }
 
   async deleteSubCategory(businessId: string, id: string) {
@@ -246,11 +294,108 @@ export class ProductsService {
       include: { _count: { select: { products: true } } },
     });
     if (!cat) throw new NotFoundException('Sub-category not found');
+    if (cat.code.endsWith('_GEN')) {
+      throw new BadRequestException('Cannot delete the General fallback subcategory');
+    }
     if (cat._count.products > 0) {
       throw new BadRequestException(`Cannot delete — sub-category has ${cat._count.products} products`);
     }
     await this.prisma.category.delete({ where: { id } });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.SUBCATEGORY_DELETED, {
+        subcategoryId: id, code: cat.code,
+      });
+    } catch (_err) { /* fire-and-forget */ }
     return { message: 'Sub-category deleted' };
+  }
+
+  async applyHsnToSubcategory(businessId: string, subcategoryId: string, hsnCode: string, mode: 'ALL' | 'UNSET_ONLY') {
+    const cat = await this.prisma.category.findFirst({
+      where: { id: subcategoryId, businessId, parentId: { not: null } },
+    });
+    if (!cat) throw new NotFoundException('Sub-category not found');
+
+    await this.prisma.category.update({ where: { id: subcategoryId }, data: { hsnCode: hsnCode.trim() } });
+
+    const where: any = { businessId, categoryId: subcategoryId };
+    if (mode === 'UNSET_ONLY') where.hsnCode = '0000';
+
+    const { count } = await this.prisma.product.updateMany({ where, data: { hsnCode: hsnCode.trim() } });
+    return { updated: count, subcategoryId, hsnCode };
+  }
+
+  async bulkApplyHsn(businessId: string, entries: { subcategoryId: string; hsnCode: string }[], mode: 'ALL' | 'UNSET_ONLY') {
+    let total = 0;
+    for (const entry of entries) {
+      if (!entry.hsnCode || !/^\d+$/.test(entry.hsnCode) || ![4, 6, 8].includes(entry.hsnCode.length)) continue;
+      const res = await this.applyHsnToSubcategory(businessId, entry.subcategoryId, entry.hsnCode, mode);
+      total += res.updated;
+    }
+    return { totalProductsUpdated: total, entriesProcessed: entries.length };
+  }
+
+  async getHsnStats(businessId: string) {
+    const subcategories = await this.prisma.category.findMany({
+      where: { businessId, parentId: { not: null } },
+      select: {
+        id: true, name: true, code: true, hsnCode: true,
+        parentId: true,
+        parent: { select: { id: true, name: true, code: true, departmentId: true, department: { select: { id: true, name: true, code: true } } } },
+        _count: { select: { products: true } },
+      },
+      orderBy: [{ parent: { sortOrder: 'asc' } }, { sortOrder: 'asc' }],
+    });
+
+    const subcatIds = subcategories.map((s) => s.id);
+    const productHsns = await this.prisma.product.groupBy({
+      by: ['categoryId', 'hsnCode'],
+      where: { businessId, categoryId: { in: subcatIds } },
+      _count: { id: true },
+    });
+
+    const hsnMap = new Map<string, { matched: number; different: number; unset: number }>();
+    for (const row of productHsns) {
+      if (!row.categoryId) continue;
+      if (!hsnMap.has(row.categoryId)) hsnMap.set(row.categoryId, { matched: 0, different: 0, unset: 0 });
+      const entry = hsnMap.get(row.categoryId)!;
+      if (row.hsnCode === '0000' || !row.hsnCode) entry.unset += row._count.id;
+      else entry.different += row._count.id;
+    }
+
+    const subcatsWithHsn = subcategories.filter((s) => s.hsnCode).length;
+    const totalProducts = subcategories.reduce((sum, s) => sum + s._count.products, 0);
+
+    for (const sub of subcategories) {
+      const stats = hsnMap.get(sub.id);
+      if (stats && sub.hsnCode) {
+        const matchedGroup = productHsns.find((p) => p.categoryId === sub.id && p.hsnCode === sub.hsnCode);
+        stats.matched = matchedGroup?._count.id ?? 0;
+        stats.different = stats.different - (matchedGroup ? stats.different : 0);
+        const unsetGroup = productHsns.find((p) => p.categoryId === sub.id && (p.hsnCode === '0000' || !p.hsnCode));
+        stats.unset = unsetGroup?._count.id ?? 0;
+        stats.different = (sub._count.products) - stats.matched - stats.unset;
+        if (stats.different < 0) stats.different = 0;
+      }
+    }
+
+    const coveredProducts = productHsns
+      .filter((p) => p.hsnCode && p.hsnCode !== '0000')
+      .reduce((sum, p) => sum + p._count.id, 0);
+
+    return {
+      summary: {
+        totalSubcategories: subcategories.length,
+        subcatsWithHsn,
+        subcatsWithoutHsn: subcategories.length - subcatsWithHsn,
+        totalProducts,
+        coveredProducts,
+        uncoveredProducts: totalProducts - coveredProducts,
+      },
+      subcategories: subcategories.map((s) => ({
+        ...s,
+        stats: hsnMap.get(s.id) ?? { matched: 0, different: 0, unset: s._count.products },
+      })),
+    };
   }
 
   async getCategories(businessId: string, departmentId?: string) {
@@ -266,7 +411,7 @@ export class ProductsService {
         children: {
           where:   { isActive: true },
           orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-          select:  { id: true, name: true, code: true, label: true, sortOrder: true },
+          select:  { id: true, name: true, code: true, label: true, sortOrder: true, hsnCode: true },
         },
         _count: { select: { products: true, children: true } },
       },
@@ -279,7 +424,7 @@ export class ProductsService {
       where:   { businessId, isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
-        id: true, name: true, code: true, label: true, parentId: true, departmentId: true,
+        id: true, name: true, code: true, label: true, parentId: true, departmentId: true, hsnCode: true,
         parent:     { select: { id: true, name: true, label: true, code: true } },
         department: { select: { id: true, name: true, code: true } },
       },
@@ -437,17 +582,21 @@ export class ProductsService {
     return product;
   }
 
-  async getProducts(businessId: string, query: ProductQueryDto) {
+  async getProducts(businessId: string, query: ProductQueryDto, role?: string) {
     const page  = query.page ?? 1;
     const limit = query.limit ?? 20;
     const skip  = (page - 1) * limit;
     const order = (query.sortOrder === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc';
 
     const where: any = { businessId };
-    if (query.isActive !== undefined) where.isActive = query.isActive;
+    if (query.includeInactive) { /* show all products regardless of isActive */ }
+    else if (query.isActive !== undefined) where.isActive = query.isActive;
     else where.isActive = true;
 
-    // Category filter: if subCategoryId given, use it; else expand main category to include children
+    // ── Bug fix 1: Department filter (was frontend-only, now applied at DB level)
+    if (query.departmentId) where.departmentId = query.departmentId;
+
+    // ── Category filter: subCategoryId takes priority, else expand main cat to include children
     if (query.subCategoryId) {
       where.categoryId = query.subCategoryId;
     } else if (query.categoryId) {
@@ -462,33 +611,71 @@ export class ProductsService {
     if (query.brandId)     where.brandId     = query.brandId;
     if (query.productType) where.productType = query.productType;
     if (query.gstRate !== undefined) where.gstRatePercent = query.gstRate;
+    if (query.hsnCode === 'UNSET') where.hsnCode = '0000';
+    else if (query.hsnCode) where.hsnCode = query.hsnCode;
 
-    // Three-state status filter
-    if (query.status === 'DISABLED')     where.isManuallyDisabled = true;
-    if (query.status === 'OUT_OF_STOCK') where.autoInactiveReason = 'OUT_OF_STOCK';
-    if (query.status === 'ACTIVE') {
+    // ── Bug fix 2: Status filter — OUT_OF_STOCK was using unreliable autoInactiveReason.
+    //    Now uses PLU stockOnHand (same source as frontend getStatus() / currentStock).
+    if (query.status === 'DISABLED') {
+      where.isManuallyDisabled = true;
+    } else if (query.status === 'ACTIVE') {
       where.isManuallyDisabled = false;
-      where.autoInactiveReason = null;
+      where.plusList = { some: { stockOnHand: { gt: 0 }, isActive: true, isArchived: false } };
+    } else if (query.status === 'OUT_OF_STOCK') {
+      where.isManuallyDisabled = false;
+      where.plusList = { none: { stockOnHand: { gt: 0 }, isActive: true, isArchived: false } };
     }
 
-    if (query.search) {
-      where.OR = [
-        { name:        { contains: query.search, mode: 'insensitive' } },
-        { shortName:   { contains: query.search, mode: 'insensitive' } },
-        { barcode:     { contains: query.search, mode: 'insensitive' } },
-        { productCode: { contains: query.search } },
-        { hsnCode:     { contains: query.search } },
+    // ── Bug fix 3: stockStatus was post-filtering AFTER pagination (broke page counts + totals).
+    //    Now filters at DB level using PLU stockOnHand so pagination and total are correct.
+    //    LOW_STOCK still needs a post-filter since it compares against per-product reorderLevel.
+    if (query.stockStatus === 'OUT_OF_STOCK') {
+      // No PLU has stock > 0
+      where.AND = [...(where.AND ?? []),
+        { plusList: { none: { stockOnHand: { gt: 0 }, isActive: true, isArchived: false } } },
+      ];
+    } else if (query.stockStatus === 'IN_STOCK') {
+      // At least one PLU has stock > 0
+      where.AND = [...(where.AND ?? []),
+        { plusList: { some: { stockOnHand: { gt: 0 }, isActive: true, isArchived: false } } },
+      ];
+    } else if (query.stockStatus === 'LOW_STOCK') {
+      // Has some stock — LOW_STOCK post-filter will further narrow to <= reorderLevel
+      where.AND = [...(where.AND ?? []),
+        { plusList: { some: { stockOnHand: { gt: 0 }, isActive: true, isArchived: false } } },
       ];
     }
 
-    // Build orderBy
+    if (query.search) {
+      const wf = wildcardFilter(query.search);
+      where.OR = [
+        { name:        wf },
+        { shortName:   wf },
+        { barcode:     wf },
+        { productCode: wf },
+        { hsnCode:     wildcardFilter(query.search) },
+      ];
+    }
+
+    // ── Build orderBy
+    // 'stock' sort uses product.totalStock — a maintained denormalized field updated
+    // on every GRN approval, sale, and stock adjustment. This gives a true global
+    // DB-level sort so pagination correctly shows stocked products on page 1.
+    // (Prisma relation-aggregate _sum in orderBy is not supported; totalStock is the right field.)
     const sortFieldMap: Record<string, any> = {
-      code: { productCode: order }, name: { name: order },
-      mrp: { mrp: order }, sellingPrice: { sellingPrice: order },
-      gstRatePercent: { gstRatePercent: order }, createdAt: { createdAt: order },
+      code:           { productCode:    order },
+      name:           { name:           order },
+      mrp:            { mrp:            order },
+      sellingPrice:   { sellingPrice:   order },
+      gstRatePercent: { gstRatePercent: order },
+      createdAt:      { createdAt:      order },
+      stock:          { totalStock:     order },
     };
-    const sortByStock = query.sortBy === 'stock';
-    const orderBy = sortByStock ? { productCode: 'asc' } : (sortFieldMap[query.sortBy ?? 'code'] ?? { productCode: 'asc' });
+    const orderBy = [
+      sortFieldMap[query.sortBy ?? 'code'] ?? { productCode: 'asc' },
+      // Secondary sort: stable productCode tiebreaker for consistent pagination
+      ...(query.sortBy && query.sortBy !== 'code' ? [{ productCode: 'asc' }] : []),
+    ];
 
     const catSelect = {
       id: true, name: true, label: true, code: true,
@@ -522,6 +709,7 @@ export class ProductsService {
         select: {
           id: true, productId: true, pluCode: true, sellingPrice: true, mrp: true,
           costPrice: true, gstRate: true, cessRate: true, wholesalePrice: true, stockOnHand: true,
+          availableOnline: true, onlinePrice: true, displayName: true,
         },
       });
       defaultPlus.forEach((plu) => defaultPluMap.set(plu.productId, plu));
@@ -534,42 +722,59 @@ export class ProductsService {
       activePluCounts.forEach((row) => activePluCountMap.set(row.productId, row._count.id));
     }
 
-    let enriched = products.map((p) => ({
-      ...p,
-      currentStock:  stockMap.get(p.id) ?? 0,
-      defaultPlu:    defaultPluMap.get(p.id) ?? null,
-      activePluCount: activePluCountMap.get(p.id) ?? 0,
-    }));
+    const hideCost = !canViewCost(role);
+    let enriched = products.map((p) => {
+      const plu = defaultPluMap.get(p.id) ?? null;
+      if (plu && hideCost) { delete plu.costPrice; delete (plu as any).basicCost; }
+      return {
+        ...p,
+        costPrice:      hideCost ? undefined : (p as any).costPrice,
+        currentStock:   stockMap.get(p.id) ?? 0,
+        defaultPlu:     plu,
+        activePluCount: activePluCountMap.get(p.id) ?? 0,
+      };
+    });
 
-    // Stock status post-filter
-    if (query.stockStatus === 'OUT_OF_STOCK') enriched = enriched.filter((p) => p.currentStock <= 0);
-    if (query.stockStatus === 'IN_STOCK')     enriched = enriched.filter((p) => p.currentStock > 0);
+    // LOW_STOCK still needs post-filter (compares currentStock against per-product reorderLevel)
     if (query.stockStatus === 'LOW_STOCK') {
       enriched = enriched.filter((p) => p.currentStock > 0 && p.currentStock <= Number(p.reorderLevel));
-    }
-
-    // Stock sort (computed field, done post-enrichment)
-    if (sortByStock) {
-      enriched.sort((a, b) => order === 'asc' ? a.currentStock - b.currentStock : b.currentStock - a.currentStock);
     }
 
     return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async getProductById(businessId: string, id: string) {
-    const product = await this.prisma.product.findFirst({
-      where: { id, businessId },
-      include: {
-        category: {
-          include: { parent: { select: { id: true, name: true, label: true, code: true } } },
+  async getProductById(businessId: string, id: string, role?: string) {
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const [product, soldMonth, soldLifetime] = await Promise.all([
+      this.prisma.product.findFirst({
+        where: { id, businessId },
+        include: {
+          category: {
+            include: { parent: { select: { id: true, name: true, label: true, code: true } } },
+          },
+          brand: true, tax: true,
+          barcodes: { where: { isActive: true } },
+          prices:   { orderBy: { priceListType: 'asc' } },
         },
-        brand: true, tax: true,
-        barcodes: { where: { isActive: true } },
-        prices:   { orderBy: { priceListType: 'asc' } },
-      },
-    });
+      }),
+      this.prisma.salesItem.aggregate({
+        where: { productId: id, bill: { businessId, billDate: { gte: monthStart } } },
+        _sum: { quantity: true },
+      }),
+      this.prisma.salesItem.aggregate({
+        where: { productId: id, bill: { businessId } },
+        _sum: { quantity: true },
+      }),
+    ]);
     if (!product) throw new NotFoundException('Product not found');
-    return product;
+    if (!canViewCost(role)) delete (product as any).costPrice;
+    return {
+      ...product,
+      stats: {
+        soldThisMonth:  Number(soldMonth._sum.quantity    ?? 0),
+        lifetimeSold:   Number(soldLifetime._sum.quantity ?? 0),
+      },
+    };
   }
 
   async updateProduct(businessId: string, id: string, dto: UpdateProductDto, userId?: string) {
@@ -695,7 +900,199 @@ export class ProductsService {
     return updated;
   }
 
-  // ─── INLINE TAX UPDATE (Feature 2) ──────────────────────────────────────────
+  // ─── ONLINE VISIBILITY (Feature 2) ──────────────────────────────────────────
+
+  async setOnlineVisibility(businessId: string, id: string, online: boolean, userId?: string) {
+    const product = await this.prisma.product.findFirst({ where: { id, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+
+    await this.prisma.$transaction([
+      // Update product-level flag
+      this.prisma.product.update({
+        where: { id },
+        data:  { availableOnline: online },
+      }),
+      // Sync all active PLUs — storefront filters by PLU.availableOnline
+      this.prisma.productPlu.updateMany({
+        where: { productId: id, businessId, isActive: true, isArchived: false },
+        data:  { availableOnline: online },
+      }),
+    ]);
+
+    this.audit(userId ?? null, businessId, 'PRODUCT_ONLINE_VISIBILITY', 'Product', id,
+      { availableOnline: !online }, { availableOnline: online });
+
+    return { id, availableOnline: online };
+  }
+
+  async bulkSetOnlineVisibility(businessId: string, ids: string[], online: boolean, userId?: string) {
+    if (!ids?.length) throw new BadRequestException('No product IDs provided');
+
+    await this.prisma.$transaction([
+      this.prisma.product.updateMany({
+        where: { id: { in: ids }, businessId },
+        data:  { availableOnline: online },
+      }),
+      this.prisma.productPlu.updateMany({
+        where: { productId: { in: ids }, businessId, isActive: true, isArchived: false },
+        data:  { availableOnline: online },
+      }),
+    ]);
+
+    this.audit(userId ?? null, businessId, 'PRODUCT_BULK_ONLINE_VISIBILITY', 'Product', 'bulk',
+      undefined, { ids, availableOnline: online });
+
+    return { updated: ids.length, availableOnline: online };
+  }
+
+  // ─── INLINE TAX UPDATE (Feature 3) ──────────────────────────────────────────
+
+  // ─── PLU BUNDLE ─────────────────────────────────────────────────────────────
+
+  async getPluBundle(businessId: string, pluId: string) {
+    const [asBulk, asSingle] = await Promise.all([
+      this.prisma.pluBundle.findFirst({
+        where: { bulkPluId: pluId },
+        include: {
+          singlePlu: { select: { id: true, pluCode: true, mrp: true, sellingPrice: true, stockOnHand: true } },
+        },
+      }),
+      this.prisma.pluBundle.findMany({
+        where: { singlePluId: pluId },
+        include: {
+          bulkPlu: { select: { id: true, pluCode: true, mrp: true, sellingPrice: true, stockOnHand: true } },
+        },
+      }),
+    ]);
+    return { asBulk, asSingle };
+  }
+
+  async createPluBundle(businessId: string, body: {
+    bulkPluId: string; singlePluId: string; conversionQty: number; notes?: string;
+  }) {
+    // Verify both PLUs belong to this business
+    const [bulk, single] = await Promise.all([
+      this.prisma.productPlu.findFirst({ where: { id: body.bulkPluId }, include: { product: { select: { businessId: true, name: true } } } }),
+      this.prisma.productPlu.findFirst({ where: { id: body.singlePluId }, include: { product: { select: { businessId: true, name: true } } } }),
+    ]);
+    if (!bulk   || bulk.product.businessId   !== businessId) throw new NotFoundException('Bulk PLU not found');
+    if (!single || single.product.businessId !== businessId) throw new NotFoundException('Single PLU not found');
+    if (body.conversionQty < 1) throw new BadRequestException('Conversion qty must be >= 1');
+
+    return this.prisma.pluBundle.upsert({
+      where: { bulkPluId: body.bulkPluId },
+      create: {
+        businessId,
+        bulkPluId:      body.bulkPluId,
+        singlePluId:    body.singlePluId,
+        conversionQty:  body.conversionQty,
+        notes:          body.notes,
+      },
+      update: {
+        singlePluId:   body.singlePluId,
+        conversionQty: body.conversionQty,
+        notes:         body.notes,
+      },
+    });
+  }
+
+  async deletePluBundle(businessId: string, bundleId: string) {
+    const bundle = await this.prisma.pluBundle.findFirst({ where: { id: bundleId, businessId } });
+    if (!bundle) throw new NotFoundException('Bundle not found');
+    await this.prisma.pluBundle.delete({ where: { id: bundleId } });
+    return { message: 'Bundle removed' };
+  }
+
+  async breakBulk(businessId: string, body: {
+    bundleId: string; bulkQty: number; userId?: string; userName?: string; notes?: string;
+  }) {
+    const bundle = await this.prisma.pluBundle.findFirst({
+      where: { id: body.bundleId, businessId },
+      include: {
+        bulkPlu:   { include: { product: { select: { id: true, name: true } } } },
+        singlePlu: { include: { product: { select: { id: true, name: true } } } },
+      },
+    });
+    if (!bundle) throw new NotFoundException('PLU bundle not found');
+    if (body.bulkQty < 1) throw new BadRequestException('Quantity must be at least 1');
+
+    const bulkStock = Number(bundle.bulkPlu.stockOnHand ?? 0);
+    if (bulkStock < body.bulkQty) {
+      throw new BadRequestException(
+        `Not enough bulk stock. Available: ${bulkStock}, requested: ${body.bulkQty}`
+      );
+    }
+
+    const singlesCreated = body.bulkQty * bundle.conversionQty;
+
+    await this.prisma.$transaction([
+      // Deduct from bulk PLU
+      this.prisma.productPlu.update({
+        where: { id: bundle.bulkPluId },
+        data: { stockOnHand: { decrement: body.bulkQty } },
+      }),
+      // Add to single PLU
+      this.prisma.productPlu.update({
+        where: { id: bundle.singlePluId },
+        data: { stockOnHand: { increment: singlesCreated } },
+      }),
+      // Log it
+      this.prisma.breakBulkLog.create({
+        data: {
+          businessId,
+          pluBundleId:    bundle.id,
+          bulkPluId:      bundle.bulkPluId,
+          singlePluId:    bundle.singlePluId,
+          bulkQtyBroken:  body.bulkQty,
+          singlesCreated,
+          notes:          body.notes,
+          createdById:    body.userId,
+          createdByName:  body.userName,
+        },
+      }),
+    ]);
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
+        productId: bundle.bulkPlu.product.id,
+      });
+      this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
+        productId: bundle.singlePlu.product.id,
+      });
+    } catch (_) { /* fire-and-forget */ }
+
+    return {
+      message:        `Opened ${body.bulkQty} bulk unit(s) → ${singlesCreated} singles created`,
+      bulkQtyBroken:  body.bulkQty,
+      singlesCreated,
+      bulkPluCode:    bundle.bulkPlu.pluCode,
+      singlePluCode:  bundle.singlePlu.pluCode,
+    };
+  }
+
+  async getBreakBulkHistory(businessId: string, pluId?: string) {
+    const where: any = { businessId };
+    if (pluId) where.OR = [{ bulkPluId: pluId }, { singlePluId: pluId }];
+    return this.prisma.breakBulkLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  async updateHsn(businessId: string, id: string, hsnCode: string, userId?: string) {
+    const hsn = (hsnCode ?? '').trim();
+    if (!/^\d+$/.test(hsn) || ![4, 6, 8].includes(hsn.length)) {
+      throw new BadRequestException('HSN code must be 4, 6, or 8 numeric digits');
+    }
+    const product = await this.prisma.product.findFirst({ where: { id, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+    await this.prisma.product.update({ where: { id }, data: { hsnCode: hsn } });
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PRODUCT_UPDATED, { productId: id });
+    } catch (_) { /* fire-and-forget */ }
+    return { id, hsnCode: hsn };
+  }
 
   async updateTax(businessId: string, id: string, taxId: string, userId?: string) {
     const product = await this.prisma.product.findFirst({ where: { id, businessId } });
@@ -932,16 +1329,20 @@ export class ProductsService {
 
   // ─── PLU MANAGEMENT ─────────────────────────────────────────────────────────
 
-  async getPlusForProduct(businessId: string, productId: string) {
+  async getPlusForProduct(businessId: string, productId: string, role?: string) {
     const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
     if (!product) throw new NotFoundException('Product not found');
-    return this.prisma.productPlu.findMany({
+    const plus = await this.prisma.productPlu.findMany({
       where: { productId, businessId },
       orderBy: { createdAt: 'desc' },
       include: {
         barcodes: { where: { isActive: true }, select: { id: true, barcodeValue: true, barcodeType: true, isPrimary: true } },
       },
     });
+    if (!canViewCost(role)) {
+      return plus.map(p => { const r = { ...p } as any; delete r.costPrice; delete r.basicCost; return r; });
+    }
+    return plus;
   }
 
   async getActivePlusForProduct(businessId: string, productId: string) {
@@ -1040,19 +1441,26 @@ export class ProductsService {
   async updatePlu(businessId: string, productId: string, pluId: string, body: {
     eanCode?: string; sellingPrice?: number; wholesalePrice?: number;
     minSellingPrice?: number; gstRate?: number; cessRate?: number; taxInclusive?: boolean;
+    availableOnline?: boolean; onlinePrice?: number | null;
+    onlineStockCap?: number | null;
+    packLabel?: string | null;
   }) {
     const plu = await this.prisma.productPlu.findFirst({ where: { id: pluId, productId, businessId } });
     if (!plu) throw new NotFoundException('PLU not found');
     const updated = await this.prisma.productPlu.update({
       where: { id: pluId },
       data: {
-        ...(body.eanCode          !== undefined ? { eanCode: body.eanCode }                 : {}),
-        ...(body.sellingPrice     !== undefined ? { sellingPrice: body.sellingPrice }       : {}),
-        ...(body.wholesalePrice   !== undefined ? { wholesalePrice: body.wholesalePrice }   : {}),
-        ...(body.minSellingPrice  !== undefined ? { minSellingPrice: body.minSellingPrice } : {}),
-        ...(body.gstRate          !== undefined ? { gstRate: body.gstRate }                 : {}),
-        ...(body.cessRate         !== undefined ? { cessRate: body.cessRate }               : {}),
-        ...(body.taxInclusive     !== undefined ? { taxInclusive: body.taxInclusive }       : {}),
+        ...(body.eanCode            !== undefined ? { eanCode: body.eanCode }                   : {}),
+        ...(body.sellingPrice       !== undefined ? { sellingPrice: body.sellingPrice }         : {}),
+        ...(body.wholesalePrice     !== undefined ? { wholesalePrice: body.wholesalePrice }     : {}),
+        ...(body.minSellingPrice    !== undefined ? { minSellingPrice: body.minSellingPrice }   : {}),
+        ...(body.gstRate            !== undefined ? { gstRate: body.gstRate }                   : {}),
+        ...(body.cessRate           !== undefined ? { cessRate: body.cessRate }                 : {}),
+        ...(body.taxInclusive       !== undefined ? { taxInclusive: body.taxInclusive }         : {}),
+        ...(body.availableOnline    !== undefined ? { availableOnline: body.availableOnline }     : {}),
+        ...(body.onlinePrice        !== undefined ? { onlinePrice: body.onlinePrice }             : {}),
+        ...(body.onlineStockCap     !== undefined ? { onlineStockCap: body.onlineStockCap }       : {}),
+        ...(body.packLabel          !== undefined ? { displayName: body.packLabel }               : {}),
       },
     });
     try {
@@ -1120,6 +1528,98 @@ export class ProductsService {
     return { message: 'PLU deactivated' };
   }
 
+  async getProductStockHistory(businessId: string, productId: string) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+    return this.prisma.stockLedger.findMany({
+      where: { productId, businessId },
+      orderBy: { movementDate: 'desc' },
+      take: 200,
+      include: { branch: { select: { id: true, name: true } } },
+    });
+  }
+
+  async getProductSales(
+    businessId: string, productId: string,
+    query: { page?: string; limit?: string; dateFrom?: string; dateTo?: string },
+  ) {
+    const page  = Math.max(1, Number(query.page)  || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const skip  = (page - 1) * limit;
+
+    const billWhere: any = { businessId };
+    if (query.dateFrom) billWhere.billDate = { ...billWhere.billDate, gte: new Date(query.dateFrom) };
+    if (query.dateTo)   billWhere.billDate = { ...billWhere.billDate, lte: new Date(query.dateTo) };
+
+    const where = { productId, bill: billWhere };
+    const [rows, total] = await Promise.all([
+      this.prisma.salesItem.findMany({
+        where,
+        orderBy: { bill: { billDate: 'desc' } },
+        skip, take: limit,
+        include: { bill: { select: { id: true, billNumber: true, billDate: true, grandTotal: true, status: true } } },
+      }),
+      this.prisma.salesItem.count({ where }),
+    ]);
+    return { data: rows, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async getProductPurchases(
+    businessId: string, productId: string,
+    query: { page?: string; limit?: string },
+    isOwner: boolean,
+  ) {
+    const page  = Math.max(1, Number(query.page)  || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const skip  = (page - 1) * limit;
+
+    const where = { productId, purchase: { businessId } };
+    const [rows, total] = await Promise.all([
+      this.prisma.purchaseItem.findMany({
+        where,
+        orderBy: { purchase: { invoiceDate: 'desc' } },
+        skip, take: limit,
+        include: {
+          purchase: { select: { id: true, grnNumber: true, invoiceDate: true, supplierId: true, supplierName: true, status: true } },
+        },
+      }),
+      this.prisma.purchaseItem.count({ where }),
+    ]);
+    const data = rows.map(r => {
+      if (isOwner) return r;
+      const row = { ...r } as any;
+      delete row.netCostPrice; delete row.trueCostPrice; delete row.lastCostPrice;
+      return row;
+    });
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async getProductSuppliers(businessId: string, productId: string, isOwner: boolean) {
+    const rows = await this.prisma.$queryRaw<Array<{
+      supplierId: string; supplierName: string; timesOrdered: bigint;
+      lastOrderDate: Date | null; lastUnitCost: string | null; totalQty: string | null;
+    }>>(Prisma.sql`
+      SELECT p."supplierId", p."supplierName",
+        COUNT(DISTINCT p.id)::bigint AS "timesOrdered",
+        MAX(p."invoiceDate") AS "lastOrderDate",
+        MAX(pi."netCostPrice")::text AS "lastUnitCost",
+        SUM(pi."totalReceivedQty")::text AS "totalQty"
+      FROM purchase_item pi
+      JOIN purchase p ON pi."purchaseId" = p.id
+      WHERE pi."productId" = ${productId} AND p."businessId" = ${businessId} AND p.status = 'APPROVED'
+      GROUP BY p."supplierId", p."supplierName"
+      ORDER BY COUNT(DISTINCT p.id) DESC
+    `);
+    return rows.map(r => ({
+      supplierId:    r.supplierId,
+      supplierName:  r.supplierName,
+      timesOrdered:  Number(r.timesOrdered),
+      lastOrderDate: r.lastOrderDate,
+      lastUnitCost:  isOwner ? (r.lastUnitCost !== null ? Number(r.lastUnitCost) : null) : null,
+      totalQty:      r.totalQty ? Number(r.totalQty) : 0,
+    }));
+  }
+
   private r2(n: number) { return Math.round(n * 100) / 100; }
 
   // ─── PRIVATE HELPERS ──────────────────────────────────────────────────────
@@ -1145,5 +1645,72 @@ export class ProductsService {
       _sum:  { quantity: true },
     });
     return Number(agg._sum.quantity ?? 0);
+  }
+
+  // ─── PRODUCT IMAGE ────────────────────────────────────────────────────────────
+
+  private get imagesDir(): string {
+    return process.env.PRODUCT_IMAGES_DIR
+      ?? path.join(process.cwd(), '..', 'storage', 'product-images');
+  }
+
+  async uploadProductImage(
+    businessId: string,
+    productId: string,
+    file: Express.Multer.File,
+  ): Promise<{ imageUrl: string }> {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+      throw new BadRequestException('Only jpg, png, and webp images are allowed');
+    }
+
+    fs.mkdirSync(this.imagesDir, { recursive: true });
+
+    // Remove any existing images for this product code (never touch noimage.*)
+    const base = product.productCode ?? productId;
+    if (base === 'noimage') throw new BadRequestException('Reserved filename');
+    const exts = ['.jpg', '.jpeg', '.png', '.webp', '.svg'];
+    for (const e of exts) {
+      const existing = path.join(this.imagesDir, `${base}${e}`);
+      if (fs.existsSync(existing)) fs.unlinkSync(existing);
+    }
+
+    const filename = `${base}${ext}`;
+    fs.writeFileSync(path.join(this.imagesDir, filename), file.buffer);
+
+    const imageUrl = `/uploads/products/${filename}`;
+    await this.prisma.product.update({ where: { id: productId }, data: { imageUrl } });
+
+    try {
+      this.eventsService.emitToBusiness(businessId, Events.PRODUCT_UPDATED, { productId, productCode: product.productCode });
+    } catch (_err) { /* fire-and-forget */ }
+
+    return { imageUrl };
+  }
+
+  async deleteProductImage(businessId: string, productId: string): Promise<{ message: string }> {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+
+    if (product.imageUrl) {
+      const base = product.productCode ?? productId;
+      if (base !== 'noimage') {
+        const exts = ['.jpg', '.jpeg', '.png', '.webp', '.svg'];
+        for (const e of exts) {
+          const p = path.join(this.imagesDir, `${base}${e}`);
+          if (fs.existsSync(p)) fs.unlinkSync(p);
+        }
+      }
+      await this.prisma.product.update({ where: { id: productId }, data: { imageUrl: null } });
+
+      try {
+        this.eventsService.emitToBusiness(businessId, Events.PRODUCT_UPDATED, { productId, productCode: product.productCode });
+      } catch (_err) { /* fire-and-forget */ }
+    }
+
+    return { message: 'Image removed' };
   }
 }

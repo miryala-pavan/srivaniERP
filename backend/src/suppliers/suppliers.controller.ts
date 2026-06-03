@@ -42,11 +42,34 @@ export class SuppliersController {
     return this.suppliersService.getSupplierLedger(req.user.businessId, id);
   }
 
+  @Get(':id/grns')
+  getSupplierGrns(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Query() query: { page?: string; limit?: string; status?: string; dateFrom?: string; dateTo?: string },
+  ) {
+    return this.suppliersService.getSupplierGrns(req.user.businessId, id, query);
+  }
+
+  @Get(':id/products')
+  getSupplierProducts(@Request() req: any, @Param('id') id: string) {
+    return this.suppliersService.getSupplierProducts(req.user.businessId, id);
+  }
+
+  @Get(':id/statement')
+  getSupplierStatement(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Query() query: { dateFrom?: string; dateTo?: string },
+  ) {
+    return this.suppliersService.getSupplierStatement(req.user.businessId, id, query);
+  }
+
   @Get(':id/payments')
   getPayments(
     @Request() req: any,
     @Param('id') id: string,
-    @Query() query: { purchaseId?: string; page?: string; limit?: string },
+    @Query() query: { purchaseId?: string; page?: string; limit?: string; dateFrom?: string; dateTo?: string; method?: string },
   ) {
     return this.suppliersService.getPayments(req.user.businessId, id, query);
   }
@@ -81,6 +104,12 @@ export class SuppliersController {
   @Patch(':id/opening-balance')
   updateOpeningBalance(@Request() req: any, @Param('id') id: string, @Body() body: any) {
     return this.suppliersService.updateOpeningBalance(req.user.businessId, id, body);
+  }
+
+  @Post('admin/recompute-purchase-paid-amounts')
+  @Roles('SUPER_ADMIN')
+  recomputePaidAmounts(@Request() req: any) {
+    return this.suppliersService.recomputePurchasePaidAmounts(req.user.businessId);
   }
 
   // ── Single-resource routes ────────────────────────────

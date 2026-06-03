@@ -1,7 +1,7 @@
 const { io } = require('socket.io-client');
 const axios = require('axios');
 
-const BASE = 'http://localhost:3001/api';
+const BASE = 'http://localhost:4001/api';
 const received = [];
 
 (async () => {
@@ -10,7 +10,7 @@ const received = [];
   const businessId = login.data.user.businessId;
   console.log('Token OK, businessId:', businessId);
 
-  const socket = io('http://localhost:3001/events', { auth: { token } });
+  const socket = io('http://localhost:4001/events', { auth: { token } });
 
   socket.on('connect', () => console.log('WS connected:', socket.id));
   socket.on('connect_error', (err) => { console.error('WS error:', err.message); process.exit(1); });

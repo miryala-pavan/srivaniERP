@@ -19,6 +19,8 @@ import { DayClosureModule } from './day-closure/day-closure.module';
 import { UsersModule } from './users/users.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { EventsModule } from './events/events.module';
+import { SearchModule } from './search/search.module';
+import { ShopModule } from './shop/shop.module';
 
 @Module({
   controllers: [AppController],
@@ -42,6 +44,8 @@ import { EventsModule } from './events/events.module';
     DayClosureModule,
     UsersModule,
     EventsModule,
+    SearchModule,
+    ShopModule,
   ],
 })
 export class AppModule {}

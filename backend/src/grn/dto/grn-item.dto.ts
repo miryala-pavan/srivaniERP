@@ -25,6 +25,9 @@ export class GrnItemDto {
   @Type(() => Number) @IsNumber() @Min(0) mrp: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) sellingPrice?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) cessRate?: number;
+  // Frontend sends the GST rate the user selected; backend uses this when provided
+  // so backend calculation matches exactly what the user sees.
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) gstRatePercent?: number;
 
   @IsOptional() @IsString() batchNumber?: string;
   @IsOptional() @IsDateString() expiryDate?: string;

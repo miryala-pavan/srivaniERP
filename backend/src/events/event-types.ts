@@ -13,8 +13,26 @@ export const Events = {
   PLU_ARCHIVED:    'plu.archived',
   PRODUCT_CREATED: 'product.created',
   PRODUCT_UPDATED: 'product.updated',
-  DAY_OPENED:      'day.opened',
-  DAY_CLOSED:      'day.closed',
+  DAY_OPENED:             'day.opened',
+  DAY_CLOSED:             'day.closed',
+  NOTIFICATION_CREATED:   'notification.created',
+  NOTIFICATION_READ:      'notification.read',
+  NOTIFICATION_READ_ALL:  'notification.read_all',
+  BILL_HELD:              'bill.held',
+  BILL_RETRIEVED:         'bill.retrieved',
+  INVENTORY_STOCK_ADJUSTED:   'inventory.stock-adjusted',
+  SUPPLIER_PAYMENT_RECORDED:  'supplier.payment-recorded',
+  SUPPLIER_PAYMENT_DELETED:   'supplier.payment-deleted',
+  CUSTOMER_CREATED:           'customer.created',
+  CUSTOMER_UPDATED:           'customer.updated',
+  CUSTOMER_PAYMENT_RECORDED:  'customer.payment-recorded',
+  CUSTOMER_PAYMENT_DELETED:   'customer.payment-deleted',
+  CATEGORY_CREATED:           'category.created',
+  CATEGORY_UPDATED:           'category.updated',
+  CATEGORY_DELETED:           'category.deleted',
+  SUBCATEGORY_CREATED:        'subcategory.created',
+  SUBCATEGORY_UPDATED:        'subcategory.updated',
+  SUBCATEGORY_DELETED:        'subcategory.deleted',
 } as const;
 
 export type EventName = typeof Events[keyof typeof Events];
@@ -33,5 +51,17 @@ export interface PluUpdatedPayload   { pluId: string; productId: string; pluCode
 export interface PluArchivedPayload  { pluId: string; productId: string; pluCode: string }
 export interface ProductCreatedPayload { productId: string; productCode: string; name: string }
 export interface ProductUpdatedPayload { productId: string; productCode: string }
-export interface DayOpenedPayload    { closureId: string; closureDate: string; branchId: string }
-export interface DayClosedPayload    { closureId: string; closureDate: string; totalSales: number; cashDifference: number }
+export interface DayOpenedPayload             { closureId: string; closureDate: string; branchId: string }
+export interface DayClosedPayload             { closureId: string; closureDate: string; totalSales: number; cashDifference: number }
+export interface NotificationCreatedPayload   { notificationId: string; type: string; title: string; priority: string }
+export interface NotificationReadPayload      { notificationId: string }
+export interface NotificationReadAllPayload   {}
+export interface BillHeldPayload             { holdBillId: string; holdNumber: string; cashierId: string; itemCount: number; total: number }
+export interface BillRetrievedPayload        { holdBillId: string; holdNumber: string; retrievedByCashierId: string | null }
+export interface InventoryStockAdjustedPayload  { stockTakeId: string; productCount: number; branchId: string; performedBy: string }
+export interface SupplierPaymentRecordedPayload { paymentId: string; supplierId: string; amount: number; paymentDate: string }
+export interface SupplierPaymentDeletedPayload  { paymentId: string; supplierId: string; amount: number }
+export interface CustomerCreatedPayload         { customerId: string; customerCode: string | null; name: string }
+export interface CustomerUpdatedPayload         { customerId: string; customerCode: string | null }
+export interface CustomerPaymentRecordedPayload { paymentId: string; customerId: string; amount: number; paymentDate: string }
+export interface CustomerPaymentDeletedPayload  { paymentId: string; customerId: string; amount: number }
