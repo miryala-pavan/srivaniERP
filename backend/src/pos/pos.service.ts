@@ -9,6 +9,8 @@ import { ProductsService } from '../products/products.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { assertMargin } from '../common/margin.util';
 import { CreateCounterDto } from './dto/create-counter.dto';
 import { OpenShiftDto } from './dto/open-shift.dto';
 import { CloseShiftDto } from './dto/close-shift.dto';
@@ -63,6 +65,7 @@ export class PosService {
     private products: ProductsService,
     private notifications: NotificationsService,
     private eventsService: EventsService,
+    private auditLog: AuditLogService,
   ) {}
 
   // ─── COUNTER ──────────────────────────────────────────
@@ -283,7 +286,7 @@ export class PosService {
 
   // ─── BILLING ──────────────────────────────────────────
 
-  async createBill(businessId: string, userId: string, dto: CreateBillDto) {
+  async createBill(businessId: string, userId: string, dto: CreateBillDto, actor?: { userName: string; userRole: string }) {
     // ── 1. Load prerequisites ────────────────────────────
     const business = await this.prisma.business.findUnique({ where: { id: businessId } });
     if (!business) throw new NotFoundException('Business not found');
@@ -381,6 +384,18 @@ export class PosService {
       }
 
       const discountPercent = item.discountPercent ?? 0;
+
+      // Enforce 5% margin on the effective (post-discount) selling price
+      const effectiveSp = r2(item.unitPrice * (1 - discountPercent / 100));
+      assertMargin({
+        sellingPrice: effectiveSp,
+        costPrice:    Number(product.costPrice ?? 0),
+        gstRate:      Number(product.gstRatePercent ?? gstRate),
+        cessRate:     Number((product as any).cessRate ?? 0),
+        label:        product.name,
+        bypass:       (product as any).allowBelowMargin ?? false,
+      });
+
       const calc = calculateItemGst(item.unitPrice, item.quantity, discountPercent, gstRate, isIntraState);
 
       calcItems.push({ dto: item, product, tax, calc });
@@ -418,6 +433,28 @@ export class PosService {
     totalCess     = r2(totalCess);
     grandTotal    = r2(r2(grandTotal) + totalCess);
 
+    // ── 4b. Loyalty points redemption ────────────────────
+    const isEstimate = billType === 'ESTIMATE';
+    let loyaltyDiscount = 0;
+    const loyaltyPointsToRedeem = dto.loyaltyPointsRedeemed ?? 0;
+    if (loyaltyPointsToRedeem > 0 && dto.customerId && !isEstimate) {
+      const loyaltyConfig = await this.prisma.systemSetting.findMany({
+        where: {
+          businessId,
+          key: { in: ['loyalty.enabled', 'loyalty.value_per_point', 'loyalty.max_redeem_pct'] },
+        },
+      });
+      const loyaltyCfg = Object.fromEntries(loyaltyConfig.map((r) => [r.key.replace('loyalty.', ''), r.value]));
+      if (loyaltyCfg.enabled === 'true') {
+        const valuePerPoint = parseFloat(loyaltyCfg.value_per_point ?? '0.50');
+        const maxPct        = parseFloat(loyaltyCfg.max_redeem_pct ?? '20');
+        const maxDiscount   = r2(grandTotal * maxPct / 100);
+        loyaltyDiscount     = Math.min(r2(loyaltyPointsToRedeem * valuePerPoint), maxDiscount, grandTotal);
+        loyaltyDiscount     = r2(loyaltyDiscount);
+        grandTotal          = r2(grandTotal - loyaltyDiscount);
+      }
+    }
+
     // ── 5. Payment resolution ────────────────────────────
     let paidAmount = dto.paidAmount ?? grandTotal;
     paidAmount     = r2(paidAmount);
@@ -440,7 +477,6 @@ export class PosService {
     const saleType      = balanceAmount > 0 ? 'CREDIT' : 'CASH';
 
     // ── 6. Atomic transaction ────────────────────────────
-    const isEstimate = billType === 'ESTIMATE';
     const validityDate = isEstimate
       ? new Date(Date.now() + (dto.estimateValidityDays ?? 3) * 86400000)
       : undefined;
@@ -503,7 +539,9 @@ export class PosService {
           igstTotal:       totalIgst,
           totalTaxAmount:  totalTax,
           grandTotal,
-          cessTotal:       totalCess,
+          cessTotal:              totalCess,
+          loyaltyDiscount,
+          loyaltyPointsRedeemed:  !isEstimate ? loyaltyPointsToRedeem : 0,
           paidAmount:      isEstimate ? 0 : paidAmount,
           balanceAmount:   isEstimate ? grandTotal : balanceAmount,
           status:          isEstimate ? 'DRAFT' : 'FINAL',
@@ -646,6 +684,40 @@ export class PosService {
       });
     }, { timeout: 15000 });
 
+    // Loyalty points: earn + redeem (fire-and-forget, skip for estimates)
+    if (!isEstimate && dto.customerId) {
+      const loyaltyConfig = await this.prisma.systemSetting.findMany({
+        where: { businessId, key: { in: ['loyalty.enabled', 'loyalty.earn_per_100', 'loyalty.min_margin_pct'] } },
+      });
+      const cfg = Object.fromEntries(loyaltyConfig.map((r) => [r.key.replace('loyalty.', ''), r.value]));
+      if (cfg.enabled === 'true') {
+        const earnPer100   = parseFloat(cfg.earn_per_100 ?? '1');
+        const minMarginPct = parseFloat(cfg.min_margin_pct ?? '5');
+        // Only count items whose margin >= minMarginPct
+        const eligibleAmount = calcItems.reduce((sum, { dto: item, product, calc }) => {
+          const costPrice = Number((product as any).costPrice ?? 0);
+          if (costPrice <= 0) return sum + calc.totalAmount; // no cost data → eligible
+          const unitPriceExTax = calc.taxable / item.quantity;
+          const margin = ((unitPriceExTax - costPrice) / unitPriceExTax) * 100;
+          return margin >= minMarginPct ? sum + calc.totalAmount : sum;
+        }, 0);
+        const pointsEarned = Math.floor(eligibleAmount / 100) * earnPer100;
+        const netDelta     = Math.round(pointsEarned) - loyaltyPointsToRedeem;
+        if (netDelta !== 0 || loyaltyPointsToRedeem > 0) {
+          this.prisma.customer.update({
+            where: { id: dto.customerId },
+            data: { loyaltyPoints: { increment: netDelta } },
+          }).catch(() => {});
+          if (bill?.id && pointsEarned > 0) {
+            this.prisma.salesBill.update({
+              where: { id: bill.id },
+              data: { loyaltyPointsEarned: Math.round(pointsEarned) },
+            }).catch(() => {});
+          }
+        }
+      }
+    }
+
     // Fire-and-forget stock check (skip for estimates)
     if (!isEstimate) {
       this.checkStockAfterSale(businessId, counter.branchId, dto.items.map((i) => i.productId)).catch(() => {});
@@ -659,6 +731,13 @@ export class PosService {
           cashierId:  userId,
         });
       } catch (_err) { /* fire-and-forget */ }
+    }
+
+    if (bill && actor) {
+      this.auditLog.log(
+        { userId, userName: actor.userName, userRole: actor.userRole, businessId },
+        { action: 'CREATE', entity: 'BILL', entityId: bill.id, entityRef: (bill as any).billNumber, description: `Bill ${(bill as any).billNumber} created — ₹${(bill as any).grandTotal} by ${actor.userName}` },
+      ).catch(() => {});
     }
 
     return bill;
@@ -1214,12 +1293,16 @@ export class PosService {
 
     await this.prisma.auditLog.create({
       data: {
-        userId,
         businessId,
-        actionType:  'DUPLICATE_BILL_PRINTED',
-        entityType:  'sales_bill',
+        userId,
+        userName,
+        userRole:    'CASHIER',
+        action:      'PRINT',
+        entity:      'BILL',
         entityId:    id,
-        newValues:   { billNumber: bill.billNumber, printedBy: userName, counter: counterName, at: new Date().toISOString() },
+        entityRef:   bill.billNumber,
+        description: `Duplicate bill printed: ${bill.billNumber} at counter ${counterName}`,
+        meta:        { counter: counterName },
       },
     });
 
@@ -1298,6 +1381,25 @@ export class PosService {
           },
         });
 
+        // Restore PLU.stockOnHand to exact original PLU (even if archived — void = sale never happened)
+        const voidPluId = (item as any).pluId as string | null;
+        if (voidPluId) {
+          await tx.productPlu.update({
+            where: { id: voidPluId },
+            data:  { stockOnHand: { increment: Number(item.quantity) } },
+          });
+        }
+
+        // Recalculate Product.totalStock from all non-archived PLUs
+        const agg = await tx.productPlu.aggregate({
+          where: { productId: item.productId, isArchived: false },
+          _sum:  { stockOnHand: true },
+        });
+        await tx.product.update({
+          where: { id: item.productId },
+          data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
+        });
+
         await tx.product.updateMany({
           where: { id: item.productId, autoInactiveReason: 'OUT_OF_STOCK' },
           data:  { autoInactiveReason: null },
@@ -1306,13 +1408,16 @@ export class PosService {
 
       await tx.auditLog.create({
         data: {
-          userId,
           businessId,
-          actionType: 'BILL_VOIDED',
-          entityType: 'sales_bill',
-          entityId:   billId,
-          oldValues:  { status: 'FINAL', billNumber: bill.billNumber },
-          newValues:  { isVoided: true, reason },
+          userId,
+          userName,
+          userRole,
+          action:      'DELETE',
+          entity:      'BILL',
+          entityId:    billId,
+          entityRef:   bill.billNumber,
+          description: `Bill voided: ${bill.billNumber} — ${reason}`,
+          meta:        { reason },
         },
       });
     }, { timeout: 15000 });
@@ -1504,6 +1609,27 @@ export class PosService {
             notes:         `Credit note ${creditNoteNumber}: ${dto.reason}`,
           },
         });
+
+        // Restore to original PLU so item sells at printed MRP (legal requirement)
+        const origBillItem = originalItemMap.get(item.productId);
+        const origPluId = (origBillItem as any)?.pluId ?? null;
+        if (origPluId) {
+          await tx.productPlu.update({
+            where: { id: origPluId },
+            data:  { stockOnHand: { increment: item.quantity } },
+          });
+        }
+
+        // Recalculate Product.totalStock from all non-archived PLUs
+        const agg = await tx.productPlu.aggregate({
+          where: { productId: item.productId, isArchived: false },
+          _sum:  { stockOnHand: true },
+        });
+        await tx.product.update({
+          where: { id: item.productId },
+          data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
+        });
+
         await tx.product.updateMany({
           where: { id: item.productId, autoInactiveReason: 'OUT_OF_STOCK' },
           data:  { autoInactiveReason: null },
@@ -1520,12 +1646,16 @@ export class PosService {
 
       await tx.auditLog.create({
         data: {
-          userId,
           businessId,
-          actionType: 'CREDIT_NOTE_CREATED',
-          entityType: 'credit_note',
-          entityId:   creditNote.id,
-          newValues:  { creditNoteNumber, originalBillNumber: originalBill.billNumber, totalAmount: r2(totalAmount), refundMode: dto.refundMode },
+          userId,
+          userName,
+          userRole:    'CASHIER',
+          action:      'CREATE',
+          entity:      'CREDIT_NOTE',
+          entityId:    creditNote.id,
+          entityRef:   creditNoteNumber,
+          description: `Credit note ${creditNoteNumber} for bill ${originalBill.billNumber} — ₹${r2(totalAmount)} (${dto.refundMode})`,
+          meta:        { originalBillNumber: originalBill.billNumber, totalAmount: r2(totalAmount), refundMode: dto.refundMode },
         },
       });
 
@@ -1779,6 +1909,45 @@ export class PosService {
     if (!bill) throw new NotFoundException('Historical bill not found');
     await this.prisma.salesBill.delete({ where: { id } });
     return { message: 'Deleted' };
+  }
+
+  async getLoyaltyPreview(businessId: string, customerId: string, billTotal: number) {
+    const [settingRows, customer] = await Promise.all([
+      this.prisma.systemSetting.findMany({
+        where: {
+          businessId,
+          key: { in: ['loyalty.enabled', 'loyalty.value_per_point', 'loyalty.min_redeem_points', 'loyalty.max_redeem_pct', 'loyalty.earn_per_100'] },
+        },
+      }),
+      this.prisma.customer.findFirst({
+        where: { id: customerId, businessId },
+        select: { loyaltyPoints: true },
+      }),
+    ]);
+
+    const cfg = Object.fromEntries(settingRows.map((r) => [r.key.replace('loyalty.', ''), r.value]));
+    const enabled        = cfg.enabled === 'true';
+    const valuePerPoint  = parseFloat(cfg.value_per_point  ?? '0.50');
+    const minPoints      = parseInt(cfg.min_redeem_points   ?? '100', 10);
+    const maxPct         = parseFloat(cfg.max_redeem_pct    ?? '20');
+    const earnPer100     = parseFloat(cfg.earn_per_100      ?? '1');
+    const availablePoints = customer?.loyaltyPoints ?? 0;
+
+    const maxRedeemValue   = r2(billTotal * maxPct / 100);
+    const pointsForMaxValue = Math.ceil(maxRedeemValue / valuePerPoint);
+    const maxRedeemPoints  = Math.min(availablePoints, pointsForMaxValue);
+    const projectedEarned  = Math.floor(billTotal / 100) * earnPer100;
+
+    return {
+      enabled,
+      availablePoints,
+      minRedeemPoints: minPoints,
+      maxRedeemPoints,
+      valuePerPoint,
+      earnPer100,
+      projectedEarned: Math.round(projectedEarned),
+      canRedeem: enabled && availablePoints >= minPoints,
+    };
   }
 
   // ─── Private helpers ──────────────────────────────────

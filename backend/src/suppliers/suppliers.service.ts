@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import * as path from 'path';
+import * as fs from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
@@ -109,7 +111,14 @@ export class SuppliersService {
           id: true, name: true, gstin: true, phone: true, email: true,
           address: true, stateCode: true, paymentTermsDays: true,
           creditLimit: true, isGstRegistered: true,
-          isActive: true, createdAt: true,
+          isActive: true, createdAt: true, supplierType: true,
+          bankAccountNumber: true, bankIfscCode: true, bankBankName: true,
+          bankAccounts: {
+            where:   { isPrimary: true },
+            select:  { accountNumber: true, bankName: true, branchName: true, ifscCode: true },
+            take:    1,
+            orderBy: { createdAt: 'asc' },
+          },
         },
       }),
       this.prisma.supplier.count({ where }),
@@ -478,6 +487,73 @@ export class SuppliersService {
     return { data: payments, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
 
+  /** Edit payment metadata (reference/UTR/remark/etc) — amount & allocations stay locked. */
+  async updatePaymentDetails(businessId: string, paymentId: string, dto: {
+    paymentDate?: string; paymentMode?: string; referenceNumber?: string | null;
+    utrNumber?: string | null; epayOrderNumber?: string | null;
+    adjustmentReason?: string | null; notes?: string | null; screenshotUrl?: string | null;
+  }) {
+    const payment = await this.prisma.supplierPayment.findFirst({ where: { id: paymentId, businessId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    const updated = await this.prisma.supplierPayment.update({
+      where: { id: paymentId },
+      data: {
+        ...(dto.paymentDate      !== undefined ? { paymentDate: new Date(dto.paymentDate) } : {}),
+        ...(dto.paymentMode      !== undefined ? { paymentMode: dto.paymentMode }           : {}),
+        ...(dto.referenceNumber  !== undefined ? { referenceNumber: dto.referenceNumber }   : {}),
+        ...(dto.utrNumber        !== undefined ? { utrNumber: dto.utrNumber }               : {}),
+        ...(dto.epayOrderNumber  !== undefined ? { epayOrderNumber: dto.epayOrderNumber }   : {}),
+        ...(dto.adjustmentReason !== undefined ? { adjustmentReason: dto.adjustmentReason } : {}),
+        ...(dto.notes            !== undefined ? { notes: dto.notes }                       : {}),
+        ...(dto.screenshotUrl    !== undefined ? { screenshotUrl: dto.screenshotUrl }       : {}),
+      },
+    });
+    return updated;
+  }
+
+  private get proofsDir(): string {
+    return process.env.PAYMENT_PROOFS_DIR
+      ?? path.join(process.cwd(), '..', 'storage', 'payment-proofs');
+  }
+
+  /** Upload a payment-proof screenshot (paste/drag/browse) and link it to the payment. */
+  async uploadPaymentProof(businessId: string, paymentId: string, file: Express.Multer.File): Promise<{ screenshotUrl: string }> {
+    const payment = await this.prisma.supplierPayment.findFirst({ where: { id: paymentId, businessId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    const ext = (path.extname(file.originalname || '').toLowerCase()) || '.png';
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+      throw new BadRequestException('Only jpg, png, and webp images are allowed');
+    }
+
+    fs.mkdirSync(this.proofsDir, { recursive: true });
+    // Remove any prior proof for this payment
+    for (const e of ['.jpg', '.jpeg', '.png', '.webp']) {
+      const old = path.join(this.proofsDir, `${paymentId}${e}`);
+      if (fs.existsSync(old)) fs.unlinkSync(old);
+    }
+    const filename = `${paymentId}${ext}`;
+    fs.writeFileSync(path.join(this.proofsDir, filename), file.buffer);
+
+    // Cache-bust with the timestamp so the drawer shows the new image immediately
+    const screenshotUrl = `/uploads/payment-proofs/${filename}?v=${Date.now()}`;
+    await this.prisma.supplierPayment.update({ where: { id: paymentId }, data: { screenshotUrl } });
+    return { screenshotUrl };
+  }
+
+  /** Remove a payment-proof screenshot (deletes the file and clears the link). */
+  async deletePaymentProof(businessId: string, paymentId: string): Promise<{ message: string }> {
+    const payment = await this.prisma.supplierPayment.findFirst({ where: { id: paymentId, businessId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+    for (const e of ['.jpg', '.jpeg', '.png', '.webp']) {
+      const f = path.join(this.proofsDir, `${paymentId}${e}`);
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    }
+    await this.prisma.supplierPayment.update({ where: { id: paymentId }, data: { screenshotUrl: null } });
+    return { message: 'Proof removed' };
+  }
+
   async deletePayment(businessId: string, supplierId: string, paymentId: string) {
     const payment = await this.prisma.supplierPayment.findFirst({
       where: { id: paymentId, businessId, supplierId },
@@ -513,7 +589,7 @@ export class SuppliersService {
       });
       if (!purchase) throw new NotFoundException('GRN not found');
 
-      const [paymentAgg, cnAgg] = await Promise.all([
+      const [paymentAgg, cnAgg, linkedPayments] = await Promise.all([
         this.prisma.supplierPayment.aggregate({
           where: { purchaseId, businessId },
           _sum: { amount: true },
@@ -522,12 +598,23 @@ export class SuppliersService {
           where: { originalGrnId: purchaseId, businessId, status: 'ACTIVE' },
           _sum: { totalAmount: true },
         }),
+        // Payments touching this bill (direct or via allocation) + how many bills each covers
+        this.prisma.supplierPayment.findMany({
+          where: {
+            businessId, status: { not: 'CANCELLED' },
+            OR: [{ purchaseId }, { allocations: { some: { purchaseId } } }],
+          },
+          select: { _count: { select: { allocations: true } } },
+        }),
       ]);
 
       const grandTotal       = Number(purchase.grandTotal);
       const totalPaid        = Number(paymentAgg._sum.amount ?? 0);
       const totalCreditNotes = Number(cnAgg._sum.totalAmount ?? 0);
       const balance          = grandTotal - totalPaid - totalCreditNotes;
+      // Bulk = this bill was settled by a payment that allocated across >1 bills
+      const maxBills    = linkedPayments.reduce((m, p) => Math.max(m, p._count.allocations), 0);
+      const coversMultiple = maxBills > 1;
 
       return {
         purchaseId,
@@ -536,12 +623,87 @@ export class SuppliersService {
         totalCreditNotes,
         balance,
         isPaid: balance <= 0,
+        coversMultiple,
+        billCount: coversMultiple ? maxBills : 1,
       };
     } catch (err: any) {
       if (err?.status === 404) throw err;
       // Prisma or DB error — return safe fallback so frontend doesn't crash
-      return { purchaseId, grandTotal: 0, totalPaid: 0, totalCreditNotes: 0, balance: 0, isPaid: false };
+      return { purchaseId, grandTotal: 0, totalPaid: 0, totalCreditNotes: 0, balance: 0, isPaid: false, coversMultiple: false, billCount: 1 };
     }
+  }
+
+  /** Detailed payment records that settled a GRN (direct + allocated), for the payment-details popup. */
+  async getGrnPayments(businessId: string, purchaseId: string) {
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id: purchaseId, businessId },
+      select: { id: true, grnNumber: true, invoiceNumber: true, grandTotal: true, supplierId: true },
+    });
+    if (!purchase) throw new NotFoundException('GRN not found');
+
+    const payments = await this.prisma.supplierPayment.findMany({
+      where: {
+        businessId,
+        status: { not: 'CANCELLED' },
+        OR: [
+          { purchaseId },
+          { allocations: { some: { purchaseId } } },
+        ],
+      },
+      orderBy: { paymentDate: 'desc' },
+      select: {
+        id: true, paymentDate: true, amount: true, paymentMode: true,
+        referenceNumber: true, utrNumber: true, epayOrderNumber: true,
+        adjustmentAmount: true, adjustmentReason: true,
+        matchedFromStatement: true, notes: true, screenshotUrl: true,
+        proofToken: true, createdByName: true, purchaseId: true,
+        allocations: { select: { purchaseId: true, allocatedAmount: true } },
+      },
+    });
+
+    // Resolve GRN#/invoice for every bill referenced by these payments (for the bulk view)
+    const billIds = new Set<string>();
+    for (const p of payments) {
+      if (p.purchaseId) billIds.add(p.purchaseId);
+      for (const a of p.allocations) billIds.add(a.purchaseId);
+    }
+    const billRows = await this.prisma.purchase.findMany({
+      where: { id: { in: [...billIds] }, businessId },
+      select: { id: true, grnNumber: true, invoiceNumber: true, grandTotal: true },
+    });
+    const billMap = new Map(billRows.map((b) => [b.id, b]));
+
+    return {
+      purchaseId,
+      grnNumber:     purchase.grnNumber,
+      invoiceNumber: purchase.invoiceNumber,
+      grandTotal:    Number(purchase.grandTotal),
+      payments: payments.map((p) => {
+        // Build the list of bills this payment settled (allocations, or the single linked GRN)
+        const allocs = p.allocations.length > 0
+          ? p.allocations
+          : (p.purchaseId ? [{ purchaseId: p.purchaseId, allocatedAmount: p.amount }] : []);
+        const bills = allocs.map((a) => {
+          const b = billMap.get(a.purchaseId);
+          return {
+            purchaseId:   a.purchaseId,
+            grnNumber:    b?.grnNumber ?? null,
+            invoiceNumber: b?.invoiceNumber ?? null,
+            allocatedAmount: Number(a.allocatedAmount),
+            isThisBill:   a.purchaseId === purchaseId,
+          };
+        });
+        return {
+          ...p,
+          amount:           Number(p.amount),
+          adjustmentAmount: Number(p.adjustmentAmount ?? 0),
+          allocatedToThis:  Number(bills.find((b) => b.isThisBill)?.allocatedAmount ?? p.amount),
+          coversMultiple:   bills.length > 1,
+          billCount:        bills.length,
+          bills,
+        };
+      }),
+    };
   }
 
   async getSupplierCreditNotes(
@@ -750,5 +912,212 @@ export class SuppliersService {
     }
 
     return { updated };
+  }
+
+  // ─── SUPPLIER BANK ACCOUNTS ───────────────────────────
+
+  async getBankAccounts(businessId: string, supplierId: string) {
+    return this.prisma.supplierBankAccount.findMany({
+      where: { supplierId, businessId },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  async addBankAccount(businessId: string, supplierId: string, dto: {
+    accountNumber: string; bankName: string; branchName?: string;
+    ifscCode?: string; isPrimary?: boolean; transferLimit?: number; notes?: string;
+  }) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    // If isPrimary, demote existing primary
+    if (dto.isPrimary) {
+      await this.prisma.supplierBankAccount.updateMany({
+        where: { supplierId, businessId, isPrimary: true },
+        data:  { isPrimary: false },
+      });
+    }
+    return this.prisma.supplierBankAccount.create({
+      data: { businessId, supplierId, ...dto, isPrimary: dto.isPrimary ?? false },
+    });
+  }
+
+  async updateBankAccount(businessId: string, accountId: string, dto: {
+    accountNumber?: string; bankName?: string; branchName?: string;
+    ifscCode?: string; isPrimary?: boolean; transferLimit?: number; notes?: string;
+  }) {
+    const account = await this.prisma.supplierBankAccount.findFirst({
+      where: { id: accountId, businessId },
+    });
+    if (!account) throw new NotFoundException('Bank account not found');
+    if (dto.isPrimary) {
+      await this.prisma.supplierBankAccount.updateMany({
+        where: { supplierId: account.supplierId, businessId, isPrimary: true },
+        data:  { isPrimary: false },
+      });
+    }
+    return this.prisma.supplierBankAccount.update({ where: { id: accountId }, data: dto });
+  }
+
+  async deleteBankAccount(businessId: string, accountId: string) {
+    const account = await this.prisma.supplierBankAccount.findFirst({
+      where: { id: accountId, businessId },
+    });
+    if (!account) throw new NotFoundException('Bank account not found');
+    await this.prisma.supplierBankAccount.delete({ where: { id: accountId } });
+    return { message: 'Bank account removed' };
+  }
+
+  // ─── ONE-TIME MIGRATION: flat fields → SupplierBankAccount ───
+  async migrateFlatBankFields(businessId: string) {
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { businessId, bankAccountNumber: { not: null } },
+      select: { id: true, bankAccountNumber: true, bankIfscCode: true, bankBankName: true, bankBranchName: true },
+    });
+    let created = 0;
+    for (const s of suppliers) {
+      if (!s.bankAccountNumber) continue;
+      const existing = await this.prisma.supplierBankAccount.findFirst({
+        where: { supplierId: s.id, accountNumber: s.bankAccountNumber },
+      });
+      if (existing) continue;
+      const hasAny = await this.prisma.supplierBankAccount.count({ where: { supplierId: s.id } });
+      await this.prisma.supplierBankAccount.create({
+        data: {
+          businessId,
+          supplierId:    s.id,
+          accountNumber: s.bankAccountNumber,
+          bankName:      s.bankBankName ?? 'Unknown',
+          branchName:    s.bankBranchName ?? undefined,
+          ifscCode:      s.bankIfscCode ?? undefined,
+          isPrimary:     hasAny === 0,
+        },
+      });
+      created++;
+    }
+    return { migrated: created, total: suppliers.length };
+  }
+
+  // ─── BULK IMPORT BANK ACCOUNTS ────────────────────────
+
+  async previewBankAccountImport(businessId: string, entries: {
+    beneficiaryName: string; accountNumber: string; bankName: string;
+    branchName?: string; transferLimit?: number; supplierType?: string;
+  }[]) {
+    // Load all suppliers for fuzzy matching
+    const suppliers = await this.prisma.supplier.findMany({
+      where:  { businessId },
+      select: { id: true, name: true, supplierType: true },
+    });
+
+    const normalize = (s: string) =>
+      s.toLowerCase()
+        .replace(/\b(agencies|agency|enterprises|traders|trading|corporation|corp|pvt|ltd|limited|co|and|&|the|new|sri|sri|shree|shri|m\/s)\b/g, '')
+        .replace(/[^a-z0-9]/g, '')
+        .trim();
+
+    const results = entries.map(entry => {
+      const normEntry = normalize(entry.beneficiaryName);
+      let bestMatch: { id: string; name: string; supplierType: string } | null = null;
+      let bestScore = 0;
+
+      for (const s of suppliers) {
+        const normSupplier = normalize(s.name);
+        // Simple overlap score
+        const longer  = Math.max(normEntry.length, normSupplier.length);
+        if (longer === 0) continue;
+        let common = 0;
+        for (let i = 0; i < Math.min(normEntry.length, normSupplier.length); i++) {
+          if (normEntry[i] === normSupplier[i]) common++;
+        }
+        // Also check if one contains the other
+        const contains = normEntry.includes(normSupplier) || normSupplier.includes(normEntry);
+        const score = contains ? 0.9 : common / longer;
+        if (score > bestScore) { bestScore = score; bestMatch = s; }
+      }
+
+      const existingAccounts = [] as any[];
+      return {
+        beneficiaryName: entry.beneficiaryName,
+        accountNumber:   entry.accountNumber,
+        bankName:        entry.bankName,
+        branchName:      entry.branchName,
+        transferLimit:   entry.transferLimit,
+        supplierType:    entry.supplierType ?? 'SUPPLIER',
+        matchedSupplier: bestScore >= 0.5 ? bestMatch : null,
+        matchScore:      Math.round(bestScore * 100),
+        status:          bestScore >= 0.75 ? 'HIGH' : bestScore >= 0.5 ? 'REVIEW' : 'NO_MATCH',
+      };
+    });
+
+    return results;
+  }
+
+  async executeBankAccountImport(businessId: string, entries: {
+    beneficiaryName: string; accountNumber: string; bankName: string;
+    branchName?: string; transferLimit?: number; isPrimary?: boolean;
+    supplierId?: string;          // if matched — link to existing supplier
+    createSupplier?: boolean;     // if no match — create new supplier
+    supplierType?: string;
+  }[]) {
+    let imported = 0; let created = 0; let skipped = 0;
+
+    for (const entry of entries) {
+      try {
+        let supplierId = entry.supplierId;
+
+        // Create new supplier if requested
+        if (!supplierId && entry.createSupplier) {
+          const newSupplier = await this.prisma.supplier.create({
+            data: {
+              businessId,
+              name:         entry.beneficiaryName,
+              supplierType: entry.supplierType ?? 'SUPPLIER',
+            },
+          });
+          supplierId = newSupplier.id;
+          created++;
+        }
+
+        if (!supplierId) { skipped++; continue; }
+
+        // Check for duplicate account number
+        const existing = await this.prisma.supplierBankAccount.findFirst({
+          where: { supplierId, businessId, accountNumber: entry.accountNumber },
+        });
+        if (existing) { skipped++; continue; }
+
+        // If isPrimary, demote current primary
+        if (entry.isPrimary) {
+          await this.prisma.supplierBankAccount.updateMany({
+            where: { supplierId, businessId, isPrimary: true },
+            data:  { isPrimary: false },
+          });
+        }
+
+        await this.prisma.supplierBankAccount.create({
+          data: {
+            businessId, supplierId,
+            accountNumber: entry.accountNumber,
+            bankName:      entry.bankName,
+            branchName:    entry.branchName,
+            transferLimit: entry.transferLimit,
+            isPrimary:     entry.isPrimary ?? false,
+          },
+        });
+
+        // Update supplier type if it's not already SUPPLIER
+        if (entry.supplierType && entry.supplierType !== 'SUPPLIER') {
+          await this.prisma.supplier.update({
+            where: { id: supplierId },
+            data:  { supplierType: entry.supplierType },
+          });
+        }
+
+        imported++;
+      } catch { skipped++; }
+    }
+
+    return { imported, created, skipped };
   }
 }

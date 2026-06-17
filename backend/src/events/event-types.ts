@@ -33,6 +33,8 @@ export const Events = {
   SUBCATEGORY_CREATED:        'subcategory.created',
   SUBCATEGORY_UPDATED:        'subcategory.updated',
   SUBCATEGORY_DELETED:        'subcategory.deleted',
+  ONLINE_ORDER_PLACED:        'online.order.placed',
+  ONLINE_ORDER_STATUS_CHANGED: 'online.order.status_changed',
 } as const;
 
 export type EventName = typeof Events[keyof typeof Events];
@@ -65,3 +67,5 @@ export interface CustomerCreatedPayload         { customerId: string; customerCo
 export interface CustomerUpdatedPayload         { customerId: string; customerCode: string | null }
 export interface CustomerPaymentRecordedPayload { paymentId: string; customerId: string; amount: number; paymentDate: string }
 export interface CustomerPaymentDeletedPayload  { paymentId: string; customerId: string; amount: number }
+export interface OnlineOrderPlacedPayload       { orderNumber: string; customerName: string; customerPhone: string; total: number; paymentMethod: string; deliveryType: string; itemCount: number }
+export interface OnlineOrderStatusChangedPayload { orderNumber: string; status: string; customerName: string }

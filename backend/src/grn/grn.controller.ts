@@ -1,7 +1,9 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, Query,
-  UseGuards, Request,
+  Controller, Get, Post, Put, Patch, Delete, Body, Param, Query,
+  UseGuards, Request, UseInterceptors, UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { GrnService } from './grn.service';
 import { CreateGrnDto } from './dto/create-grn.dto';
 import { UpdateGrnDto } from './dto/update-grn.dto';
@@ -87,7 +89,7 @@ export class GrnController {
   @Post()
   @Roles(...GRN_ROLES)
   create(@Request() req: any, @Body() dto: CreateGrnDto) {
-    return this.grnService.create(req.user.businessId, dto);
+    return this.grnService.create(req.user.businessId, dto, { userId: req.user.userId, userName: req.user.fullName ?? req.user.username ?? 'Unknown', userRole: req.user.role });
   }
 
   // ── Single-resource routes ────────────────────────────────────────────────
@@ -102,6 +104,32 @@ export class GrnController {
   @Roles(...GRN_ROLES)
   getPaymentSummary(@Request() req: any, @Param('id') id: string) {
     return this.suppliersService.getGrnPaymentSummary(req.user.businessId, id);
+  }
+
+  @Get(':id/payments')
+  @Roles(...GRN_ROLES)
+  getGrnPayments(@Request() req: any, @Param('id') id: string) {
+    return this.suppliersService.getGrnPayments(req.user.businessId, id);
+  }
+
+  @Patch('payments/:paymentId')
+  @Roles(...GRN_ROLES)
+  updatePaymentDetails(@Request() req: any, @Param('paymentId') paymentId: string, @Body() body: any) {
+    return this.suppliersService.updatePaymentDetails(req.user.businessId, paymentId, body);
+  }
+
+  @Post('payments/:paymentId/proof')
+  @Roles(...GRN_ROLES)
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  uploadPaymentProof(@Request() req: any, @Param('paymentId') paymentId: string, @UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new Error('No file uploaded');
+    return this.suppliersService.uploadPaymentProof(req.user.businessId, paymentId, file);
+  }
+
+  @Delete('payments/:paymentId/proof')
+  @Roles(...GRN_ROLES)
+  deletePaymentProof(@Request() req: any, @Param('paymentId') paymentId: string) {
+    return this.suppliersService.deletePaymentProof(req.user.businessId, paymentId);
   }
 
   @Get(':id')
@@ -127,7 +155,7 @@ export class GrnController {
   @Post(':id/submit')
   @Roles(...GRN_ROLES)
   submit(@Request() req: any, @Param('id') id: string) {
-    return this.grnService.submit(req.user.businessId, id);
+    return this.grnService.submit(req.user.businessId, id, { userId: req.user.userId, userName: req.user.fullName ?? req.user.username ?? 'Unknown', userRole: req.user.role });
   }
 
   @Post(':id/approve')
@@ -138,7 +166,7 @@ export class GrnController {
     @Body('approverName') approverName?: string,
     @Body('notes') notes?: string,
   ) {
-    return this.grnService.approve(req.user.businessId, id, approverName ?? req.user.name, notes);
+    return this.grnService.approve(req.user.businessId, id, approverName ?? req.user.fullName ?? req.user.username ?? 'Unknown', notes, { userId: req.user.userId, userName: req.user.fullName ?? req.user.username ?? 'Unknown', userRole: req.user.role });
   }
 
   @Post(':id/reject')
@@ -148,7 +176,7 @@ export class GrnController {
     @Param('id') id: string,
     @Body('reason') reason?: string,
   ) {
-    return this.grnService.reject(req.user.businessId, id, req.user.name, reason);
+    return this.grnService.reject(req.user.businessId, id, req.user.fullName ?? req.user.username ?? 'Unknown', reason, { userId: req.user.userId, userName: req.user.fullName ?? req.user.username ?? 'Unknown', userRole: req.user.role });
   }
 
   @Post(':id/revert')

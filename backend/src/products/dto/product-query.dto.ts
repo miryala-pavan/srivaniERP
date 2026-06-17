@@ -16,7 +16,8 @@ export class ProductQueryDto {
   @IsOptional() @Type(() => Number) @IsNumber() gstRate?: number;
   @IsOptional() @IsString() sortBy?: string;     // name | code | sellingPrice | createdAt
   @IsOptional() @IsString() sortOrder?: string;  // asc | desc
-  @IsOptional() @IsString() hsnCode?: string;    // filter by exact HSN or "UNSET" for 0000
+  @IsOptional() @IsString() hsnCode?: string;      // filter by exact HSN or "UNSET" for 0000
+  @IsOptional() @IsString() imageFilter?: string;  // WITH_IMAGE | WITHOUT_IMAGE
 
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)

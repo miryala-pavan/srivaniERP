@@ -1,5 +1,7 @@
-import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards, Request } from '@nestjs/common';
+import type { Response } from 'express';
 import { ReportsService } from './reports.service';
+import { CaExportService } from './ca-export.service';
 import { DateRangeDto } from './dto/date-range.dto';
 import { StockQueryDto } from './dto/stock-query.dto';
 import { CashSummaryDto } from './dto/cash-summary.dto';
@@ -19,7 +21,10 @@ const MANAGER_ROLES = [
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('reports')
 export class ReportsController {
-  constructor(private reportsService: ReportsService) {}
+  constructor(
+    private reportsService: ReportsService,
+    private caExportService: CaExportService,
+  ) {}
 
   // ─── SALES ────────────────────────────────────────────
 
@@ -92,5 +97,31 @@ export class ReportsController {
   @Get('dashboard/today')
   getDashboard(@Request() req: any) {
     return this.reportsService.getDashboard(req.user.businessId);
+  }
+
+  // ─── REORDER SUGGESTIONS ─────────────────────────────
+
+  @Roles(...MANAGER_ROLES)
+  @Get('reorder-suggestions')
+  getReorderSuggestions(@Request() req: any) {
+    return this.reportsService.getReorderSuggestions(req.user.businessId);
+  }
+
+  // ─── CA EXPORT ────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN', 'ACCOUNTS_PERSON', 'BRANCH_MANAGER')
+  @Get('ca-export')
+  async caExport(
+    @Request() req: any,
+    @Query('fromDate') fromDate: string,
+    @Query('toDate')   toDate:   string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.caExportService.buildExport(req.user.businessId, fromDate, toDate);
+    const from   = fromDate.replace(/-/g, '');
+    const to     = toDate.replace(/-/g,   '');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="CA_Export_${from}_${to}.xlsx"`);
+    res.send(buffer);
   }
 }

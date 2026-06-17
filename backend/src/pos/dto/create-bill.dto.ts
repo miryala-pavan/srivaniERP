@@ -98,6 +98,12 @@ export class CreateBillDto {
   @IsOptional()
   notes?: string;
 
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  @Type(() => Number)
+  loyaltyPointsRedeemed?: number;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

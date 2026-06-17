@@ -145,7 +145,7 @@ export class BusinessService {
 
     try {
       await this.prisma.auditLog.create({
-        data: { userId, businessId, actionType: 'UPDATE', entityType: 'Business', entityId: businessId, oldValues, newValues: { ...updated } },
+        data: { userId, businessId, userName, userRole: 'SUPER_ADMIN', action: 'UPDATE', entity: 'SETTINGS', entityId: businessId, description: 'Business profile updated', meta: { updatedFields: Object.keys(dto) } },
       });
     } catch { /* audit failures must never break the main flow */ }
 

@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm]
 }
 
 // ─── BUSINESS ───────────────────────────────────────
@@ -71,6 +73,9 @@ model Business {
   supplierAdvances    SupplierAdvance[]
   supplierCreditNotes SupplierCreditNote[]
   supplierPayments    SupplierPayment[]
+  bankAccounts        BankAccount[]
+  bankTransactions    BankTransaction[]
+  onlineOrders        OnlineOrder[]
 
   @@map("business")
 }
@@ -98,13 +103,23 @@ model Branch {
 
 // ─── FINANCIAL YEAR ──────────────────────────────────
 model FinancialYear {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   businessId String
   fyCode     String
   startDate  DateTime
   endDate    DateTime
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
+  isActive   Boolean   @default(true)
+  isClosed   Boolean   @default(false)
+  closedAt   DateTime?
+
+  // Snapshot captured at year-end close (for year comparison report)
+  closingTotalSales       Decimal? @db.Decimal(15,2)
+  closingTotalPurchases   Decimal? @db.Decimal(15,2)
+  closingSupplierDues     Decimal? @db.Decimal(15,2)
+  closingStockValue       Decimal? @db.Decimal(15,2)
+  closingBankBalance      Decimal? @db.Decimal(15,2)
+
+  createdAt  DateTime  @default(now())
 
   business   Business    @relation(fields: [businessId], references: [id])
   billSeries BillSeries[]
@@ -141,7 +156,6 @@ model User {
 
   business   Business   @relation(fields: [businessId], references: [id])
   posShifts  PosShift[]
-  auditLogs  AuditLog[]
   salesBills SalesBill[]
 
   @@unique([businessId, username])
@@ -281,6 +295,7 @@ model Product {
   moqFromSupplier     Decimal  @db.Decimal(15, 3) @default(1)
   allowDecimalQty     Boolean  @default(false)
   allowNegativeStock  Boolean  @default(false)
+  allowBelowMargin    Boolean  @default(false)
   isForSale           Boolean  @default(true)
   isForPurchase       Boolean  @default(true)
   isRepackingItem     Boolean  @default(false)
@@ -335,13 +350,41 @@ model Product {
   plusList        ProductPlu[]
   supplierAliases SupplierItemAlias[]
   productImages   ProductImage[]
+  groupMemberships ProductGroupMember[]
 
   @@unique([businessId, barcode])
   @@unique([businessId, productCode])
   @@index([businessId, isActive])
   @@index([barcode])
   @@index([businessId, productCode])
+  // Trigram GIN indexes — keep "contains anywhere" search (ILIKE '%term%') fast at scale
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([keywords(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("product")
+}
+
+// ─── PRODUCT GROUPS (storefront size/variant picker) ─
+model ProductGroup {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  createdAt  DateTime @default(now())
+  members    ProductGroupMember[]
+  @@index([businessId])
+  @@map("product_group")
+}
+
+model ProductGroupMember {
+  id           String   @id @default(cuid())
+  groupId      String
+  productId    String
+  displayLabel String
+  sortOrder    Int      @default(0)
+  group   ProductGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  product Product      @relation(fields: [productId], references: [id])
+  @@unique([groupId, productId])
+  @@index([productId])
+  @@map("product_group_member")
 }
 
 // ─── PRODUCT IMAGE ───────────────────────────────────
@@ -449,14 +492,46 @@ model Supplier {
   openingBalanceType String    @default("DEBIT")
   openingBalanceNote String?
 
-  business    Business            @relation(fields: [businessId], references: [id])
-  purchases   Purchase[]
-  itemAliases SupplierItemAlias[]
-  advances    SupplierAdvance[]
-  creditNotes SupplierCreditNote[]
-  payments    SupplierPayment[]
+  // Payee type — distinguishes trade suppliers from rent/loan/other payees
+  supplierType       String    @default("SUPPLIER") // SUPPLIER | RENT | LOAN | OTHER
 
+  // Legacy single bank account fields (kept for backwards compat)
+  bankAccountNumber  String?
+  bankIfscCode       String?
+  bankBankName       String?
+  bankBranchName     String?
+
+  business     Business             @relation(fields: [businessId], references: [id])
+  purchases    Purchase[]
+  itemAliases  SupplierItemAlias[]
+  advances     SupplierAdvance[]
+  creditNotes  SupplierCreditNote[]
+  payments     SupplierPayment[]
+  bankAccounts SupplierBankAccount[]
+
+  @@index([businessId])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("supplier")
+}
+
+model SupplierBankAccount {
+  id            String   @id @default(cuid())
+  businessId    String
+  supplierId    String
+  accountNumber String
+  bankName      String
+  branchName    String?
+  ifscCode      String?
+  isPrimary     Boolean  @default(false)
+  transferLimit Decimal? @db.Decimal(15, 2)
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  supplier  Supplier @relation(fields: [supplierId], references: [id])
+
+  @@index([supplierId])
+  @@index([businessId])
+  @@map("supplier_bank_account")
 }
 
 // ─── CUSTOMER ─────────────────────────────────────────
@@ -500,6 +575,8 @@ model Customer {
 
   @@unique([businessId, customerCode])
   @@index([businessId, phone])
+  @@index([businessId, isActive])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("customer")
 }
 
@@ -589,8 +666,11 @@ model SalesBill {
   businessGstin     String?
   businessAddress   String?
   financialYearCode String?
-  cessTotal         Decimal     @db.Decimal(15, 2) @default(0)
-  isHistorical      Boolean     @default(false)
+  cessTotal               Decimal @db.Decimal(15, 2) @default(0)
+  isHistorical            Boolean @default(false)
+  loyaltyPointsEarned     Int     @default(0)
+  loyaltyPointsRedeemed   Int     @default(0)
+  loyaltyDiscount         Decimal @db.Decimal(10, 2) @default(0)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
@@ -724,10 +804,11 @@ model Purchase {
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
-  branch   Branch          @relation(fields: [branchId], references: [id])
-  supplier Supplier        @relation(fields: [supplierId], references: [id])
-  items    PurchaseItem[]
-  payments SupplierPayment[]
+  branch       Branch               @relation(fields: [branchId], references: [id])
+  supplier     Supplier             @relation(fields: [supplierId], references: [id])
+  items        PurchaseItem[]
+  payments     SupplierPayment[]
+  allocations  PaymentAllocation[]
 
   @@unique([businessId, invoiceNumber, supplierId])
   @@index([supplierId])
@@ -771,11 +852,11 @@ model PurchaseItem {
   sellingPrice            Decimal?  @db.Decimal(15, 2)
   wsPrice                 Decimal?  @db.Decimal(15, 2)
   basicCostPrice          Decimal   @db.Decimal(15, 2) @default(0)
-  disc1Percent            Decimal   @db.Decimal(5, 2)  @default(0)
-  disc2Percent            Decimal   @db.Decimal(5, 2)  @default(0)
-  disc3Percent            Decimal   @db.Decimal(5, 2)  @default(0)
-  disc4Percent            Decimal   @db.Decimal(5, 2)  @default(0)
-  cashDiscPercent         Decimal   @db.Decimal(5, 2)  @default(0)
+  disc1Percent            Decimal   @db.Decimal(8, 4)  @default(0)
+  disc2Percent            Decimal   @db.Decimal(8, 4)  @default(0)
+  disc3Percent            Decimal   @db.Decimal(8, 4)  @default(0)
+  disc4Percent            Decimal   @db.Decimal(8, 4)  @default(0)
+  cashDiscPercent         Decimal   @db.Decimal(8, 4)  @default(0)
   cashDiscAmount          Decimal   @db.Decimal(15, 2) @default(0)
   netCostPrice            Decimal   @db.Decimal(15, 2) @default(0)
   casesReceived           Decimal   @db.Decimal(10, 3) @default(0)
@@ -931,21 +1012,22 @@ model Expense {
 
 // ─── AUDIT LOG ────────────────────────────────────────
 model AuditLog {
-  id         BigInt   @id @default(autoincrement())
-  userId     String?
-  businessId String?
-  actionType String
-  entityType String
-  entityId   String?
-  oldValues  Json?
-  newValues  Json?
-  ipAddress  String?
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  businessId  String
+  userId      String?
+  userName    String
+  userRole    String
+  action      String   // CREATE UPDATE DELETE APPROVE REJECT STATUS_CHANGE LOGIN OPEN CLOSE
+  entity      String   // BILL GRN PRODUCT CUSTOMER SUPPLIER EXPENSE ONLINE_ORDER USER SHIFT INVENTORY SETTINGS
+  entityId    String?
+  entityRef   String?
+  description String
+  meta        Json?
+  createdAt   DateTime @default(now())
 
-  user User? @relation(fields: [userId], references: [id])
-
-  @@index([entityType, entityId])
-  @@index([createdAt])
+  @@index([businessId, createdAt(sort: Desc)])
+  @@index([businessId, entity])
+  @@index([userId])
   @@map("audit_log")
 }
 
@@ -1326,27 +1408,56 @@ model SupplierPayment {
   id               String    @id @default(cuid())
   businessId       String
   supplierId       String
-  purchaseId       String?
+  purchaseId       String?   // primary GRN (for single-GRN payments)
   invoiceReference String?
   paymentDate      DateTime  @default(now())
   amount           Decimal   @db.Decimal(15, 2)
-  paymentMode      String    @default("CASH")
+  paymentMode      String    @default("NEFT")  // NEFT / UPI / CASH / CHEQUE
   referenceNumber  String?
+  utrNumber        String?   // UTR / transaction ID from bank
+  epayOrderNumber  String?   // PhonePe / GPay / e-pay order or transaction number
+  bankAccountId    String?   // which bank account this was paid from
+  bankTransactionId String?  // linked bank statement transaction
+  matchedFromStatement Boolean @default(false)
+  adjustmentAmount Decimal   @default(0) @db.Decimal(15, 2)  // signed gap: +charge, -TDS/discount
+  adjustmentReason String?   // BANK_CHARGE / TDS / CASH_DISCOUNT / ROUNDING / SHORT_PAYMENT
+  proofToken       String?   @unique  // public read-only token for vendor share link
   notes            String?
   screenshotUrl    String?
+  status           String    @default("COMPLETED") // COMPLETED / CANCELLED
   createdById      String?
   createdByName    String
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  business Business  @relation(fields: [businessId], references: [id])
-  supplier Supplier  @relation(fields: [supplierId], references: [id])
-  purchase Purchase? @relation(fields: [purchaseId], references: [id])
+  business         Business              @relation(fields: [businessId], references: [id])
+  supplier         Supplier              @relation(fields: [supplierId], references: [id])
+  purchase         Purchase?             @relation(fields: [purchaseId], references: [id])
+  allocations      PaymentAllocation[]   // which GRNs this payment covers
+  bankTransaction  BankTransaction[]     @relation
 
   @@index([businessId, supplierId])
   @@index([businessId, purchaseId])
   @@index([paymentDate])
+  @@index([bankTransactionId])
   @@map("supplier_payment")
+}
+
+// ─── PAYMENT ALLOCATION ───────────────────────────────
+// One payment can cover multiple GRNs (partial or full)
+model PaymentAllocation {
+  id              String          @id @default(cuid())
+  paymentId       String
+  purchaseId      String
+  allocatedAmount Decimal         @db.Decimal(15, 2)
+  createdAt       DateTime        @default(now())
+
+  payment  SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  purchase Purchase        @relation(fields: [purchaseId], references: [id])
+
+  @@unique([paymentId, purchaseId])
+  @@index([purchaseId])
+  @@map("payment_allocation")
 }
 
 // ─── CUSTOMER ADDRESS ────────────────────────────────
@@ -1367,6 +1478,92 @@ model CustomerAddress {
 
   @@index([customerId])
   @@map("customer_address")
+}
+
+// ─── BANK ACCOUNT ────────────────────────────────────
+model BankAccount {
+  id             String   @id @default(cuid())
+  businessId     String
+  accountName    String   // "SBI CC Account", "IDBI Current"
+  bankName       String   // "State Bank of India"
+  accountNumber  String
+  accountType    String   @default("CURRENT") // CURRENT / SAVINGS / CC / OD
+  ifscCode       String?
+  branchName     String?
+  openingBalance Decimal  @db.Decimal(15, 2) @default(0)
+  currentBalance Decimal  @db.Decimal(15, 2) @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  business     Business              @relation(fields: [businessId], references: [id])
+  transactions BankTransaction[]
+  imports      BankStatementImport[]
+
+  @@index([businessId])
+  @@map("bank_account")
+}
+
+// ─── BANK STATEMENT IMPORT BATCH ─────────────────────
+model BankStatementImport {
+  id             String   @id @default(cuid())
+  businessId     String
+  bankAccountId  String
+  fileName       String
+  fromDate       DateTime
+  toDate         DateTime
+  openingBalance Decimal  @db.Decimal(15, 2) @default(0)
+  closingBalance Decimal  @db.Decimal(15, 2) @default(0)
+  totalCredits   Decimal  @db.Decimal(15, 2) @default(0)
+  totalDebits    Decimal  @db.Decimal(15, 2) @default(0)
+  txnCount       Int      @default(0)
+  importedById   String?
+  importedAt     DateTime @default(now())
+
+  bankAccount  BankAccount       @relation(fields: [bankAccountId], references: [id])
+  transactions BankTransaction[]
+
+  @@index([bankAccountId])
+  @@map("bank_statement_import")
+}
+
+// ─── BANK TRANSACTION ─────────────────────────────────
+model BankTransaction {
+  id            String    @id @default(cuid())
+  businessId    String
+  bankAccountId String
+  importId      String?
+  txnDate       DateTime
+  valueDate     DateTime?
+  description   String
+  refNumber     String?
+  branchCode    String?
+  debitAmount   Decimal?  @db.Decimal(15, 2)
+  creditAmount  Decimal?  @db.Decimal(15, 2)
+  balance       Decimal?  @db.Decimal(15, 2)
+
+  // Auto-categorization
+  txnType     String @default("UNCATEGORIZED")
+  // SALES_PHONEPE | SALES_PINELABS | SALES_UPI | CASH_DEPOSIT
+  // SUPPLIER_PAYMENT | EXPENSE_RENT | EXPENSE_OTHER
+  // TRANSFER_PERSONAL | UNCATEGORIZED
+
+  // Matching to supplier payment
+  matchStatus        String  @default("UNMATCHED") // UNMATCHED / MATCHED / IGNORED
+  supplierId         String?
+  supplierPaymentId  String?
+  matchedBySystem    Boolean @default(false)
+  notes              String?
+
+  business         Business             @relation(fields: [businessId], references: [id])
+  bankAccount      BankAccount          @relation(fields: [bankAccountId], references: [id])
+  import           BankStatementImport? @relation(fields: [importId], references: [id])
+  supplierPayment  SupplierPayment?     @relation(fields: [supplierPaymentId], references: [id])
+
+  @@index([bankAccountId, txnDate])
+  @@index([matchStatus])
+  @@index([businessId])
+  @@map("bank_transaction")
 }
 
 // ─── CUSTOMER PAYMENT ────────────────────────────────
@@ -1391,3 +1588,115 @@ model CustomerPayment {
   @@index([businessId, paymentDate])
   @@map("customer_payment")
 }
+
+// ─── ONLINE ORDERS ────────────────────────────────────
+
+enum DeliveryType {
+  HOME_DELIVERY
+  STORE_PICKUP
+}
+
+enum OnlineOrderStatus {
+  PENDING_PAYMENT
+  PENDING_COD
+  CONFIRMED
+  PROCESSING
+  READY
+  DELIVERED
+  CANCELLED
+  PAYMENT_FAILED
+}
+
+enum OnlinePaymentMethod {
+  RAZORPAY
+  COD
+}
+
+enum OnlinePaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model StorefrontAddress {
+  id        String   @id @default(cuid())
+  phone     String
+  label     String   @default("Home")
+  line1     String
+  line2     String?
+  city      String
+  pincode   String
+  state     String   @default("Telangana")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+  @@map("storefront_address")
+}
+
+model OnlineOrder {
+  id                String              @id @default(cuid())
+  orderNumber       String              @unique
+  businessId        String
+  customerName      String
+  customerPhone     String
+  customerEmail     String?
+  deliveryType      DeliveryType
+  deliveryAddress   Json?
+  paymentMethod     OnlinePaymentMethod
+  paymentStatus     OnlinePaymentStatus @default(PENDING)
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  subtotal          Decimal             @db.Decimal(10, 2)
+  deliveryFee       Decimal             @default(0) @db.Decimal(10, 2)
+  total             Decimal             @db.Decimal(10, 2)
+  status            OnlineOrderStatus   @default(PENDING_PAYMENT)
+  customerNotes     String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  business Business          @relation(fields: [businessId], references: [id])
+  items    OnlineOrderItem[]
+
+  @@index([businessId])
+  @@index([customerPhone])
+  @@index([createdAt])
+  @@map("online_order")
+}
+
+model OnlineOrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  pluBarcode  String
+  productCode String
+  productName String
+  packLabel   String
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  total       Decimal  @db.Decimal(10, 2)
+  mrp         Decimal? @db.Decimal(10, 2)
+
+  order OnlineOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("online_order_item")
+}
+
+// ─── STOREFRONT CUSTOMER PROFILE ────────────────────
+model StorefrontProfile {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  phone          String?
+  alternatePhone String?
+  photoUrl       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([phone])
+  @@map("storefront_profile")
+}
+

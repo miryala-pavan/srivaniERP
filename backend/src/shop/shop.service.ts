@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { wildcardFilter } from '../common/helpers/search.helper';
+import { ShopCacheService } from './shop-cache.service';
 
 // ─── Whitelisted output types ─────────────────────────────────────────────────
 
@@ -30,6 +31,15 @@ export interface ShopPack {
   onlineStockCap: number | null; // null = no cap
 }
 
+export interface ShopGroupVariant {
+  label: string;
+  code: string;
+  name: string;
+  imageUrl: string | null;
+  fromPrice: number;
+  inStock: boolean;
+}
+
 export interface ShopProduct {
   code: string;
   name: string;
@@ -44,6 +54,7 @@ export interface ShopProduct {
   packs: ShopPack[];
   description?: string | null;
   keywords?: string | null;
+  groupVariants?: ShopGroupVariant[];
 }
 
 export interface NavSubcategory {
@@ -140,9 +151,19 @@ function mapPacks(plusList: PluRow[], unit: string, allowNegativeStock: boolean,
   return packs;
 }
 
+const CACHE_TTL = {
+  navTree:    300,
+  categories: 300,
+  departments: 300,
+  product:    120,
+} as const;
+
 @Injectable()
 export class ShopService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: ShopCacheService,
+  ) {}
 
   private async getBusinessId(): Promise<string> {
     const biz = await this.prisma.business.findFirst({
@@ -156,6 +177,9 @@ export class ShopService {
   // ─── Categories ────────────────────────────────────────────────────────────
 
   async getCategories(): Promise<ShopCategoryItem[]> {
+    const cached = await this.cache.get<ShopCategoryItem[]>('shop:categories');
+    if (cached) return cached;
+
     const businessId = await this.getBusinessId();
 
     const mainCats = await this.prisma.category.findMany({
@@ -213,12 +237,16 @@ export class ShopService {
         subcategories: subs.filter(s => s.productCount > 0),
       });
     }
+    await this.cache.set('shop:categories', result, CACHE_TTL.categories);
     return result;
   }
 
   // ─── Departments (for browse page sidebar) ─────────────────────────────────
 
   async getDepartments(): Promise<{ code: string; name: string; productCount: number }[]> {
+    const cached = await this.cache.get<{ code: string; name: string; productCount: number }[]>('shop:departments');
+    if (cached) return cached;
+
     const businessId = await this.getBusinessId();
 
     const depts = await this.prisma.department.findMany({
@@ -242,9 +270,11 @@ export class ShopService {
       counts.map(r => [r.departmentId as string, r._count.id]),
     );
 
-    return depts
+    const result = depts
       .filter(d => (countMap.get(d.id) ?? 0) > 0)
       .map(d => ({ code: d.code, name: d.name, productCount: countMap.get(d.id) ?? 0 }));
+    await this.cache.set('shop:departments', result, CACHE_TTL.departments);
+    return result;
   }
 
   // ─── Products list ──────────────────────────────────────────────────────────
@@ -391,6 +421,10 @@ export class ShopService {
   // ─── Single product ─────────────────────────────────────────────────────────
 
   async getProductByCode(code: string): Promise<ShopProduct> {
+    const cacheKey = `shop:product:${code}`;
+    const cached = await this.cache.get<ShopProduct>(cacheKey);
+    if (cached) return cached;
+
     const businessId = await this.getBusinessId();
 
     const product = await this.prisma.product.findFirst({
@@ -440,7 +474,50 @@ export class ShopService {
     const cat = product.category;
     const dept = cat?.parent?.department;
 
-    return {
+    // ── Group variants (size picker) ──────────────────────────────────────────
+    const membership = await this.prisma.productGroupMember.findFirst({
+      where: { product: { productCode: product.productCode ?? '', businessId } },
+      select: { groupId: true },
+    });
+    let groupVariants: ShopGroupVariant[] | undefined;
+    if (membership) {
+      const siblings = await this.prisma.productGroupMember.findMany({
+        where: { groupId: membership.groupId },
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          displayLabel: true,
+          product: {
+            select: {
+              productCode:        true,
+              name:               true,
+              imageUrl:           true,
+              allowNegativeStock: true,
+              totalStock:         true,
+              unitOfMeasure:      true,
+              plusList: { where: ONLINE_PLU_FILTER, select: { sellingPrice: true, onlinePrice: true, stockOnHand: true, onlineStockCap: true } },
+            },
+          },
+        },
+      });
+      groupVariants = siblings.map(s => {
+        const totalStk = Number((s.product as any).totalStock ?? 0);
+        const prices = s.product.plusList.map(p => {
+          const sp = toDecimal(p.sellingPrice);
+          return p.onlinePrice !== null && p.onlinePrice !== undefined ? toDecimal(p.onlinePrice) : sp;
+        });
+        const inStock = totalStk > 0 || s.product.allowNegativeStock;
+        return {
+          label:     s.displayLabel,
+          code:      s.product.productCode ?? '',
+          name:      s.product.name,
+          imageUrl:  s.product.imageUrl ?? null,
+          fromPrice: prices.length > 0 ? Math.min(...prices) : 0,
+          inStock,
+        };
+      });
+    }
+
+    const result: ShopProduct = {
       code:               product.productCode ?? '',
       name:               product.name,
       imageUrl:           product.imageUrl ?? null,
@@ -454,7 +531,10 @@ export class ShopService {
       packs,
       description:        product.description ?? null,
       keywords:           product.keywords ?? null,
+      ...(groupVariants ? { groupVariants } : {}),
     };
+    await this.cache.set(cacheKey, result, CACHE_TTL.product);
+    return result;
   }
 
   // ─── Autocomplete suggest ────────────────────────────────────────────────────
@@ -547,6 +627,9 @@ export class ShopService {
   // ─── Navigation tree (mega-menu) ─────────────────────────────────────────────
 
   async getNavTree(): Promise<NavDepartment[]> {
+    const cached = await this.cache.get<NavDepartment[]>('shop:nav-tree');
+    if (cached) return cached;
+
     const businessId = await this.getBusinessId();
 
     const [depts, cats, subs, counts] = await Promise.all([
@@ -603,7 +686,7 @@ export class ShopService {
       catsByDept.set(c.departmentId, arr);
     }
 
-    return depts
+    const result = depts
       .filter(d => (deptCountMap.get(d.id) ?? 0) > 0)
       .map(d => {
         const deptCats = (catsByDept.get(d.id) ?? [])
@@ -627,5 +710,7 @@ export class ShopService {
           categories:   deptCats,
         };
       });
+    await this.cache.set('shop:nav-tree', result, CACHE_TTL.navTree);
+    return result;
   }
 }

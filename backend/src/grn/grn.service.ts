@@ -7,9 +7,12 @@ import { GrnCalculationsService } from './grn-calculations.service';
 import { EventsService } from '../events/events.service';
 import { SuppliersService } from '../suppliers/suppliers.service';
 import { Events } from '../events/event-types';
+import { assertMargin } from '../common/margin.util';
 import { CreateGrnDto } from './dto/create-grn.dto';
 import { UpdateGrnDto } from './dto/update-grn.dto';
 import { GrnQueryDto } from './dto/grn-query.dto';
+import { BankService } from '../bank/bank.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 @Injectable()
 export class GrnService {
@@ -19,6 +22,8 @@ export class GrnService {
     private notifications: NotificationsService,
     private eventsService: EventsService,
     private suppliersService: SuppliersService,
+    private bankService: BankService,
+    private audit: AuditLogService,
   ) {}
 
   private r2(n: number) { return Math.round(n * 100) / 100; }
@@ -39,9 +44,11 @@ export class GrnService {
           { shortName:   { contains: term, mode: 'insensitive' } },
           { barcode:     { equals: term } },
           { productCode: { contains: term } },
+          { keywords:    { contains: term, mode: 'insensitive' } },
+          { description: { contains: term, mode: 'insensitive' } },
         ],
       },
-      take: 15,
+      take: 50,
       orderBy: { productCode: 'asc' },
       include: {
         tax:      { select: { taxRate: true, taxName: true } },
@@ -95,7 +102,8 @@ export class GrnService {
       where: { businessId, isActive: true },
       orderBy: { startDate: 'desc' },
     });
-    if (!fy) throw new BadRequestException('No active financial year. Complete business setup first.');
+    if (!fy)       throw new BadRequestException('No active financial year. Complete business setup first.');
+    if ((fy as any).isClosed) throw new BadRequestException(`Financial year ${(fy as any).fyCode} is closed. Please open the next financial year first.`);
     return fy;
   }
 
@@ -284,7 +292,7 @@ export class GrnService {
     };
   }
 
-  async create(businessId: string, dto: CreateGrnDto) {
+  async create(businessId: string, dto: CreateGrnDto, actor?: { userId: string; userName: string; userRole: string }) {
     const [supplier, branch] = await Promise.all([
       this.prisma.supplier.findFirst({ where: { id: dto.supplierId, businessId } }),
       this.prisma.branch.findFirst({ where: { id: dto.branchId, businessId } }),
@@ -376,6 +384,9 @@ export class GrnService {
       }
     } catch (_err) { /* non-critical — don't fail the request */ }
 
+    if (actor) {
+      this.audit.log({ ...actor, businessId }, { action: 'CREATE', entity: 'GRN', entityId: purchase.id, entityRef: purchase.grnNumber ?? purchase.id, description: `GRN created for supplier ${supplier.name}` }).catch(() => {});
+    }
     return { ...purchase, warning };
   }
 
@@ -518,7 +529,7 @@ export class GrnService {
     return this.findOne(businessId, id);
   }
 
-  async submit(businessId: string, id: string) {
+  async submit(businessId: string, id: string, actor?: { userId: string; userName: string; userRole: string }) {
     const purchase = await this.prisma.purchase.findFirst({ where: { id, businessId } });
     if (!purchase) throw new NotFoundException('GRN not found');
     if (purchase.status !== 'DRAFT') throw new BadRequestException('Only DRAFT GRNs can be submitted');
@@ -548,10 +559,13 @@ export class GrnService {
       });
     } catch (_err) { /* fire-and-forget */ }
 
+    if (actor) {
+      this.audit.log({ ...actor, businessId }, { action: 'STATUS_CHANGE', entity: 'GRN', entityId: id, entityRef: grnNumber, description: `GRN ${grnNumber} submitted for approval` }).catch(() => {});
+    }
     return updated;
   }
 
-  async approve(businessId: string, id: string, approverName?: string, notes?: string) {
+  async approve(businessId: string, id: string, approverName?: string, notes?: string, actor?: { userId: string; userName: string; userRole: string }) {
     const purchase = await this.prisma.purchase.findFirst({
       where: { id, businessId },
       include: {
@@ -601,7 +615,9 @@ export class GrnService {
         const oldPrice = Number(item.product.sellingPrice ?? 0);
         const newPrice = Number((item as any).sellingPrice ?? 0);
         if (newPrice > 0 && newPrice !== oldPrice) {
-          const changePct = oldPrice > 0 ? this.r2((newPrice - oldPrice) / oldPrice * 100) : null;
+          // priceChangePct is Decimal(5,2) → clamp to ±999.99 so extreme jumps don't overflow
+          const rawPct = oldPrice > 0 ? this.r2((newPrice - oldPrice) / oldPrice * 100) : null;
+          const changePct = rawPct === null ? null : Math.max(-999.99, Math.min(999.99, rawPct));
           await tx.purchaseItem.update({
             where: { id: item.id },
             data: { priceChanged: true, priceChangePct: changePct } as any,
@@ -609,7 +625,7 @@ export class GrnService {
         }
       }
 
-      await this.syncPluOnApproval(tx, businessId, id, purchase.items, approverName ?? 'System');
+      await this.syncPluOnApproval(tx, businessId, id, purchase.items, approverName ?? 'System', String((purchase as any).taxType ?? 'TAX_EXCLUSIVE'));
     }, { timeout: 60000 });
 
     this.handleRestockNotifications(businessId, purchase.branchId, purchase.items, purchase.grnNumber ?? '').catch(() => {});
@@ -623,6 +639,15 @@ export class GrnService {
       });
     } catch (_err) { /* fire-and-forget */ }
 
+    // Fire-and-forget: try to match any unmatched bank NEFTs waiting for this supplier
+    // Handles the "payment arrived before GRN was entered" scenario
+    this.bankService
+      .tryMatchPendingForSupplier(businessId, purchase.supplierId)
+      .catch(() => {});
+
+    if (actor) {
+      this.audit.log({ ...actor, businessId }, { action: 'APPROVE', entity: 'GRN', entityId: id, entityRef: purchase.grnNumber ?? id, description: `GRN ${purchase.grnNumber} approved by ${approverName ?? actor.userName}` }).catch(() => {});
+    }
     return this.findOne(businessId, id);
   }
 
@@ -632,7 +657,10 @@ export class GrnService {
     grnId: string,
     items: any[],
     approverName: string,
+    taxType: string = 'TAX_EXCLUSIVE',
   ) {
+    const isInclusive = taxType === 'TAX_INCLUSIVE';
+
     for (const item of items) {
       const acceptedQty = Number((item as any).acceptedQty ?? 0) > 0
         ? Number((item as any).acceptedQty)
@@ -640,16 +668,21 @@ export class GrnService {
 
       if (acceptedQty <= 0) continue;
 
-      const itemMrp       = Number((item as any).mrp ?? 0);
-      const itemCost      = Number((item as any).netCostPrice ?? (item as any).trueCostPrice ?? item.unitPrice ?? 0);
+      const itemMrp        = Number((item as any).mrp ?? 0);
+      const itemGstRate    = Number((item as any).gstRatePercent ?? 0);
+      const itemNetInclRaw = Number((item as any).netCostPrice ?? (item as any).trueCostPrice ?? item.unitPrice ?? 0);
+      // For TAX_INCLUSIVE GRNs the stored netCostPrice is the inclusive rate (e.g. 140 @ 18% GST).
+      // Convert to exclusive so PLU.costPrice always reflects the pre-tax purchase cost.
+      const itemCost = isInclusive && itemGstRate > 0
+        ? this.r2(itemNetInclRaw / (1 + itemGstRate / 100))
+        : itemNetInclRaw;
       const itemBasicCost = Number((item as any).basicCostPrice ?? itemCost);
       const itemSp        = Number((item as any).sellingPrice ?? 0);
       const itemCessRate  = Number((item as any).cessRate ?? 0);
-      const itemGstRate   = Number((item as any).gstRatePercent ?? 0);
 
       const product = await tx.product.findUnique({
         where:  { id: item.productId },
-        select: { id: true, productCode: true, hsnCode: true, gstRatePercent: true, cessRate: true },
+        select: { id: true, productCode: true, name: true, hsnCode: true, gstRatePercent: true, cessRate: true, allowBelowMargin: true },
       });
       if (!product) continue;
 
@@ -658,80 +691,147 @@ export class GrnService {
         ? Math.round(((itemMrp - itemCost) / itemMrp * 100) * 10000) / 10000
         : 0;
 
-      // STEP 1: Find active default PLU for this product
+      // STEP 1: Find existing PLU for this product+MRP combination (handles mixed-batch GRNs).
+      // We match on MRP (not just isDefault) so same-product different-MRP batches
+      // each get their own PLU instead of colliding on the default PLU.
       const activePlu = await tx.productPlu.findFirst({
-        where:   { productId: item.productId, isActive: true, isArchived: false, isDefault: true },
+        where: {
+          productId:  item.productId,
+          isArchived: false,
+          mrp:        { gte: itemMrp - 0.01, lte: itemMrp + 0.01 },
+        },
         orderBy: { createdAt: 'desc' },
       });
 
+      // Check whether there is already ANY default PLU (needed for isDefault assignment below)
+      const existingDefault = activePlu?.isDefault
+        ? activePlu
+        : await tx.productPlu.findFirst({
+            where: { productId: item.productId, isArchived: false, isDefault: true },
+          });
+
       const priceIsSame = activePlu
-        && Math.abs(Number(activePlu.mrp) - itemMrp) < 0.01
         && Math.abs(Number(activePlu.costPrice) - itemCost) < 0.01;
 
+      // Track whether the PLU that ends up receiving stock for this line is the default.
+      // Used in STEP 3 to decide whether to sync product master prices.
+      let thisLineIsDefault = false;
+
       if (activePlu && priceIsSame) {
-        // STEP 2A: Same price — add stock to existing PLU
+        // STEP 2A: Same MRP + same cost — add stock to existing PLU (re-activate if inactive)
+        thisLineIsDefault = activePlu.isDefault ?? false;
         await tx.productPlu.update({
           where: { id: activePlu.id },
           data: {
             stockOnHand: { increment: acceptedQty },
             receivedQty: { increment: acceptedQty },
+            isActive:    true,
           },
         });
       } else {
-        // STEP 2B: Price changed (or no PLU yet) — create new default PLU
+        // STEP 2B: New MRP batch or cost changed — create a new PLU.
+        // Enforce margin on the new selling price (only when an SP was entered).
+        if (itemSp > 0) {
+          assertMargin({
+            sellingPrice: itemSp,
+            costPrice:    itemCost,
+            gstRate:      itemGstRate || Number(product.gstRatePercent ?? 0),
+            cessRate:     itemCessRate,
+            label:        product.name,
+            bypass:       (product as any).allowBelowMargin ?? false,
+          });
+        }
         const pluCount   = await tx.productPlu.count({ where: { productId: item.productId } });
         const seq        = String(pluCount + 1).padStart(3, '0');
         const newPluCode = `${product.productCode}${seq}`;
 
+        // Only make this PLU the default if there is no existing default,
+        // or if it's replacing a same-MRP PLU whose cost changed (price update).
+        const makeDefault = !existingDefault || !!(activePlu && activePlu.id === existingDefault.id);
+        thisLineIsDefault = makeDefault;
+
         if (activePlu) {
-          // Demote old PLU — keep isActive=true so its stock stays visible
+          // Cost changed on same MRP batch — keep the existing PLU record but update cost.
+          // (Don't create a duplicate PLU for same MRP; just update prices and add stock.)
           await tx.productPlu.update({
             where: { id: activePlu.id },
-            data:  { isDefault: false },
+            data: {
+              basicCost:    itemBasicCost,
+              costPrice:    itemCost,
+              sellingPrice: itemSp || undefined,
+              marginRs:     marginRs,
+              marginPercent: marginPct,
+              stockOnHand:  { increment: acceptedQty },
+              receivedQty:  { increment: acceptedQty },
+              isActive:     true,
+              isDefault:    makeDefault,
+            },
           });
-        }
+          // If the old default was a different PLU (different MRP), leave it as default
+          // — this batch is a secondary batch.
+        } else {
+          // Completely new MRP batch — create fresh PLU
+          if (existingDefault && makeDefault) {
+            // Demote old default so this new batch becomes the default
+            await tx.productPlu.update({
+              where: { id: existingDefault.id },
+              data:  { isDefault: false },
+            });
+          }
 
-        await tx.productPlu.create({
-          data: {
-            businessId,
-            productId:      item.productId,
-            pluCode:        newPluCode,
-            basicCost:      itemBasicCost,
-            costPrice:      itemCost,
-            mrp:            itemMrp,
-            sellingPrice:   itemSp,
-            wholesalePrice: null,
-            minSellingPrice: 0,
-            gstRate:        itemGstRate || Number(product.gstRatePercent ?? 0),
-            hsnCode:        product.hsnCode,
-            cessRate:       itemCessRate,
-            taxInclusive:   false,
-            marginPercent:  marginPct,
-            marginRs,
-            stockOnHand:    acceptedQty,
-            receivedQty:    acceptedQty,
-            soldQty:        0,
-            isDefault:      true,
-            isActive:       true,
-            isArchived:     false,
-            effectiveFrom:  new Date(),
-            grnId,
-            batchNumber:        (item as any).batchNumber        ?? null,
-            manufacturingDate:  (item as any).manufacturingDate  ?? null,
-            expiryDate:         (item as any).expiryDate         ?? null,
-            createdByName:  approverName,
-          },
-        });
-      }
+          await tx.productPlu.create({
+            data: {
+              businessId,
+              productId:      item.productId,
+              pluCode:        newPluCode,
+              basicCost:      itemBasicCost,
+              costPrice:      itemCost,
+              mrp:            itemMrp,
+              sellingPrice:   itemSp,
+              wholesalePrice: null,
+              minSellingPrice: 0,
+              gstRate:        itemGstRate || Number(product.gstRatePercent ?? 0),
+              hsnCode:        product.hsnCode,
+              cessRate:       itemCessRate,
+              taxInclusive:   isInclusive,
+              marginPercent:  marginPct,
+              marginRs,
+              stockOnHand:    acceptedQty,
+              receivedQty:    acceptedQty,
+              soldQty:        0,
+              isDefault:      makeDefault,
+              isActive:       true,
+              isArchived:     false,
+              effectiveFrom:  new Date(),
+              grnId,
+              batchNumber:        (item as any).batchNumber        ?? null,
+              manufacturingDate:  (item as any).manufacturingDate  ?? null,
+              expiryDate:         (item as any).expiryDate         ?? null,
+              createdByName:  approverName,
+            },
+          });
+        } // end else (new MRP batch)
+      } // end STEP 2B
 
-      // STEP 3: Update Product.totalStock = sum of all active PLU stockOnHand
+      // STEP 3: Update Product.totalStock = sum of all active PLU stockOnHand.
+      // Only sync master prices (mrp/sellingPrice/costPrice) when this item's PLU
+      // is (or will be) the default — for secondary batches totalStock is still updated
+      // but master prices are left pointing at the default PLU's values.
+
       const agg = await tx.productPlu.aggregate({
         where: { productId: item.productId, isActive: true, isArchived: false },
         _sum:  { stockOnHand: true },
       });
       await tx.product.update({
         where: { id: item.productId },
-        data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
+        data:  {
+          totalStock: Number(agg._sum.stockOnHand ?? 0),
+          ...(thisLineIsDefault ? {
+            mrp:          itemMrp,
+            sellingPrice: itemSp,
+            costPrice:    itemCost,
+          } : {}),
+        } as any,
       });
     }
   }
@@ -771,7 +871,7 @@ export class GrnService {
     }
   }
 
-  async reject(businessId: string, id: string, rejectorName?: string, reason?: string) {
+  async reject(businessId: string, id: string, rejectorName?: string, reason?: string, actor?: { userId: string; userName: string; userRole: string }) {
     const purchase = await this.prisma.purchase.findFirst({ where: { id, businessId } });
     if (!purchase) throw new NotFoundException('GRN not found');
     if (!['PENDING_APPROVAL', 'DRAFT'].includes(purchase.status)) {
@@ -794,6 +894,9 @@ export class GrnService {
       });
     } catch (_err) { /* fire-and-forget */ }
 
+    if (actor) {
+      this.audit.log({ ...actor, businessId }, { action: 'REJECT', entity: 'GRN', entityId: id, entityRef: purchase.grnNumber ?? id, description: `GRN ${purchase.grnNumber} rejected — ${reason ?? 'no reason'}` }).catch(() => {});
+    }
     return rejected;
   }
 

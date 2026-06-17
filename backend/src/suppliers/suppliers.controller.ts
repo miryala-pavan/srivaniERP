@@ -123,4 +123,47 @@ export class SuppliersController {
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateSupplierDto) {
     return this.suppliersService.update(req.user.businessId, id, dto);
   }
+
+  // ─── BANK ACCOUNTS ────────────────────────────────────
+
+  @Get(':id/bank-accounts')
+  getBankAccounts(@Request() req: any, @Param('id') id: string) {
+    return this.suppliersService.getBankAccounts(req.user.businessId, id);
+  }
+
+  @Post(':id/bank-accounts')
+  addBankAccount(@Request() req: any, @Param('id') id: string, @Body() body: {
+    accountNumber: string; bankName: string; branchName?: string;
+    ifscCode?: string; isPrimary?: boolean; transferLimit?: number; notes?: string;
+  }) {
+    return this.suppliersService.addBankAccount(req.user.businessId, id, body);
+  }
+
+  @Patch('bank-accounts/:accountId')
+  updateBankAccount(@Request() req: any, @Param('accountId') accountId: string, @Body() body: any) {
+    return this.suppliersService.updateBankAccount(req.user.businessId, accountId, body);
+  }
+
+  @Delete('bank-accounts/:accountId')
+  deleteBankAccount(@Request() req: any, @Param('accountId') accountId: string) {
+    return this.suppliersService.deleteBankAccount(req.user.businessId, accountId);
+  }
+
+  // ─── BULK IMPORT ──────────────────────────────────────
+
+  @Post('admin/migrate-flat-bank-fields')
+  @Roles('SUPER_ADMIN')
+  migrateFlatBankFields(@Request() req: any) {
+    return this.suppliersService.migrateFlatBankFields(req.user.businessId);
+  }
+
+  @Post('bank-accounts/import-preview')
+  importPreview(@Request() req: any, @Body() body: { entries: any[] }) {
+    return this.suppliersService.previewBankAccountImport(req.user.businessId, body.entries);
+  }
+
+  @Post('bank-accounts/import-execute')
+  importExecute(@Request() req: any, @Body() body: { entries: any[] }) {
+    return this.suppliersService.executeBankAccountImport(req.user.businessId, body.entries);
+  }
 }

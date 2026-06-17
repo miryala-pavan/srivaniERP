@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto, ResetPinDto } from './dto/update-user.dto';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 const USER_SELECT = {
   id:           true,
@@ -26,7 +27,7 @@ const USER_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private auditLog: AuditLogService) {}
 
   async findAll(businessId: string) {
     const users = await this.prisma.user.findMany({
@@ -88,6 +89,11 @@ export class UsersService {
       },
       select: USER_SELECT,
     });
+
+    this.auditLog.log(
+      { userId: createdBy.id, userName: createdBy.fullName, userRole: 'BRANCH_MANAGER', businessId },
+      { action: 'CREATE', entity: 'USER', entityId: user.id, entityRef: user.username, description: `User created: ${user.fullName} (${user.username}) — role ${dto.role}` },
+    ).catch(() => {});
 
     return { ...user, isActive: true };
   }
@@ -156,6 +162,11 @@ export class UsersService {
       where: { id },
       data:  { status: newStatus as any },
     });
+
+    this.auditLog.log(
+      { userId: requesterId, userName: 'Manager', userRole: 'BRANCH_MANAGER', businessId },
+      { action: 'STATUS_CHANGE', entity: 'USER', entityId: id, entityRef: user.username, description: `User ${user.fullName} (${user.username}) ${newStatus === 'ACTIVE' ? 'activated' : 'deactivated'}` },
+    ).catch(() => {});
 
     return { isActive: newStatus === 'ACTIVE', status: newStatus };
   }

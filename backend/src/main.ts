@@ -25,11 +25,15 @@ async function bootstrap() {
   }));
 
   app.enableCors({
-    origin: [
-      'http://localhost:4000',
-      'http://localhost:4002',
-      process.env.FRONTEND_URL || 'http://localhost:4000',
-    ],
+    // Allow localhost + LAN devices + Vercel deployments + Cloudflare Tunnels.
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // same-origin / curl / mobile apps
+      const ok =
+        /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):(4000|4002)$/.test(origin) ||
+        /^https:\/\/[\w-]+\.vercel\.app$/.test(origin) ||
+        /^https:\/\/[\w-]+\.trycloudflare\.com$/.test(origin);
+      cb(ok ? null : new Error('Not allowed by CORS'), ok);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -39,6 +43,11 @@ async function bootstrap() {
     ?? path.join(process.cwd(), '..', 'storage', 'product-images');
   fs.mkdirSync(imagesDir, { recursive: true });
   app.useStaticAssets(imagesDir, { prefix: '/uploads/products' });
+
+  const proofsDir = process.env.PAYMENT_PROOFS_DIR
+    ?? path.join(process.cwd(), '..', 'storage', 'payment-proofs');
+  fs.mkdirSync(proofsDir, { recursive: true });
+  app.useStaticAssets(proofsDir, { prefix: '/uploads/payment-proofs' });
 
   const port = process.env.PORT || 4001;
   await app.listen(port);

@@ -41,6 +41,12 @@ export class CustomersController {
     return this.customersService.posQuickAdd(req.user.businessId, dto);
   }
 
+  @Get('profile-lookup')
+  profileLookup(@Request() req: any, @Query('phone') phone: string) {
+    if (!phone) return { customer: null, profile: null, source: 'none' };
+    return this.customersService.profileLookup(req.user.businessId, phone);
+  }
+
   // ─── COLLECTION ───────────────────────────────────────
 
   @Post()

@@ -417,6 +417,8 @@ export class ReportsService {
     const yS        = dayStart(yesterday);
     const yE        = dayEnd(yesterday);
 
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
     const [
       todayAgg,
       yesterdayAgg,
@@ -425,6 +427,10 @@ export class ReportsService {
       pendingGRNs,
       pendingPaymentSuppliers,
       topProductRows,
+      mtdAgg,
+      paymentBreakdownRows,
+      onlinePendingCount,
+      onlineTodayAgg,
     ] = await Promise.all([
       this.prisma.salesBill.aggregate({
         where: { businessId, status: 'FINAL', billDate: { gte: todayS, lte: todayE } },
@@ -516,6 +522,43 @@ export class ReportsService {
         ORDER BY SUM(si."totalAmount") DESC
         LIMIT 5
       `),
+
+      this.prisma.salesBill.aggregate({
+        where: { businessId, status: 'FINAL', billDate: { gte: monthStart, lte: todayE } },
+        _sum:   { grandTotal: true },
+        _count: { id: true },
+      }),
+
+      this.prisma.$queryRaw<Array<{
+        cash: string; upi: string; card: string;
+      }>>(Prisma.sql`
+        SELECT
+          COALESCE(SUM("cashAmount"), 0)::text AS cash,
+          COALESCE(SUM("upiAmount"),  0)::text AS upi,
+          COALESCE(SUM("cardAmount"), 0)::text AS card
+        FROM sales_bill
+        WHERE "businessId" = ${businessId}
+          AND status       = 'FINAL'
+          AND "billDate"  >= ${todayS}
+          AND "billDate"  <= ${todayE}
+      `),
+
+      this.prisma.onlineOrder.count({
+        where: {
+          businessId,
+          status: { in: ['PENDING_COD', 'CONFIRMED', 'PROCESSING'] },
+        },
+      }),
+
+      this.prisma.onlineOrder.aggregate({
+        where: {
+          businessId,
+          createdAt: { gte: todayS, lte: todayE },
+          status: { notIn: ['CANCELLED', 'PAYMENT_FAILED'] },
+        },
+        _sum:   { total: true },
+        _count: { id: true },
+      }),
     ]);
 
     const todaySales     = n(todayAgg._sum.grandTotal);
@@ -524,14 +567,43 @@ export class ReportsService {
       ? parseFloat((((todaySales - yesterdaySales) / yesterdaySales) * 100).toFixed(1))
       : null;
 
+    const todayBills     = todayAgg._count.id;
+    const yesterdayBills = yesterdayAgg._count.id;
+    const avgBasketToday     = todayBills > 0     ? r2(todaySales / todayBills)         : 0;
+    const avgBasketYesterday = yesterdayBills > 0 ? r2(yesterdaySales / yesterdayBills) : 0;
+    const basketGrowth = avgBasketYesterday > 0
+      ? parseFloat((((avgBasketToday - avgBasketYesterday) / avgBasketYesterday) * 100).toFixed(1))
+      : null;
+
+    const pb = paymentBreakdownRows[0] ?? { cash: '0', upi: '0', card: '0' };
+
     return {
       generatedAt: now,
       sales: {
         todaySales,
         yesterdaySales,
         salesGrowth,
-        todayBills:     todayAgg._count.id,
-        yesterdayBills: yesterdayAgg._count.id,
+        todayBills,
+        yesterdayBills,
+      },
+      thisMonth: {
+        revenue: n(mtdAgg._sum.grandTotal),
+        bills:   mtdAgg._count.id,
+      },
+      avgBasket: {
+        today:     avgBasketToday,
+        yesterday: avgBasketYesterday,
+        growth:    basketGrowth,
+      },
+      paymentBreakdown: {
+        cash: n(pb.cash),
+        upi:  n(pb.upi),
+        card: n(pb.card),
+      },
+      onlineOrders: {
+        pendingCount: onlinePendingCount,
+        todayCount:   onlineTodayAgg._count.id,
+        todayRevenue: n(onlineTodayAgg._sum.total),
       },
       alerts: {
         cashMismatch:    n(cashMismatchRows[0]?.count),
@@ -546,11 +618,124 @@ export class ReportsService {
         totalQty:     n(r.total_qty),
         totalRevenue: n(r.total_revenue),
       })),
-      onlineOrdersPending: 0,
+      onlineOrdersPending: onlinePendingCount,
     };
   }
 
-  // ─── 7. PRODUCT-WISE SALES ────────────────────────────
+  // ─── 7. REORDER SUGGESTIONS ──────────────────────────
+
+  async getReorderSuggestions(businessId: string) {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    type Row = {
+      product_id: string;
+      product_name: string;
+      product_code: string | null;
+      uom: string;
+      reorder_level: string;
+      category_name: string | null;
+      current_stock: string;
+      avg_daily_qty: string;
+      days_remaining: string | null;
+      suggested_qty: string;
+    };
+
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      WITH stock AS (
+        SELECT "productId", COALESCE(SUM(quantity), 0) AS current_stock
+        FROM stock_ledger
+        WHERE "businessId" = ${businessId}
+        GROUP BY "productId"
+      ),
+      sales AS (
+        SELECT si."productId",
+               COALESCE(SUM(si.quantity), 0) / 30.0 AS avg_daily_qty
+        FROM sales_item si
+        JOIN sales_bill sb ON sb.id = si."billId"
+        WHERE sb."businessId" = ${businessId}
+          AND sb.status       = 'FINAL'
+          AND sb."billDate"  >= ${thirtyDaysAgo}
+        GROUP BY si."productId"
+      )
+      SELECT
+        p.id                                                          AS product_id,
+        p.name                                                        AS product_name,
+        p."productCode"                                               AS product_code,
+        p."unitOfMeasure"                                             AS uom,
+        p."reorderLevel"::text                                        AS reorder_level,
+        c.label                                                       AS category_name,
+        COALESCE(s.current_stock, 0)::text                           AS current_stock,
+        COALESCE(sa.avg_daily_qty, 0)::text                          AS avg_daily_qty,
+        CASE
+          WHEN COALESCE(sa.avg_daily_qty, 0) > 0
+          THEN (COALESCE(s.current_stock, 0) / sa.avg_daily_qty)::text
+          ELSE NULL
+        END                                                           AS days_remaining,
+        GREATEST(
+          p."reorderLevel",
+          CASE
+            WHEN COALESCE(sa.avg_daily_qty, 0) > 0
+            THEN CEIL(sa.avg_daily_qty * 14 - COALESCE(s.current_stock, 0))
+            ELSE p."reorderLevel" * 2
+          END
+        )::text                                                       AS suggested_qty
+      FROM product p
+      LEFT JOIN category c  ON c.id = p."categoryId"
+      LEFT JOIN stock s     ON s."productId" = p.id
+      LEFT JOIN sales sa    ON sa."productId" = p.id
+      WHERE p."businessId" = ${businessId}
+        AND p."isActive"   = true
+        AND (
+          COALESCE(s.current_stock, 0) <= 0
+          OR COALESCE(s.current_stock, 0) <= p."reorderLevel"
+          OR (
+            COALESCE(sa.avg_daily_qty, 0) > 0
+            AND (COALESCE(s.current_stock, 0) / sa.avg_daily_qty) <= 14
+          )
+        )
+      ORDER BY
+        CASE
+          WHEN COALESCE(s.current_stock, 0) <= 0 THEN 0
+          WHEN COALESCE(sa.avg_daily_qty, 0) > 0
+           AND (COALESCE(s.current_stock, 0) / sa.avg_daily_qty) <= 3 THEN 1
+          WHEN COALESCE(s.current_stock, 0) <= p."reorderLevel" THEN 2
+          ELSE 3
+        END,
+        COALESCE(s.current_stock, 0) / NULLIF(sa.avg_daily_qty, 0) ASC NULLS FIRST
+    `);
+
+    return rows.map((r) => {
+      const currentStock   = n(r.current_stock);
+      const avgDaily       = n(r.avg_daily_qty);
+      const daysRemaining  = r.days_remaining !== null ? n(r.days_remaining) : null;
+      const suggestedQty   = n(r.suggested_qty);
+
+      let urgency: 'OUT_OF_STOCK' | 'CRITICAL' | 'LOW' | 'WATCH';
+      if (currentStock <= 0)                                          urgency = 'OUT_OF_STOCK';
+      else if (daysRemaining !== null && daysRemaining <= 3)         urgency = 'CRITICAL';
+      else if (daysRemaining !== null && daysRemaining <= 7)         urgency = 'LOW';
+      else                                                            urgency = 'WATCH';
+
+      return {
+        productId:    r.product_id,
+        productName:  r.product_name,
+        productCode:  r.product_code,
+        uom:          r.uom,
+        reorderLevel: n(r.reorder_level),
+        categoryName: r.category_name,
+        currentStock: r2(currentStock),
+        avgDailyQty:  parseFloat(avgDaily.toFixed(2)),
+        daysRemaining: daysRemaining !== null
+          ? parseFloat(daysRemaining.toFixed(1))
+          : null,
+        suggestedQty: Math.max(1, Math.ceil(suggestedQty)),
+        urgency,
+      };
+    });
+  }
+
+  // ─── 8. PRODUCT-WISE SALES ────────────────────────────
 
   async getProductSalesReport(businessId: string, query: DateRangeDto & { limit?: number }) {
     const end   = query.endDate   ? new Date(query.endDate)   : new Date();

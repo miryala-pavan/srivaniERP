@@ -135,7 +135,7 @@ export class ProductsController {
   // ─── PRODUCT CRUD ─────────────────────────────────────
   @Post()
   create(@Request() req: any, @Body() dto: CreateProductDto) {
-    return this.productsService.createProduct(req.user.businessId, dto, req.user.id);
+    return this.productsService.createProduct(req.user.businessId, dto, req.user.id, req.user.role);
   }
 
   @Get()
@@ -184,7 +184,7 @@ export class ProductsController {
 
   @Put(':id')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateProductDto) {
-    return this.productsService.updateProduct(req.user.businessId, id, dto, req.user.id);
+    return this.productsService.updateProduct(req.user.businessId, id, dto, req.user.id, req.user.role);
   }
 
   // ─── FEATURE 1: Toggle status ─────────────────────────
@@ -268,13 +268,18 @@ export class ProductsController {
     @Param('id') id: string,
     @Param('pluId') pluId: string,
     @Body() body: {
-      eanCode?: string; sellingPrice?: number; wholesalePrice?: number;
+      eanCode?: string; mrp?: number; sellingPrice?: number; wholesalePrice?: number;
       minSellingPrice?: number; gstRate?: number; cessRate?: number; taxInclusive?: boolean;
       availableOnline?: boolean; onlinePrice?: number | null;
       onlineStockCap?: number | null; packLabel?: string | null;
     },
   ) {
     return this.productsService.updatePlu(req.user.businessId, id, pluId, body);
+  }
+
+  @Patch(':id/allow-below-margin')
+  setAllowBelowMargin(@Request() req: any, @Param('id') id: string, @Body() body: { allow?: boolean }) {
+    return this.productsService.setAllowBelowMargin(req.user.businessId, id, body.allow !== false, req.user.role);
   }
 
   @Post(':id/plus/:pluId/set-default')
@@ -321,6 +326,23 @@ export class ProductsController {
     @Body() body: { bundleId: string; bulkQty: number; notes?: string },
   ) {
     return this.productsService.breakBulk(req.user.businessId, {
+      ...body,
+      userId:   req.user.id,
+      userName: req.user.fullName,
+    });
+  }
+
+  @Post('plu-bundles/break-bulk-multi')
+  breakBulkMulti(
+    @Request() req: any,
+    @Body() body: {
+      bulkPluId: string;
+      bulkQty: number;
+      targets: { bundleId: string; singlesQty: number }[];
+      notes?: string;
+    },
+  ) {
+    return this.productsService.breakBulkMulti(req.user.businessId, {
       ...body,
       userId:   req.user.id,
       userName: req.user.fullName,

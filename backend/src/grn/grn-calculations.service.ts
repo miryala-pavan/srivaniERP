@@ -42,26 +42,30 @@ export class GrnCalculationsService {
     const d = (v?: number) => v ?? 0;
     const r2 = this.r2.bind(this);
 
-    // Cascade discounts applied to per-unit basic cost
-    const netCostPrice = r2(
-      item.basicCostPrice
-      * (1 - d(item.disc1Percent) / 100)
-      * (1 - d(item.disc2Percent) / 100)
-      * (1 - d(item.disc3Percent) / 100)
-      * (1 - d(item.disc4Percent) / 100),
-    );
-
     const packSize = item.packSize ?? 1;
     const totalReceivedQty = r2((d(item.casesReceived) * packSize) + d(item.looseQty));
-    const totalFreeQty = r2((d(item.freeCases) * packSize) + d(item.freeLoose));
-    const totalQty = r2(totalReceivedQty + totalFreeQty);
+    const totalFreeQty     = r2((d(item.freeCases)     * packSize) + d(item.freeLoose));
+    const totalQty         = r2(totalReceivedQty + totalFreeQty);
+
+    // ── LINE-LEVEL discount calculation ────────────────────────────────────
+    // Supplier bills show discounts as LINE TOTALS (e.g. "Sch Disc = Rs 21.65" for
+    // 360 units). Applying discounts per-unit introduces rounding errors that
+    // accumulate over thousands of items. Instead, round each discount to 2dp
+    // at LINE level, then subtract from gross — matching supplier bill behaviour.
+    const grossLine       = item.basicCostPrice * totalReceivedQty;
+    const disc1LineRs     = r2((item.disc1Percent ?? 0) / 100 * grossLine);
+    const disc2LineRs     = r2((item.disc2Percent ?? 0) / 100 * grossLine);
+    const disc3LineRs     = r2((item.disc3Percent ?? 0) / 100 * grossLine);
+    const disc4LineRs     = r2((item.disc4Percent ?? 0) / 100 * grossLine);
+    const netLine         = Math.max(0, grossLine - disc1LineRs - disc2LineRs - disc3LineRs - disc4LineRs);
+    const netCostPrice    = totalReceivedQty > 0 ? r2(netLine / totalReceivedQty) : 0;
 
     // Taxable base (paid qty only; free goods don't attract tax)
     let taxable: number;
     if (taxType === 'TAX_INCLUSIVE') {
-      taxable = r2((netCostPrice / (1 + gstRate / 100)) * totalReceivedQty);
+      taxable = r2(netLine / (1 + gstRate / 100));
     } else {
-      taxable = r2(netCostPrice * totalReceivedQty);
+      taxable = r2(netLine);
     }
 
     const cashDiscAmount = r2(taxable * d(item.cashDiscPercent) / 100);
@@ -131,7 +135,9 @@ export class GrnCalculationsService {
     const totalTaxAmount = r2(cgstTotal + sgstTotal + igstTotal);
     const itemsTotal = r2(items.reduce((s, i) => s + i.lineTotal, 0));
 
-    const billDiscountAmount = r2(taxableTotal * billDiscountPercent / 100);
+    // Bill discount is applied on the invoice line total (taxable + tax), not just taxableTotal.
+    // This matches how all supplier bills show the discount (on the gross payable amount).
+    const billDiscountAmount = r2(itemsTotal * billDiscountPercent / 100);
     const grandTotal = r2(
       itemsTotal
       - billDiscountAmount

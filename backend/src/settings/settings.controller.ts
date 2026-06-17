@@ -79,4 +79,15 @@ export class SettingsController {
   updateGstSettings(@Request() req: any, @Body() body: Record<string, string>) {
     return this.settingsService.updateGstSettings(req.user.businessId, body);
   }
+
+  @Get('loyalty')
+  getLoyaltySettings(@Request() req: any) {
+    return this.settingsService.getLoyaltySettings(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Put('loyalty')
+  updateLoyaltySettings(@Request() req: any, @Body() body: Record<string, string>) {
+    return this.settingsService.updateLoyaltySettings(req.user.businessId, body);
+  }
 }

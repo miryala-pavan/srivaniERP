@@ -128,6 +128,7 @@ export class InventoryService {
 
     const errors: { productId: string; error: string }[] = [];
     const creates: any[] = [];
+    const validItems: typeof dto.items = [];
 
     for (const item of dto.items) {
       if (!validIds.has(item.productId)) {
@@ -143,10 +144,38 @@ export class InventoryService {
         referenceType: 'STOCK_TAKE',
         notes:         dto.sessionName ?? 'Opening Stock',
       });
+      validItems.push(item);
     }
 
     if (creates.length > 0) {
       await this.prisma.stockLedger.createMany({ data: creates });
+
+      // Also sync PLU.stockOnHand and Product.totalStock so POS sees the stock immediately
+      for (const item of validItems) {
+        const defaultPlu = await this.prisma.productPlu.findFirst({
+          where: { productId: item.productId, businessId, isDefault: true, isArchived: false },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (defaultPlu) {
+          await this.prisma.productPlu.update({
+            where: { id: defaultPlu.id },
+            data: {
+              stockOnHand: { increment: item.quantity },
+              receivedQty: { increment: item.quantity },
+              isActive:    true,
+            },
+          });
+          // Recalculate Product.totalStock from all active PLUs
+          const agg = await this.prisma.productPlu.aggregate({
+            where: { productId: item.productId, isActive: true, isArchived: false },
+            _sum:  { stockOnHand: true },
+          });
+          await this.prisma.product.update({
+            where: { id: item.productId },
+            data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
+          });
+        }
+      }
     }
 
     try {

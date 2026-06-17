@@ -7,12 +7,17 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
+import { assertMargin } from '../common/margin.util';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { canViewCost } from '../common/helpers/cost-visibility';
 import { wildcardFilter, hasWildcard, toSqlLike } from '../common/helpers/search.helper';
+
+function isManagerRole(role?: string): boolean {
+  return role === 'SUPER_ADMIN' || role === 'BRANCH_MANAGER';
+}
 
 function tcField(s: string | undefined | null): string | undefined {
   if (!s) return s ?? undefined;
@@ -78,15 +83,21 @@ export class ProductsService {
   private async audit(
     userId: string | null,
     businessId: string,
-    actionType: string,
-    entityType: string,
+    action: string,
+    entity: string,
     entityId: string,
-    oldValues?: object,
-    newValues?: object,
+    description: string,
+    meta?: object,
   ) {
     try {
       await this.prisma.auditLog.create({
-        data: { userId, businessId, actionType, entityType, entityId, oldValues, newValues },
+        data: {
+          userId, businessId,
+          userName: 'System',
+          userRole: 'SUPER_ADMIN',
+          action, entity, entityId, description,
+          meta: meta ?? undefined,
+        },
       });
     } catch { /* audit failures must never break the main flow */ }
   }
@@ -488,7 +499,7 @@ export class ProductsService {
 
   // ─── PRODUCT CRUD ────────────────────────────────────────────────────────────
 
-  async createProduct(businessId: string, dto: CreateProductDto, userId?: string) {
+  async createProduct(businessId: string, dto: CreateProductDto, userId?: string, role?: string) {
     if (dto.mrp < dto.sellingPrice) throw new BadRequestException('MRP must be ≥ selling price');
     if (dto.barcode) {
       const dup = await this.prisma.product.findUnique({ where: { businessId_barcode: { businessId, barcode: dto.barcode } } });
@@ -496,6 +507,16 @@ export class ProductsService {
     }
     const tax = await this.prisma.tax.findUnique({ where: { id: dto.taxId } });
     if (!tax || tax.businessId !== businessId) throw new BadRequestException('Invalid tax ID');
+    // Only managers/admins may flag a product to bypass the 5% margin rule
+    const allowBelowMargin = !!dto.allowBelowMargin && isManagerRole(role);
+    assertMargin({
+      sellingPrice: dto.sellingPrice,
+      costPrice:    dto.costPrice ?? 0,
+      gstRate:      dto.gstRatePercent ?? Number(tax.taxRate),
+      cessRate:     (dto as any).cessRate ?? 0,
+      label:        dto.name,
+      bypass:       allowBelowMargin,
+    });
 
     const product = await this.prisma.$transaction(async (tx) => {
       const productCode = await this.generateProductCode(tx, businessId);
@@ -515,6 +536,7 @@ export class ProductsService {
           leadTimeDays: dto.leadTimeDays ?? 2, minSellingQty: dto.minSellingQty ?? 1,
           moqFromSupplier: dto.moqFromSupplier ?? 1,
           allowDecimalQty: dto.allowDecimalQty ?? false, allowNegativeStock: dto.allowNegativeStock ?? false,
+          allowBelowMargin,
           isForSale: dto.isForSale ?? true, isForPurchase: dto.isForPurchase ?? true,
           isRepackingItem: dto.isRepackingItem ?? false, isPerishable: dto.isPerishable ?? false,
           expiryTracking: dto.expiryTracking ?? false, availableOnline: dto.availableOnline ?? false,
@@ -571,7 +593,7 @@ export class ProductsService {
       return { ...p, pluCode };
     });
 
-    this.audit(userId ?? null, businessId, 'PRODUCT_CREATED', 'Product', product.id, undefined, { productCode: product.productCode, name: product.name });
+    this.audit(userId ?? null, businessId, 'CREATE', 'PRODUCT', product.id, `Product created: ${product.name} (${product.productCode})`, { productCode: product.productCode });
     try {
       this.eventsService.emitToBusiness(businessId, Events.PRODUCT_CREATED, {
         productId:   product.id,
@@ -613,6 +635,12 @@ export class ProductsService {
     if (query.gstRate !== undefined) where.gstRatePercent = query.gstRate;
     if (query.hsnCode === 'UNSET') where.hsnCode = '0000';
     else if (query.hsnCode) where.hsnCode = query.hsnCode;
+
+    if (query.imageFilter === 'WITH_IMAGE') {
+      where.imageUrl = { not: null };
+    } else if (query.imageFilter === 'WITHOUT_IMAGE') {
+      where.imageUrl = null;
+    }
 
     // ── Bug fix 2: Status filter — OUT_OF_STOCK was using unreliable autoInactiveReason.
     //    Now uses PLU stockOnHand (same source as frontend getStatus() / currentStock).
@@ -777,13 +805,31 @@ export class ProductsService {
     };
   }
 
-  async updateProduct(businessId: string, id: string, dto: UpdateProductDto, userId?: string) {
+  async updateProduct(businessId: string, id: string, dto: UpdateProductDto, userId?: string, role?: string) {
     const product = await this.prisma.product.findFirst({ where: { id, businessId } });
     if (!product) throw new NotFoundException('Product not found');
 
     const mrp    = dto.mrp    ?? Number(product.mrp);
     const sprice = dto.sellingPrice ?? Number(product.sellingPrice);
     if (mrp < sprice) throw new BadRequestException('MRP must be ≥ selling price');
+    // Resolve the below-margin exception flag (only managers may change it)
+    let allowBelowMargin = (product as any).allowBelowMargin ?? false;
+    if (dto.allowBelowMargin !== undefined) {
+      if (!isManagerRole(role)) throw new ForbiddenException('Only a manager can change the below-margin exception');
+      allowBelowMargin = dto.allowBelowMargin;
+    }
+    // Enforce 5% margin when price/cost/tax is being changed
+    if (dto.sellingPrice !== undefined || dto.costPrice !== undefined
+        || dto.gstRatePercent !== undefined || (dto as any).cessRate !== undefined) {
+      assertMargin({
+        sellingPrice: sprice,
+        costPrice:    dto.costPrice ?? Number(product.costPrice ?? 0),
+        gstRate:      dto.gstRatePercent ?? Number(product.gstRatePercent ?? 0),
+        cessRate:     (dto as any).cessRate ?? Number((product as any).cessRate ?? 0),
+        label:        product.name,
+        bypass:       allowBelowMargin,
+      });
+    }
 
     if (dto.barcode && dto.barcode !== product.barcode) {
       const dup = await this.prisma.product.findUnique({ where: { businessId_barcode: { businessId, barcode: dto.barcode } } });
@@ -806,11 +852,15 @@ export class ProductsService {
         minimumStockLevel: dto.minimumStockLevel, reorderQuantity: dto.reorderQuantity,
         maximumStockLevel: dto.maximumStockLevel, leadTimeDays: dto.leadTimeDays,
         minSellingQty: dto.minSellingQty, allowDecimalQty: dto.allowDecimalQty,
-        allowNegativeStock: dto.allowNegativeStock, isForSale: dto.isForSale,
+        allowNegativeStock: dto.allowNegativeStock,
+        ...(dto.allowBelowMargin !== undefined ? { allowBelowMargin } : {}),
+        isForSale: dto.isForSale,
         isForPurchase: dto.isForPurchase, isRepackingItem: dto.isRepackingItem,
         isPerishable: dto.isPerishable, expiryTracking: dto.expiryTracking,
         availableOnline: dto.availableOnline, aisle: dto.aisle, rackNumber: dto.rackNumber,
         shelfPosition: dto.shelfPosition, binCode, imageUrl: dto.imageUrl, isActive: dto.isActive,
+        ...(dto.keywords    !== undefined ? { keywords:    dto.keywords    } : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
         isReturnable: dto.isReturnable, returnPeriodDays: dto.returnPeriodDays,
         nonReturnableReason: dto.isReturnable === false ? (dto.nonReturnableReason ?? null) : null,
         ...({
@@ -824,9 +874,9 @@ export class ProductsService {
       include: { category: true, brand: true, tax: true },
     });
 
-    this.audit(userId ?? null, businessId, 'PRODUCT_UPDATED', 'Product', id,
-      { name: product.name, mrp: product.mrp, sellingPrice: product.sellingPrice, isActive: product.isActive },
-      { name: updated.name, mrp: updated.mrp, sellingPrice: updated.sellingPrice, isActive: updated.isActive },
+    this.audit(userId ?? null, businessId, 'UPDATE', 'PRODUCT', id,
+      `Product updated: ${updated.name}`,
+      { mrp: updated.mrp, sellingPrice: updated.sellingPrice },
     );
     try {
       this.eventsService.emitToBusiness(businessId, Events.PRODUCT_UPDATED, {
@@ -896,7 +946,7 @@ export class ProductsService {
     }
 
     const updated = await this.prisma.product.update({ where: { id }, data });
-    this.audit(userId ?? null, businessId, `PRODUCT_${action}D`, 'Product', id, { isManuallyDisabled: product.isManuallyDisabled }, { isManuallyDisabled: updated.isManuallyDisabled });
+    this.audit(userId ?? null, businessId, action === 'ENABLE' ? 'UPDATE' : 'UPDATE', 'PRODUCT', id, `Product ${action.toLowerCase()}d: ${product.name}`);
     return updated;
   }
 
@@ -919,8 +969,7 @@ export class ProductsService {
       }),
     ]);
 
-    this.audit(userId ?? null, businessId, 'PRODUCT_ONLINE_VISIBILITY', 'Product', id,
-      { availableOnline: !online }, { availableOnline: online });
+    this.audit(userId ?? null, businessId, 'UPDATE', 'PRODUCT', id, `Product online visibility set to ${online}`);
 
     return { id, availableOnline: online };
   }
@@ -939,8 +988,7 @@ export class ProductsService {
       }),
     ]);
 
-    this.audit(userId ?? null, businessId, 'PRODUCT_BULK_ONLINE_VISIBILITY', 'Product', 'bulk',
-      undefined, { ids, availableOnline: online });
+    this.audit(userId ?? null, businessId, 'UPDATE', 'PRODUCT', 'bulk', `Bulk online visibility set to ${online} for ${ids.length} products`);
 
     return { updated: ids.length, availableOnline: online };
   }
@@ -1070,6 +1118,102 @@ export class ProductsService {
     };
   }
 
+  async breakBulkMulti(businessId: string, body: {
+    bulkPluId: string;
+    bulkQty: number;
+    targets: { bundleId: string; singlesQty: number }[];
+    notes?: string;
+    userId?: string;
+    userName?: string;
+  }) {
+    if (body.bulkQty < 1) throw new BadRequestException('Bulk quantity must be at least 1');
+    if (!body.targets?.length) throw new BadRequestException('At least one target size required');
+
+    // Load bulk PLU
+    const bulkPlu = await this.prisma.productPlu.findFirst({
+      where: { id: body.bulkPluId, businessId },
+      include: { product: { select: { id: true, name: true } } },
+    });
+    if (!bulkPlu) throw new NotFoundException('Bulk PLU not found');
+
+    const bulkStock = Number(bulkPlu.stockOnHand ?? 0);
+    if (bulkStock < body.bulkQty) {
+      throw new BadRequestException(
+        `Not enough bulk stock. Available: ${bulkStock}, requested: ${body.bulkQty}`,
+      );
+    }
+
+    // Load all target bundles + validate they belong to this bulk PLU
+    const bundles = await this.prisma.pluBundle.findMany({
+      where: { id: { in: body.targets.map(t => t.bundleId) }, businessId, bulkPluId: body.bulkPluId },
+      include: { singlePlu: { include: { product: { select: { id: true } } } } },
+    });
+    if (bundles.length !== body.targets.length) {
+      throw new BadRequestException('One or more bundle IDs are invalid or do not belong to this bulk PLU');
+    }
+
+    const targetMap = new Map(bundles.map(b => [b.id, b]));
+    const summaryLines: string[] = [];
+
+    await this.prisma.$transaction(async (tx) => {
+      // Deduct bulk stock
+      await tx.productPlu.update({
+        where: { id: body.bulkPluId },
+        data: { stockOnHand: { decrement: body.bulkQty } },
+      });
+
+      for (const t of body.targets) {
+        if (t.singlesQty <= 0) continue;
+        const bundle = targetMap.get(t.bundleId)!;
+        // Add to single PLU
+        await tx.productPlu.update({
+          where: { id: bundle.singlePluId },
+          data: { stockOnHand: { increment: t.singlesQty } },
+        });
+        // Log each conversion separately
+        await tx.breakBulkLog.create({
+          data: {
+            businessId,
+            pluBundleId:   bundle.id,
+            bulkPluId:     body.bulkPluId,
+            singlePluId:   bundle.singlePluId,
+            bulkQtyBroken: body.bulkQty,
+            singlesCreated: t.singlesQty,
+            notes:         body.notes,
+            createdById:   body.userId,
+            createdByName: body.userName,
+          },
+        });
+        // Update target product totalStock
+        const agg = await tx.productPlu.aggregate({
+          where: { productId: bundle.singlePlu.product.id, isActive: true, isArchived: false },
+          _sum: { stockOnHand: true },
+        });
+        await tx.product.update({
+          where: { id: bundle.singlePlu.product.id },
+          data: { totalStock: Number(agg._sum.stockOnHand ?? 0) },
+        });
+        summaryLines.push(`${t.singlesQty} × ${bundle.singlePlu.pluCode}`);
+      }
+
+      // Update bulk product totalStock
+      const bulkAgg = await tx.productPlu.aggregate({
+        where: { productId: bulkPlu.product.id, isActive: true, isArchived: false },
+        _sum: { stockOnHand: true },
+      });
+      await tx.product.update({
+        where: { id: bulkPlu.product.id },
+        data: { totalStock: Number(bulkAgg._sum.stockOnHand ?? 0) },
+      });
+    });
+
+    return {
+      message: `Opened ${body.bulkQty} bulk unit(s) → ${summaryLines.join(', ')}`,
+      bulkQtyBroken: body.bulkQty,
+      targets: summaryLines,
+    };
+  }
+
   async getBreakBulkHistory(businessId: string, pluId?: string) {
     const where: any = { businessId };
     if (pluId) where.OR = [{ bulkPluId: pluId }, { singlePluId: pluId }];
@@ -1107,10 +1251,7 @@ export class ProductsService {
       include: { tax: { select: { id: true, taxName: true, taxRate: true } } },
     });
 
-    this.audit(userId ?? null, businessId, 'TAX_CHANGED', 'Product', id,
-      { taxId: product.taxId, gstRatePercent: product.gstRatePercent },
-      { taxId: updated.taxId, gstRatePercent: updated.gstRatePercent },
-    );
+    this.audit(userId ?? null, businessId, 'UPDATE', 'PRODUCT', id, `Tax changed to ${updated.gstRatePercent}% for ${product.name}`);
     return updated;
   }
 
@@ -1205,7 +1346,6 @@ export class ProductsService {
       }
       const results: ProductSearchResult[] = [];
       for (const p of products) {
-        if (!hasStock(p)) continue;
         results.push(fmt(p, defMap.get(p.id) ?? null, actMap.get(p.id) ?? []));
       }
       return results;
@@ -1366,6 +1506,14 @@ export class ProductsService {
     const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
     if (!product) throw new NotFoundException('Product not found');
     if (body.mrp < body.sellingPrice) throw new BadRequestException('MRP must be >= selling price');
+    assertMargin({
+      sellingPrice: body.sellingPrice,
+      costPrice:    body.costPrice ?? body.basicCost ?? 0,
+      gstRate:      body.gstRate ?? Number(product.gstRatePercent ?? 0),
+      cessRate:     body.cessRate ?? Number((product as any).cessRate ?? 0),
+      label:        product.name,
+      bypass:       (product as any).allowBelowMargin ?? false,
+    });
 
     const newPlu = await this.prisma.$transaction(async (tx) => {
       const existingCount = await tx.productPlu.count({ where: { productId } });
@@ -1407,23 +1555,28 @@ export class ProductsService {
           receivedQty:    openStock,
           soldQty:        0,
           isDefault:      true,
-          isActive:       openStock > 0,
+          isActive:       true,
           isArchived:     false,
           effectiveFrom:  new Date(),
           createdByName:  'Manual entry',
         },
       });
 
-      if (openStock > 0) {
-        const agg = await tx.productPlu.aggregate({
-          where: { productId, isActive: true, isArchived: false },
-          _sum:  { stockOnHand: true },
-        });
-        await tx.product.update({
-          where: { id: productId },
-          data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
-        });
-      }
+      const agg = await tx.productPlu.aggregate({
+        where: { productId, isActive: true, isArchived: false },
+        _sum:  { stockOnHand: true },
+      });
+      // New PLU is the default — sync product master prices + stock
+      await tx.product.update({
+        where: { id: productId },
+        data: {
+          totalStock:   Number(agg._sum.stockOnHand ?? 0),
+          mrp:          newPlu.mrp,
+          sellingPrice: newPlu.sellingPrice,
+          ...(newPlu.costPrice != null ? { costPrice: newPlu.costPrice } : {}),
+          ...(newPlu.gstRate   != null ? { gstRatePercent: newPlu.gstRate } : {}),
+        } as any,
+      });
 
       return newPlu;
     });
@@ -1438,8 +1591,17 @@ export class ProductsService {
     return newPlu;
   }
 
+  /** Flag/unflag a product to allow pricing below the minimum-margin rule (manager only). */
+  async setAllowBelowMargin(businessId: string, productId: string, allow: boolean, role?: string) {
+    if (!isManagerRole(role)) throw new ForbiddenException('Only a manager can change the below-margin exception');
+    const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
+    if (!product) throw new NotFoundException('Product not found');
+    await this.prisma.product.update({ where: { id: productId }, data: { allowBelowMargin: allow } });
+    return { productId, allowBelowMargin: allow };
+  }
+
   async updatePlu(businessId: string, productId: string, pluId: string, body: {
-    eanCode?: string; sellingPrice?: number; wholesalePrice?: number;
+    eanCode?: string; mrp?: number; sellingPrice?: number; wholesalePrice?: number;
     minSellingPrice?: number; gstRate?: number; cessRate?: number; taxInclusive?: boolean;
     availableOnline?: boolean; onlinePrice?: number | null;
     onlineStockCap?: number | null;
@@ -1447,10 +1609,28 @@ export class ProductsService {
   }) {
     const plu = await this.prisma.productPlu.findFirst({ where: { id: pluId, productId, businessId } });
     if (!plu) throw new NotFoundException('PLU not found');
+    if (body.mrp !== undefined && body.sellingPrice !== undefined && body.mrp < body.sellingPrice)
+      throw new BadRequestException('MRP must be >= selling price');
+    if (body.mrp !== undefined && body.sellingPrice === undefined && body.mrp < Number(plu.sellingPrice))
+      throw new BadRequestException('MRP must be >= current selling price');
+    // Enforce 5% margin whenever price/tax fields are being set
+    if (body.sellingPrice !== undefined || body.gstRate !== undefined || body.cessRate !== undefined) {
+      const prod = await this.prisma.product.findUnique({
+        where: { id: productId }, select: { allowBelowMargin: true },
+      });
+      assertMargin({
+        sellingPrice: body.sellingPrice ?? Number(plu.sellingPrice),
+        costPrice:    Number(plu.costPrice ?? 0),
+        gstRate:      body.gstRate  ?? Number(plu.gstRate ?? 0),
+        cessRate:     body.cessRate ?? Number(plu.cessRate ?? 0),
+        bypass:       (prod as any)?.allowBelowMargin ?? false,
+      });
+    }
     const updated = await this.prisma.productPlu.update({
       where: { id: pluId },
       data: {
         ...(body.eanCode            !== undefined ? { eanCode: body.eanCode }                   : {}),
+        ...(body.mrp                !== undefined ? { mrp: body.mrp }                           : {}),
         ...(body.sellingPrice       !== undefined ? { sellingPrice: body.sellingPrice }         : {}),
         ...(body.wholesalePrice     !== undefined ? { wholesalePrice: body.wholesalePrice }     : {}),
         ...(body.minSellingPrice    !== undefined ? { minSellingPrice: body.minSellingPrice }   : {}),
@@ -1463,6 +1643,18 @@ export class ProductsService {
         ...(body.packLabel          !== undefined ? { displayName: body.packLabel }               : {}),
       },
     });
+    // Keep product master prices in sync with its default PLU
+    if (updated.isDefault) {
+      await this.prisma.product.update({
+        where: { id: productId },
+        data: {
+          mrp: updated.mrp,
+          sellingPrice: updated.sellingPrice,
+          ...(updated.costPrice != null ? { costPrice: updated.costPrice } : {}),
+          ...(updated.gstRate   != null ? { gstRatePercent: updated.gstRate } : {}),
+        },
+      });
+    }
     try {
       this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
         pluId, productId, pluCode: plu.pluCode,
@@ -1479,6 +1671,16 @@ export class ProductsService {
     await this.prisma.$transaction([
       this.prisma.productPlu.updateMany({ where: { productId, businessId, isDefault: true }, data: { isDefault: false } }),
       this.prisma.productPlu.update({ where: { id: pluId }, data: { isDefault: true } }),
+      // Sync product master prices to the new default PLU
+      this.prisma.product.update({
+        where: { id: productId },
+        data: {
+          mrp: plu.mrp,
+          sellingPrice: plu.sellingPrice,
+          ...(plu.costPrice != null ? { costPrice: plu.costPrice } : {}),
+          ...(plu.gstRate   != null ? { gstRatePercent: plu.gstRate } : {}),
+        },
+      }),
     ]);
     try {
       this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {

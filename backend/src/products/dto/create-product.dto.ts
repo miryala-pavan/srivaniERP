@@ -29,6 +29,7 @@ export class CreateProductDto {
 
   @IsOptional() @IsBoolean() allowDecimalQty?: boolean;
   @IsOptional() @IsBoolean() allowNegativeStock?: boolean;
+  @IsOptional() @IsBoolean() allowBelowMargin?: boolean;
   @IsOptional() @IsBoolean() isForSale?: boolean;
   @IsOptional() @IsBoolean() isForPurchase?: boolean;
   @IsOptional() @IsBoolean() isRepackingItem?: boolean;
@@ -41,6 +42,8 @@ export class CreateProductDto {
   @IsOptional() @IsString() shelfPosition?: string;
   @IsOptional() @IsString() preferredSupplierId?: string;
   @IsOptional() @IsString() imageUrl?: string;
+  @IsOptional() @IsString() keywords?: string;
+  @IsOptional() @IsString() description?: string;
 
   // Return policy
   @IsOptional() @IsBoolean() isReturnable?: boolean;

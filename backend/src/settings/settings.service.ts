@@ -55,6 +55,15 @@ const GST_DEFAULTS = {
   'gst.filing_deadline_day': '10',
 };
 
+const LOYALTY_DEFAULTS = {
+  'loyalty.enabled':           'false',
+  'loyalty.earn_per_100':      '1',    // points earned per ₹100 spent
+  'loyalty.value_per_point':   '0.50', // ₹ value of 1 loyalty point
+  'loyalty.min_redeem_points': '100',  // minimum points to redeem
+  'loyalty.max_redeem_pct':    '20',   // max % of bill that can be paid via points
+  'loyalty.min_margin_pct':    '5',    // items with margin% below this threshold earn no points
+};
+
 @Injectable()
 export class SettingsService {
   constructor(private prisma: PrismaService) {}
@@ -245,6 +254,33 @@ export class SettingsService {
       settings[key.replace('gst.', '')] = stored[key] ?? GST_DEFAULTS[key as keyof typeof GST_DEFAULTS];
     }
     return settings;
+  }
+
+  async getLoyaltySettings(businessId: string) {
+    const keys = Object.keys(LOYALTY_DEFAULTS);
+    const rows = await this.prisma.systemSetting.findMany({ where: { businessId, key: { in: keys } } });
+    const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    const settings: Record<string, string> = {};
+    for (const key of keys) {
+      settings[key.replace('loyalty.', '')] = stored[key] ?? LOYALTY_DEFAULTS[key as keyof typeof LOYALTY_DEFAULTS];
+    }
+    return settings;
+  }
+
+  async updateLoyaltySettings(businessId: string, updates: Record<string, string>) {
+    const allowed = Object.keys(LOYALTY_DEFAULTS).map((k) => k.replace('loyalty.', ''));
+    const ops: any[] = [];
+    for (const [field, value] of Object.entries(updates)) {
+      if (!allowed.includes(field)) continue;
+      const key = `loyalty.${field}`;
+      ops.push(this.prisma.systemSetting.upsert({
+        where:  { businessId_key: { businessId, key } },
+        update: { value: String(value) },
+        create: { businessId, key, value: String(value) },
+      }));
+    }
+    if (ops.length) await this.prisma.$transaction(ops);
+    return this.getLoyaltySettings(businessId);
   }
 
   async updateGstSettings(businessId: string, updates: Record<string, string>) {

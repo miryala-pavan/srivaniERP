@@ -100,7 +100,7 @@ export class PosController {
 
   @Post('bills')
   createBill(@Request() req: any, @Body() dto: CreateBillDto) {
-    return this.posService.createBill(req.user.businessId, req.user.userId, dto);
+    return this.posService.createBill(req.user.businessId, req.user.userId, dto, { userName: req.user.fullName ?? req.user.username ?? 'Unknown', userRole: req.user.role });
   }
 
   @Get('bills')
@@ -263,5 +263,15 @@ export class PosController {
       throw new ForbiddenException();
     }
     return this.posService.deleteHistoricalBill(user.businessId, id);
+  }
+
+  // ─── LOYALTY ───────────────────────────────────────────
+  @Get('loyalty/preview')
+  getLoyaltyPreview(
+    @Request() req: any,
+    @Query('customerId') customerId: string,
+    @Query('billTotal')  billTotal: string,
+  ) {
+    return this.posService.getLoyaltyPreview(req.user.businessId, customerId, parseFloat(billTotal) || 0);
   }
 }

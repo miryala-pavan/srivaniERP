@@ -267,10 +267,16 @@ export class CustomersService {
   // ─── ENDPOINT D: POS QUICK-ADD ────────────────────────────────────────────────
 
   async posQuickAdd(businessId: string, dto: PosQuickAddCustomerDto) {
+    // 1. Already a POS customer → return as-is
     const existing = await this.prisma.customer.findFirst({
       where: { businessId, phone: dto.phone, isActive: true },
     });
     if (existing) return existing;
+
+    // 2. Check StorefrontProfile — online customer coming to the store
+    const profile = await this.prisma.storefrontProfile.findFirst({
+      where: { phone: dto.phone },
+    });
 
     return this.prisma.$transaction(async (tx) => {
       const customerCode = await this.generateCustomerCode(tx, businessId);
@@ -278,14 +284,37 @@ export class CustomersService {
         data: {
           businessId,
           customerCode,
-          name:         dto.name ?? dto.phone,
+          name:         dto.name ?? profile?.name ?? dto.phone,
           phone:        dto.phone,
+          email:        profile?.email ?? undefined,
           customerType: 'REGULAR',
-          channel:      'POS' as any,
+          channel:      (profile ? 'BOTH' : 'POS') as any,
           status:       'ACTIVE' as any,
         },
       });
     });
+  }
+
+  // ─── ENDPOINT D2: PROFILE LOOKUP (for POS quick-add hint) ────────────────────
+
+  async profileLookup(businessId: string, phone: string) {
+    const [customer, profile] = await Promise.all([
+      this.prisma.customer.findFirst({
+        where:  { businessId, phone, isActive: true },
+        select: { id: true, name: true, phone: true, email: true,
+                  customerCode: true, channel: true, loyaltyPoints: true },
+      }),
+      this.prisma.storefrontProfile.findFirst({
+        where:  { phone },
+        select: { name: true, email: true, phone: true, alternatePhone: true },
+      }),
+    ]);
+
+    return {
+      customer,  // null = not yet a POS customer
+      profile,   // null = never ordered online
+      source: customer ? 'customer' : profile ? 'online-profile' : 'none',
+    };
   }
 
   // ─── ENDPOINT E: UPDATE ───────────────────────────────────────────────────────

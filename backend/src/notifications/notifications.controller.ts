@@ -1,11 +1,17 @@
-import { Controller, Get, Put, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Put, Post, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
+import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private service: NotificationsService) {}
+  constructor(
+    private service: NotificationsService,
+    private whatsapp: WhatsAppService,
+  ) {}
 
   @Get('unread-count')
   getUnreadCount(@Request() req: any) {
@@ -40,5 +46,15 @@ export class NotificationsController {
   @Put(':id/read')
   markRead(@Request() req: any, @Param('id') id: string) {
     return this.service.markRead(req.user.businessId, id, req.user.id);
+  }
+
+  // ── WhatsApp credential test ───────────────────────────────────────────────
+  // Sends Meta's pre-approved "hello_world" template.
+  // Use this to confirm WA_ACCESS_TOKEN + WA_PHONE_NUMBER_ID are correct
+  // before submitting custom templates.
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/test')
+  testWhatsApp(@Body() body: { phone: string }) {
+    return this.whatsapp.sendHelloWorld(body.phone ?? '');
   }
 }
