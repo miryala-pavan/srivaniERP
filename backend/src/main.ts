@@ -28,10 +28,14 @@ async function bootstrap() {
     // Allow localhost + LAN devices + Vercel deployments + Cloudflare Tunnels.
     origin: (origin, cb) => {
       if (!origin) return cb(null, true); // same-origin / curl / mobile apps
+      const allowed = process.env.CORS_ORIGINS?.split(',').map(s => s.trim()) ?? [];
       const ok =
         /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):(4000|4002)$/.test(origin) ||
+        /^https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin) ||
         /^https:\/\/[\w-]+\.vercel\.app$/.test(origin) ||
-        /^https:\/\/[\w-]+\.trycloudflare\.com$/.test(origin);
+        /^https:\/\/[\w-]+\.trycloudflare\.com$/.test(origin) ||
+        /^https:\/\/[\w.-]+\.srivani\.com$/.test(origin) ||
+        allowed.includes(origin);
       cb(ok ? null : new Error('Not allowed by CORS'), ok);
     },
     credentials: true,
