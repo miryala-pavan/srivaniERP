@@ -14,6 +14,11 @@ const nextConfig = {
         pathname: '/uploads/**',
       },
       {
+        protocol: 'https',
+        hostname: 'api.srivani.com',
+        pathname: '/uploads/**',
+      },
+      {
         // Google profile photos (served via next-auth Google OAuth)
         protocol: 'https',
         hostname: 'lh3.googleusercontent.com',
