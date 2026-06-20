@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export const metadata: Metadata = {
@@ -82,6 +83,13 @@ export default function ContactPage() {
             +91 93828 28484
           </a>
           . We&apos;ll confirm your order, delivery slot, and payment &mdash; all on chat.
+        </p>
+
+        <h2>Legal &amp; Privacy</h2>
+        <p>
+          <Link href="/privacy-policy">Privacy Policy</Link> &nbsp;&middot;&nbsp;
+          <Link href="/terms-of-service">Terms of Service</Link> &nbsp;&middot;&nbsp;
+          <Link href="/data-deletion">Data Deletion Request</Link>
         </p>
       </div>
     </div>

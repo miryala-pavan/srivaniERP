@@ -10,10 +10,11 @@ const STATIC: MetadataRoute.Sitemap = [
   { url: '/search',   changeFrequency: 'weekly',  priority: 0.5 },
   { url: '/about',    changeFrequency: 'monthly', priority: 0.5 },
   { url: '/contact',  changeFrequency: 'monthly', priority: 0.5 },
-  { url: '/privacy',  changeFrequency: 'yearly',  priority: 0.3 },
-  { url: '/shipping', changeFrequency: 'yearly',  priority: 0.3 },
-  { url: '/refund',   changeFrequency: 'yearly',  priority: 0.3 },
-  { url: '/terms',    changeFrequency: 'yearly',  priority: 0.3 },
+  { url: '/privacy-policy',   changeFrequency: 'yearly',  priority: 0.3 },
+  { url: '/terms-of-service', changeFrequency: 'yearly',  priority: 0.3 },
+  { url: '/data-deletion',    changeFrequency: 'yearly',  priority: 0.3 },
+  { url: '/shipping',         changeFrequency: 'yearly',  priority: 0.3 },
+  { url: '/refund',           changeFrequency: 'yearly',  priority: 0.3 },
 ];
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

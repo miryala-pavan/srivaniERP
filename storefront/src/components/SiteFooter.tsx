@@ -9,10 +9,11 @@ export default function SiteFooter() {
         </div>
         <span className="fssai">FSSAI Licensed</span>
         <div className="footer-links">
-          <Link href="/privacy">Privacy Policy</Link>
+          <Link href="/privacy-policy">Privacy Policy</Link>
           <Link href="/shipping">Shipping Policy</Link>
           <Link href="/refund">Refund Policy</Link>
-          <Link href="/terms">Terms &amp; Conditions</Link>
+          <Link href="/terms-of-service">Terms of Service</Link>
+          <Link href="/data-deletion">Data Deletion</Link>
         </div>
         <div className="legal">&copy; 2026 Sri Vani Stores</div>
       </div>
