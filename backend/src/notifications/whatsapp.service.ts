@@ -1,18 +1,88 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 const API_VERSION = 'v25.0';
 
+// DB keys for WhatsApp credentials stored in SystemSetting
+const WA_KEYS = {
+  token:    'wa.access_token',
+  phoneId:  'wa.phone_number_id',
+  wabaId:   'wa.business_account_id',
+  storeNum: 'wa.store_notify_number',
+} as const;
+
 @Injectable()
-export class WhatsAppService {
+export class WhatsAppService implements OnModuleInit {
   private readonly logger = new Logger(WhatsAppService.name);
 
-  private get token()    { return process.env.WA_ACCESS_TOKEN; }
-  private get phoneId()  { return process.env.WA_PHONE_NUMBER_ID; }
-  private get wabaId()   { return process.env.WA_BUSINESS_ACCOUNT_ID; }
-  private get storeNum() { return process.env.WA_STORE_NOTIFY_NUMBER; }
+  // Runtime cache — DB values override env vars
+  private _token:    string | undefined;
+  private _phoneId:  string | undefined;
+  private _wabaId:   string | undefined;
+  private _storeNum: string | undefined;
+
+  constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    await this.loadCredentialsFromDb();
+  }
+
+  private async loadCredentialsFromDb() {
+    try {
+      const rows = await this.prisma.systemSetting.findMany({
+        where: { key: { in: Object.values(WA_KEYS) } },
+      });
+      for (const row of rows) {
+        if (row.key === WA_KEYS.token    && row.value) this._token    = row.value;
+        if (row.key === WA_KEYS.phoneId  && row.value) this._phoneId  = row.value;
+        if (row.key === WA_KEYS.wabaId   && row.value) this._wabaId   = row.value;
+        if (row.key === WA_KEYS.storeNum && row.value) this._storeNum = row.value;
+      }
+    } catch { /* DB not ready at boot — env fallback will be used */ }
+  }
+
+  private get token()    { return this._token    ?? process.env.WA_ACCESS_TOKEN; }
+  private get phoneId()  { return this._phoneId  ?? process.env.WA_PHONE_NUMBER_ID; }
+  private get wabaId()   { return this._wabaId   ?? process.env.WA_BUSINESS_ACCOUNT_ID; }
+  private get storeNum() { return this._storeNum ?? process.env.WA_STORE_NOTIFY_NUMBER; }
 
   private get enabled() {
     return !!(this.token && this.phoneId);
+  }
+
+  // ── Credential management ───────────────────────────────────────────────────
+
+  getCredentials() {
+    return {
+      tokenConfigured:  !!this.token,
+      phoneId:          this.phoneId  ?? null,
+      wabaId:           this.wabaId   ?? null,
+      storeNum:         this.storeNum ?? null,
+      source:           this._token ? 'database' : 'env',
+    };
+  }
+
+  async saveCredentials(businessId: string, data: {
+    token?:    string;
+    phoneId?:  string;
+    wabaId?:   string;
+    storeNum?: string;
+  }) {
+    const ops: Promise<any>[] = [];
+    const upsert = (key: string, value: string) =>
+      this.prisma.systemSetting.upsert({
+        where:  { businessId_key: { businessId, key } },
+        update: { value },
+        create: { businessId, key, value },
+      });
+
+    if (data.token)    { ops.push(upsert(WA_KEYS.token,    data.token));    this._token    = data.token; }
+    if (data.phoneId)  { ops.push(upsert(WA_KEYS.phoneId,  data.phoneId));  this._phoneId  = data.phoneId; }
+    if (data.wabaId)   { ops.push(upsert(WA_KEYS.wabaId,   data.wabaId));   this._wabaId   = data.wabaId; }
+    if (data.storeNum) { ops.push(upsert(WA_KEYS.storeNum, data.storeNum)); this._storeNum = data.storeNum; }
+
+    await Promise.all(ops);
+    return this.getCredentials();
   }
 
   // ── Core sender ────────────────────────────────────────────────────────────

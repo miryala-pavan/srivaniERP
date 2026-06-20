@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle, Send } from 'lucide-react';
+import { MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle, Send, KeyRound, ChevronDown, ChevronUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 
@@ -38,7 +38,8 @@ const STATUS_COLOR: Record<string, string> = {
   PAUSED:   'bg-gray-100 text-gray-500 border-gray-200',
 };
 
-const BLANK_FORM = { name: '', category: 'UTILITY' as const, language: 'en', headerText: '', bodyText: '', footerText: '' };
+const BLANK_FORM  = { name: '', category: 'UTILITY' as const, language: 'en', headerText: '', bodyText: '', footerText: '' };
+const BLANK_CREDS = { token: '', phoneId: '', wabaId: '', storeNum: '' };
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -47,9 +48,13 @@ export default function WhatsAppTemplatesPage() {
   const [loading, setLoading]       = useState(true);
   const [showForm, setShowForm]     = useState(false);
   const [form, setForm]             = useState({ ...BLANK_FORM });
-  const [submitting, setSubmitting] = useState(false);
-  const [testPhone, setTestPhone]   = useState('');
-  const [testing, setTesting]       = useState(false);
+  const [submitting, setSubmitting]   = useState(false);
+  const [testPhone, setTestPhone]     = useState('');
+  const [testing, setTesting]         = useState(false);
+  const [showCreds, setShowCreds]     = useState(false);
+  const [creds, setCreds]             = useState({ ...BLANK_CREDS });
+  const [credsStatus, setCredsStatus] = useState<{ tokenConfigured: boolean; phoneId: string | null; source: string } | null>(null);
+  const [savingCreds, setSavingCreds] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,7 +68,33 @@ export default function WhatsAppTemplatesPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadCreds(); }, [load]);
+
+  async function loadCreds() {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/credentials');
+      setCredsStatus(data);
+    } catch { /* ignore */ }
+  }
+
+  async function saveCreds() {
+    const payload = Object.fromEntries(
+      Object.entries(creds).filter(([, v]) => v.trim() !== '')
+    );
+    if (Object.keys(payload).length === 0) return toast.error('Enter at least one field to update');
+    setSavingCreds(true);
+    try {
+      const { data } = await api.patch('/notifications/whatsapp/credentials', payload);
+      setCredsStatus(data);
+      setCreds({ ...BLANK_CREDS });
+      setShowCreds(false);
+      toast.success('Credentials saved — active immediately');
+    } catch {
+      toast.error('Failed to save credentials');
+    } finally {
+      setSavingCreds(false);
+    }
+  }
 
   async function submit() {
     if (!form.name.trim()) return toast.error('Template name is required');
@@ -147,6 +178,66 @@ export default function WhatsAppTemplatesPage() {
             <Plus size={14} /> New Template
           </button>
         </div>
+      </div>
+
+      {/* Credentials section */}
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <button
+          onClick={() => setShowCreds(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-sm font-medium"
+        >
+          <span className="flex items-center gap-2">
+            <KeyRound size={15} className="text-gray-500" />
+            API Credentials
+            {credsStatus && (
+              <span className={`text-xs px-2 py-0.5 rounded-full border font-normal ${credsStatus.tokenConfigured ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                {credsStatus.tokenConfigured ? `Configured · ${credsStatus.source}` : 'Token missing'}
+              </span>
+            )}
+          </span>
+          {showCreds ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </button>
+
+        {showCreds && (
+          <div className="p-4 space-y-3 bg-white">
+            <p className="text-xs text-gray-500">
+              Paste the new token from Meta Developer → WhatsApp → API Setup → Generate access token.
+              Only fill the fields you want to update — leave others blank.
+            </p>
+            <div>
+              <label className="label text-xs">Access Token</label>
+              <input className="input font-mono text-xs" placeholder="EAAd…"
+                value={creds.token}
+                onChange={e => setCreds(c => ({ ...c, token: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label text-xs">Phone Number ID</label>
+                <input className="input text-xs" placeholder="1092826743922168"
+                  value={creds.phoneId}
+                  onChange={e => setCreds(c => ({ ...c, phoneId: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label text-xs">WhatsApp Business Account ID</label>
+                <input className="input text-xs" placeholder="1573200934238105"
+                  value={creds.wabaId}
+                  onChange={e => setCreds(c => ({ ...c, wabaId: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="label text-xs">Store Notify Number (receives new order alerts)</label>
+              <input className="input text-xs" placeholder="919382828484"
+                value={creds.storeNum}
+                onChange={e => setCreds(c => ({ ...c, storeNum: e.target.value }))} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setShowCreds(false); setCreds({ ...BLANK_CREDS }); }} className="btn-outline text-xs">Cancel</button>
+              <button onClick={saveCreds} disabled={savingCreds} className="btn-primary text-xs">
+                {savingCreds ? 'Saving…' : 'Save Credentials'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Credential test */}

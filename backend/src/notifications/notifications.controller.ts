@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Post, Delete, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Put, Patch, Post, Delete, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -83,5 +83,22 @@ export class NotificationsController {
   @Delete('whatsapp/templates/:name')
   deleteTemplate(@Param('name') name: string) {
     return this.whatsapp.deleteTemplate(name);
+  }
+
+  // ── WhatsApp credential management ────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/credentials')
+  getCredentials() {
+    return this.whatsapp.getCredentials();
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('whatsapp/credentials')
+  saveCredentials(
+    @Request() req: any,
+    @Body() body: { token?: string; phoneId?: string; wabaId?: string; storeNum?: string },
+  ) {
+    return this.whatsapp.saveCredentials(req.user.businessId, body);
   }
 }
