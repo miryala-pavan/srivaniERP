@@ -163,7 +163,7 @@ export class WhatsAppService implements OnModuleInit {
     }
     const delivery = order.deliveryType === 'HOME_DELIVERY' ? 'Home Delivery' : 'Store Pickup';
     const payment  = order.paymentMethod === 'COD' ? 'Cash on Delivery' : 'Online Paid';
-    await this.sendTemplate(to, 'test_order2', [
+    await this.sendTemplate(to, 'test_order', [
       order.orderNumber,
       order.customerName,
       order.customerPhone,
