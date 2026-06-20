@@ -345,6 +345,37 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
+  async sendTemplateToNumber(phone: string, templateName: string, language: string, params: string[]) {
+    const to = this.e164(phone);
+    if (!to) return { ok: false, reason: 'Invalid phone number' };
+    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    try {
+      const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`;
+      const components: object[] = [];
+      if (params.length > 0) {
+        components.push({
+          type: 'body',
+          parameters: params.map(text => ({ type: 'text', text })),
+        });
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to,
+          type: 'template',
+          template: { name: templateName, language: { code: language }, components },
+        }),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (!res.ok) return { ok: false, reason: JSON.stringify((data as any)?.error?.message ?? data) };
+      return { ok: true, to };
+    } catch (err) {
+      return { ok: false, reason: String(err) };
+    }
+  }
+
   // ── Credential test ─────────────────────────────────────────────────────────
 
   /**

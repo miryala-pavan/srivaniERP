@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle, Send, KeyRound, ChevronDown, ChevronUp } from 'lucide-react';
+import { MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle, Send, KeyRound, ChevronDown, ChevronUp, PlayCircle, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 
@@ -55,6 +55,7 @@ export default function WhatsAppTemplatesPage() {
   const [creds, setCreds]             = useState({ ...BLANK_CREDS });
   const [credsStatus, setCredsStatus] = useState<{ tokenConfigured: boolean; phoneId: string | null; source: string } | null>(null);
   const [savingCreds, setSavingCreds] = useState(false);
+  const [sendModal, setSendModal] = useState<{ template: WaTemplate; phone: string; params: string[]; sending: boolean } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -158,7 +159,43 @@ export default function WhatsAppTemplatesPage() {
   const bodyPreview = (t: WaTemplate) =>
     t.components.find(c => c.type === 'BODY')?.text ?? '—';
 
+  function varCount(t: WaTemplate): number {
+    const body = bodyPreview(t);
+    const matches = body.match(/\{\{\d+\}\}/g) ?? [];
+    const nums = matches.map(m => parseInt(m.replace(/\D/g, ''), 10));
+    return nums.length ? Math.max(...nums) : 0;
+  }
+
+  function openSendModal(t: WaTemplate) {
+    setSendModal({ template: t, phone: testPhone, params: Array(varCount(t)).fill(''), sending: false });
+  }
+
+  async function sendFromModal() {
+    if (!sendModal) return;
+    if (!sendModal.phone.trim()) return toast.error('Enter a phone number');
+    setSendModal(m => m ? { ...m, sending: true } : null);
+    try {
+      const { data } = await api.post('/notifications/whatsapp/send-template', {
+        phone:    sendModal.phone.trim(),
+        template: sendModal.template.name,
+        language: sendModal.template.language,
+        params:   sendModal.params,
+      });
+      if (data?.ok) {
+        toast.success(`"${sendModal.template.name}" sent to ${data.to}`);
+        setSendModal(null);
+      } else {
+        toast.error(data?.reason ?? 'Send failed');
+        setSendModal(m => m ? { ...m, sending: false } : null);
+      }
+    } catch {
+      toast.error('Send failed');
+      setSendModal(m => m ? { ...m, sending: false } : null);
+    }
+  }
+
   return (
+    <>
     <div className="p-6 max-w-5xl mx-auto space-y-6">
 
       {/* Header */}
@@ -343,10 +380,20 @@ export default function WhatsAppTemplatesPage() {
                     <p className="text-xs text-red-500 mt-1">Reason: {t.rejected_reason}</p>
                   )}
                 </div>
-                <button onClick={() => remove(t.name)}
-                  className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0 mt-0.5">
-                  <Trash2 size={16} />
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {t.status === 'APPROVED' && (
+                    <button onClick={() => openSendModal(t)}
+                      className="text-green-600 hover:text-green-700 transition-colors"
+                      title="Send test message">
+                      <PlayCircle size={18} />
+                    </button>
+                  )}
+                  <button onClick={() => remove(t.name)}
+                    className="text-gray-400 hover:text-red-500 transition-colors"
+                    title="Delete template">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -384,5 +431,58 @@ export default function WhatsAppTemplatesPage() {
       </div>
 
     </div>
+
+    {/* Send template modal */}
+
+    {sendModal && (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">Send: <span className="font-mono text-green-700">{sendModal.template.name}</span></h3>
+            <button onClick={() => setSendModal(null)} className="text-gray-400 hover:text-gray-600">
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="bg-gray-50 rounded p-3 text-xs text-gray-600 font-mono whitespace-pre-wrap border border-gray-200">
+            {bodyPreview(sendModal.template)}
+          </div>
+
+          <div>
+            <label className="label text-sm">Send to phone number</label>
+            <input className="input" placeholder="93828 28484"
+              value={sendModal.phone}
+              onChange={e => setSendModal(m => m ? { ...m, phone: e.target.value } : null)} />
+          </div>
+
+          {sendModal.params.length > 0 && (
+            <div className="space-y-2">
+              <label className="label text-sm">Variables</label>
+              {sendModal.params.map((p, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 w-8 text-right font-mono">{`{{${i + 1}}}`}</span>
+                  <input className="input flex-1 text-sm" placeholder={`Value for {{${i + 1}}}`}
+                    value={p}
+                    onChange={e => setSendModal(m => {
+                      if (!m) return null;
+                      const params = [...m.params];
+                      params[i] = e.target.value;
+                      return { ...m, params };
+                    })} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={() => setSendModal(null)} className="btn-outline text-sm">Cancel</button>
+            <button onClick={sendFromModal} disabled={sendModal.sending} className="btn-primary flex items-center gap-1 text-sm">
+              <Send size={14} /> {sendModal.sending ? 'Sending…' : 'Send Message'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

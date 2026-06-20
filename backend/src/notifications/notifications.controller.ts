@@ -85,6 +85,19 @@ export class NotificationsController {
     return this.whatsapp.deleteTemplate(name);
   }
 
+  // ── Send any template to any number ───────────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/send-template')
+  sendTemplate(@Body() body: { phone: string; template: string; language?: string; params?: string[] }) {
+    return this.whatsapp.sendTemplateToNumber(
+      body.phone,
+      body.template,
+      body.language ?? 'en',
+      body.params ?? [],
+    );
+  }
+
   // ── WhatsApp credential management ────────────────────────────────────────
 
   @Roles('SUPER_ADMIN')
