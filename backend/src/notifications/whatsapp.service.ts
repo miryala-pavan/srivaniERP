@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-const API_VERSION = 'v21.0';
+const API_VERSION = 'v25.0';
 
 @Injectable()
 export class WhatsAppService {
@@ -8,6 +8,7 @@ export class WhatsAppService {
 
   private get token()    { return process.env.WA_ACCESS_TOKEN; }
   private get phoneId()  { return process.env.WA_PHONE_NUMBER_ID; }
+  private get wabaId()   { return process.env.WA_BUSINESS_ACCOUNT_ID; }
   private get storeNum() { return process.env.WA_STORE_NOTIFY_NUMBER; }
 
   private get enabled() {
@@ -195,6 +196,83 @@ export class WhatsAppService {
       order.orderNumber,
       msg,
     ]);
+  }
+
+  // ── Template management (Meta Graph API) ────────────────────────────────────
+
+  async listTemplates() {
+    if (!this.token || !this.wabaId) {
+      return { error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
+    }
+    try {
+      const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates?limit=100&fields=name,status,category,language,components,rejected_reason`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      return await res.json();
+    } catch (err) {
+      return { error: String(err) };
+    }
+  }
+
+  async createTemplate(dto: {
+    name: string;
+    category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
+    language: string;
+    bodyText: string;
+    headerText?: string;
+    footerText?: string;
+  }) {
+    if (!this.token || !this.wabaId) {
+      return { error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
+    }
+    const components: object[] = [];
+    if (dto.headerText) {
+      components.push({ type: 'HEADER', format: 'TEXT', text: dto.headerText });
+    }
+    components.push({ type: 'BODY', text: dto.bodyText });
+    if (dto.footerText) {
+      components.push({ type: 'FOOTER', text: dto.footerText });
+    }
+    try {
+      const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: dto.name,
+          category: dto.category,
+          language: dto.language,
+          components,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        this.logger.error(`Template create failed: ${JSON.stringify(data)}`);
+      }
+      return data;
+    } catch (err) {
+      return { error: String(err) };
+    }
+  }
+
+  async deleteTemplate(name: string) {
+    if (!this.token || !this.wabaId) {
+      return { error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
+    }
+    try {
+      const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates?name=${encodeURIComponent(name)}`;
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      return await res.json();
+    } catch (err) {
+      return { error: String(err) };
+    }
   }
 
   // ── Credential test ─────────────────────────────────────────────────────────

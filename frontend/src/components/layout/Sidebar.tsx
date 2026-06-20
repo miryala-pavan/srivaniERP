@@ -41,6 +41,7 @@ import {
   PackageSearch,
   Download,
   Smartphone,
+  MessageSquare,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -128,6 +129,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/business',                    label: 'Business',        icon: Building2,       roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/settings',                    label: 'Settings',        icon: Settings,        roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/settings/financial-year',     label: 'Financial Years', icon: CalendarRange,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
+      { href: '/dashboard/notifications/whatsapp',      label: 'WhatsApp Msgs',   icon: MessageSquare,   roles: ['SUPER_ADMIN'] },
     ],
   },
 ];
