@@ -79,11 +79,14 @@ export interface NavDepartment {
 
 // ─── Shared filters & selects ─────────────────────────────────────────────────
 
-// Any active PLU with availableOnline=true qualifies — isDefault is NOT required
+// Any active PLU with availableOnline=true qualifies — isDefault is NOT required.
+// sellingPrice > 0 and mrp > 0 guard against zero-price products appearing on storefront.
 const ONLINE_PLU_FILTER = {
   availableOnline: true,
   isActive: true,
   isArchived: false,
+  sellingPrice: { gt: 0 },
+  mrp: { gt: 0 },
 };
 
 const PLU_SELECT = {

@@ -147,7 +147,7 @@ export async function getProducts(params?: {
 export async function getProduct(code: string): Promise<ShopProduct | null> {
   try {
     const res = await fetch(`${API_BASE}/shop/products/${code}`, {
-      next: { revalidate: 60 },
+      cache: 'no-store',
     });
     if (!res.ok) return null;
     return res.json();

@@ -1946,4 +1946,174 @@ export class ProductsService {
 
     return { message: 'Image removed' };
   }
+
+  // ─── ONLINE VISIBILITY AUDIT ──────────────────────────────────────────────
+
+  async getOnlineAudit(businessId: string, filter?: string, search?: string) {
+    const n = (v: any) => parseFloat(String(v ?? 0)) || 0;
+
+    // Fetch all active, non-disabled products with their online PLUs
+    const products = await this.prisma.product.findMany({
+      where: {
+        businessId,
+        isActive: true,
+        ...(search?.trim() ? {
+          OR: [
+            { name: { contains: search.trim(), mode: 'insensitive' } },
+            { productCode: { contains: search.trim(), mode: 'insensitive' } },
+          ],
+        } : {}),
+      },
+      select: {
+        id: true,
+        productCode: true,
+        name: true,
+        imageUrl: true,
+        isManuallyDisabled: true,
+        totalStock: true,
+        reorderLevel: true,
+        allowNegativeStock: true,
+        categoryId: true,
+        category: { select: { label: true, name: true, parent: { select: { label: true } } } },
+        plusList: {
+          where: { isActive: true, isArchived: false },
+          select: {
+            id: true,
+            pluCode: true,
+            displayName: true,
+            sellingPrice: true,
+            mrp: true,
+            costPrice: true,
+            gstRate: true,
+            onlinePrice: true,
+            onlineStockCap: true,
+            availableOnline: true,
+            isActive: true,
+            barcodes: { where: { isActive: true }, select: { id: true } },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const results = products.map(p => {
+      const totalStock = n(p.totalStock);
+      const onlinePlus = p.plusList.filter(pl => pl.availableOnline);
+      const isOnline   = onlinePlus.length > 0;
+
+      // Per-PLU issues (use online PLU if available, else first active PLU)
+      const checkPlu = onlinePlus[0] ?? p.plusList[0] ?? null;
+      const selling  = n(checkPlu?.sellingPrice);
+      const mrp      = n(checkPlu?.mrp);
+      const cost     = n(checkPlu?.costPrice);
+      const gst      = n(checkPlu?.gstRate);
+      const hasBarcode = (checkPlu?.barcodes?.length ?? 0) > 0;
+
+      // Issue flags
+      const flags: string[] = [];
+      if (!checkPlu)                                  flags.push('NO_PLU');
+      if (checkPlu && selling === 0)                  flags.push('ZERO_PRICE');
+      if (checkPlu && mrp === 0)                      flags.push('ZERO_MRP');
+      if (checkPlu && mrp > 0 && selling > mrp)       flags.push('SELLING_ABOVE_MRP');
+      if (checkPlu && cost > 0 && selling > 0 && selling < cost) flags.push('BELOW_COST');
+      if (checkPlu && cost === 0)                     flags.push('NO_COST_PRICE');
+      if (checkPlu && gst === 0)                      flags.push('NO_GST');
+      if (!p.imageUrl)                                flags.push('NO_IMAGE');
+      if (!checkPlu?.displayName)                     flags.push('NO_PACK_LABEL');
+      if (!hasBarcode)                                flags.push('NO_BARCODE');
+      if (!p.categoryId)                              flags.push('NO_CATEGORY');
+      if (p.isManuallyDisabled)                       flags.push('MANUALLY_DISABLED');
+      if (isOnline && totalStock <= 0 && !p.allowNegativeStock) flags.push('OUT_OF_STOCK');
+      if (isOnline && p.reorderLevel && totalStock > 0 && totalStock <= n(p.reorderLevel)) flags.push('LOW_STOCK');
+
+      // Auto-block: should NOT be online
+      const shouldBlock = flags.some(f => ['NO_PLU','ZERO_PRICE','ZERO_MRP','SELLING_ABOVE_MRP','BELOW_COST','MANUALLY_DISABLED'].includes(f));
+
+      return {
+        id:            p.id,
+        productCode:   p.productCode,
+        name:          p.name,
+        imageUrl:      p.imageUrl ?? null,
+        isOnline,
+        shouldBlock,
+        totalStock,
+        selling,
+        mrp,
+        cost,
+        gst,
+        hasBarcode,
+        category:      p.category?.parent?.label ?? p.category?.label ?? null,
+        packLabel:     checkPlu?.displayName ?? null,
+        onlinePluCode: onlinePlus[0]?.pluCode ?? null,
+        pluId:         checkPlu?.id ?? null,
+        flags,
+      };
+    });
+
+    // Apply filter
+    const filtered = (() => {
+      switch (filter) {
+        case 'HEALTHY':            return results.filter(r => r.isOnline && r.flags.length === 0);
+        case 'CRITICAL':           return results.filter(r => r.shouldBlock);
+        case 'ZERO_PRICE':         return results.filter(r => r.flags.includes('ZERO_PRICE'));
+        case 'ZERO_MRP':           return results.filter(r => r.flags.includes('ZERO_MRP'));
+        case 'SELLING_ABOVE_MRP':  return results.filter(r => r.flags.includes('SELLING_ABOVE_MRP'));
+        case 'BELOW_COST':         return results.filter(r => r.flags.includes('BELOW_COST'));
+        case 'NO_COST_PRICE':      return results.filter(r => r.flags.includes('NO_COST_PRICE'));
+        case 'NO_GST':             return results.filter(r => r.flags.includes('NO_GST'));
+        case 'NO_IMAGE':           return results.filter(r => r.flags.includes('NO_IMAGE'));
+        case 'NO_PACK_LABEL':      return results.filter(r => r.flags.includes('NO_PACK_LABEL'));
+        case 'NO_BARCODE':         return results.filter(r => r.flags.includes('NO_BARCODE'));
+        case 'OUT_OF_STOCK':       return results.filter(r => r.flags.includes('OUT_OF_STOCK'));
+        case 'LOW_STOCK':          return results.filter(r => r.flags.includes('LOW_STOCK'));
+        case 'ONLINE':             return results.filter(r => r.isOnline);
+        case 'OFFLINE':            return results.filter(r => !r.isOnline);
+        case 'WITH_FLAGS':         return results.filter(r => r.flags.length > 0);
+        default:                   return results;
+      }
+    })();
+
+    // Summary counts
+    const summary = {
+      total:            results.length,
+      online:           results.filter(r => r.isOnline).length,
+      offline:          results.filter(r => !r.isOnline).length,
+      healthy:          results.filter(r => r.isOnline && r.flags.length === 0).length,
+      critical:         results.filter(r => r.shouldBlock).length,
+      zeroPrice:        results.filter(r => r.flags.includes('ZERO_PRICE')).length,
+      zeroMrp:          results.filter(r => r.flags.includes('ZERO_MRP')).length,
+      sellingAboveMrp:  results.filter(r => r.flags.includes('SELLING_ABOVE_MRP')).length,
+      belowCost:        results.filter(r => r.flags.includes('BELOW_COST')).length,
+      noCostPrice:      results.filter(r => r.flags.includes('NO_COST_PRICE')).length,
+      noGst:            results.filter(r => r.flags.includes('NO_GST')).length,
+      noImage:          results.filter(r => r.flags.includes('NO_IMAGE')).length,
+      noPackLabel:      results.filter(r => r.flags.includes('NO_PACK_LABEL')).length,
+      noBarcode:        results.filter(r => r.flags.includes('NO_BARCODE')).length,
+      outOfStock:       results.filter(r => r.flags.includes('OUT_OF_STOCK')).length,
+      lowStock:         results.filter(r => r.flags.includes('LOW_STOCK')).length,
+    };
+
+    return { summary, data: filtered };
+  }
+
+  async bulkTakeOffline(businessId: string, productIds: string[]) {
+    if (!productIds?.length) return { updated: 0 };
+    await this.prisma.$transaction([
+      this.prisma.product.updateMany({
+        where: { businessId, id: { in: productIds } },
+        data:  { availableOnline: false },
+      }),
+      this.prisma.productPlu.updateMany({
+        where: { businessId, productId: { in: productIds }, isActive: true },
+        data:  { availableOnline: false },
+      }),
+    ]);
+    // Bust cache for each
+    for (const id of productIds) {
+      const p = await this.prisma.product.findUnique({ where: { id }, select: { productCode: true } });
+      if (p?.productCode) await this.shopCache.bustProduct(p.productCode).catch(() => {});
+    }
+    await this.shopCache.bustNavigation().catch(() => {});
+    return { updated: productIds.length };
+  }
 }

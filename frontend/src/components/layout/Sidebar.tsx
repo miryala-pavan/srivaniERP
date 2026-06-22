@@ -42,6 +42,7 @@ import {
   Download,
   Smartphone,
   MessageSquare,
+  Globe,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -86,7 +87,8 @@ const GROUPS: NavGroup[] = [
     label: 'Inventory',
     items: [
       { href: '/dashboard/products',                  label: 'Products',      icon: Tag,          roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'PACKING_STAFF'] },
-      { href: '/dashboard/plu',                       label: 'PLU Management',icon: List,         roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
+      { href: '/dashboard/plu',                       label: 'PLU Management',    icon: List,  roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
+      { href: '/dashboard/products/online-visibility', label: 'Online Visibility', icon: Globe, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/categories',                label: 'Categories',    icon: FolderTree,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/subcategories',             label: 'Sub-Categories',icon: ListTree,     roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/hsn',                       label: 'HSN Codes',     icon: Hash,         roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },

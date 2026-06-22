@@ -121,6 +121,17 @@ export class ProductsController {
     return this.productsService.bulkApplyHsn(req.user.businessId, body.entries, body.mode ?? 'UNSET_ONLY');
   }
 
+  // ─── ONLINE VISIBILITY AUDIT ─────────────────────────
+  @Get('online-audit')
+  onlineAudit(@Request() req: any, @Query('filter') filter?: string, @Query('search') search?: string) {
+    return this.productsService.getOnlineAudit(req.user.businessId, filter, search);
+  }
+
+  @Patch('online-audit/bulk-offline')
+  bulkTakeOffline(@Request() req: any, @Body() body: { productIds: string[] }) {
+    return this.productsService.bulkTakeOffline(req.user.businessId, body.productIds);
+  }
+
   // ─── SEARCH (before :id) ─────────────────────────────
   @Get('search')
   search(@Request() req: any, @Query('q') q: string) {
