@@ -10,7 +10,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { assertMargin } from '../common/margin.util';
+import { ShopCacheService } from '../shop/shop-cache.service';
+import { checkMargin } from '../common/margin.util';
 import { CreateCounterDto } from './dto/create-counter.dto';
 import { OpenShiftDto } from './dto/open-shift.dto';
 import { CloseShiftDto } from './dto/close-shift.dto';
@@ -66,6 +67,7 @@ export class PosService {
     private notifications: NotificationsService,
     private eventsService: EventsService,
     private auditLog: AuditLogService,
+    private shopCache: ShopCacheService,
   ) {}
 
   // ─── COUNTER ──────────────────────────────────────────
@@ -356,6 +358,7 @@ export class PosService {
     const taxMap     = new Map(taxes.map((t) => [t.id, t]));
 
     // Validate items and calculate GST
+    const marginWarnings: string[] = [];
     const calcItems: Array<{
       dto: (typeof dto.items)[0];
       product: (typeof products)[0];
@@ -385,9 +388,9 @@ export class PosService {
 
       const discountPercent = item.discountPercent ?? 0;
 
-      // Enforce 5% margin on the effective (post-discount) selling price
+      // Warn (but don't block) when selling price is below MIN_MARGIN_PCT
       const effectiveSp = r2(item.unitPrice * (1 - discountPercent / 100));
-      assertMargin({
+      const marginWarn = checkMargin({
         sellingPrice: effectiveSp,
         costPrice:    Number(product.costPrice ?? 0),
         gstRate:      Number(product.gstRatePercent ?? gstRate),
@@ -395,6 +398,7 @@ export class PosService {
         label:        product.name,
         bypass:       (product as any).allowBelowMargin ?? false,
       });
+      if (marginWarn) marginWarnings.push(marginWarn);
 
       const calc = calculateItemGst(item.unitPrice, item.quantity, discountPercent, gstRate, isIntraState);
 
@@ -635,6 +639,16 @@ export class PosService {
             remaining -= deduct;
           }
 
+          if (remaining > 0 && !product.allowNegativeStock) {
+            throw new BadRequestException({
+              error:        'INSUFFICIENT_STOCK',
+              productName:  product.name,
+              currentStock: item.quantity - remaining,
+              requestedQty: item.quantity,
+              message:      `Insufficient PLU stock for "${product.name}". PLU stock (${item.quantity - remaining}) is less than billed quantity (${item.quantity}). Please sync inventory.`,
+            });
+          }
+
           // Sync Product.totalStock after PLU deduction
           const stockAgg = await tx.productPlu.aggregate({
             where: { productId: item.productId, isActive: true, isArchived: false },
@@ -721,6 +735,10 @@ export class PosService {
     // Fire-and-forget stock check (skip for estimates)
     if (!isEstimate) {
       this.checkStockAfterSale(businessId, counter.branchId, dto.items.map((i) => i.productId)).catch(() => {});
+
+      // Bust shop cache for every product sold — stock changed
+      const soldCodes = [...new Set(dto.items.map((i) => (productMap.get(i.productId) as any)?.productCode).filter(Boolean) as string[])];
+      Promise.all(soldCodes.map((code) => this.shopCache.bustProduct(code))).catch(() => {});
       try {
         this.eventsService.emitToBusiness(businessId, Events.BILL_CREATED, {
           billId:     bill?.id ?? '',
@@ -740,6 +758,9 @@ export class PosService {
       ).catch(() => {});
     }
 
+    if (marginWarnings.length > 0) {
+      (bill as any).warnings = marginWarnings;
+    }
     return bill;
   }
 

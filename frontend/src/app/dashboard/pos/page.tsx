@@ -489,6 +489,14 @@ function Kbd({ label }: { label: string }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+function warnToast(msg: string) {
+  toast(msg, {
+    icon: '⚠️',
+    style: { background: '#fefce8', border: '1px solid #d97706', color: '#78350f' },
+    duration: 8000,
+  });
+}
+
 export default function PosPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -1488,11 +1496,12 @@ export default function PosPage() {
         payload.customerPhone = customer.phone;
         if (customer.gstin) payload.customerGstin = customer.gstin;
       }
-      const res = await api.post<{ billNumber: string; id?: string }>('/pos/bills', payload);
+      const res = await api.post<{ billNumber: string; id?: string; warnings?: string[] }>('/pos/bills', payload);
       buildAndSetReceipt(res.data.billNumber, 'ESTIMATE', undefined, res.data.id);
       clearSavedCart();
       setShowSuccess(true);
       toast.success(`Estimate ${res.data.billNumber} saved!`);
+      res.data.warnings?.forEach(warnToast);
     } catch (err: unknown) {
       const data = (err as any)?.response?.data;
       if (data?.error === 'INSUFFICIENT_STOCK') {
@@ -1552,12 +1561,13 @@ export default function PosPage() {
         payload.cardAmount = parseFloat(splitCard) || 0;
       }
 
-      const res = await api.post<{ billNumber: string; id?: string }>('/pos/bills', payload);
+      const res = await api.post<{ billNumber: string; id?: string; warnings?: string[] }>('/pos/bills', payload);
       const recv = mode === 'CASH' ? (parseFloat(cashReceived) || effectiveGrandTotal) : undefined;
       buildAndSetReceipt(res.data.billNumber, billType, { mode, recv }, res.data.id);
       clearSavedCart();
       setShowPayModal(false); setShowSuccess(true);
       toast.success(`Bill ${res.data.billNumber} created!`);
+      res.data.warnings?.forEach(warnToast);
     } catch (err: unknown) {
       const data = (err as any)?.response?.data;
       if (data?.error === 'INSUFFICIENT_STOCK') {
@@ -1617,7 +1627,7 @@ export default function PosPage() {
       if (customer.gstin) payload.customerGstin = customer.gstin;
       if (loyaltyPointsToRedeem > 0) payload.loyaltyPointsRedeemed = loyaltyPointsToRedeem;
 
-      const res = await api.post<{ billNumber: string; id?: string }>('/pos/bills', payload);
+      const res = await api.post<{ billNumber: string; id?: string; warnings?: string[] }>('/pos/bills', payload);
       buildAndSetReceipt(
         res.data.billNumber, billType,
         { mode: (paidNow > 0 ? creditSubMode : 'CASH') as PayMode, recv: paidNow > 0 ? paidNow : undefined },
@@ -1627,6 +1637,7 @@ export default function PosPage() {
       setShowCreditModal(false);
       setShowSuccess(true);
       toast.success(`Bill ${res.data.billNumber} — Rs.${creditAmount.toFixed(2)} on credit`);
+      res.data.warnings?.forEach(warnToast);
     } catch (err: unknown) {
       const data = (err as any)?.response?.data;
       if (data?.error === 'INSUFFICIENT_STOCK') {

@@ -1,14 +1,11 @@
-import { BadRequestException } from '@nestjs/common';
-
 /**
- * Minimum required margin of selling price over cost (tax-inclusive).
- * Selling price must be at least this % above cost-incl-tax.
+ * Minimum margin of selling price over cost (tax-inclusive).
+ * Below this threshold a visual warning is shown, but the sale is NOT blocked.
  */
 export const MIN_MARGIN_PCT = 4;
 
 /**
- * Returns the minimum legal selling price (GST-inclusive) for a given
- * tax-exclusive cost, applying GST + CESS then the 5% margin.
+ * Returns the minimum selling price (GST-inclusive) that achieves MIN_MARGIN_PCT.
  * Rounded to 2 decimals.
  */
 export function minSellingPrice(costExclTax: number, gstRate: number, cessRate: number): number {
@@ -17,31 +14,40 @@ export function minSellingPrice(costExclTax: number, gstRate: number, cessRate: 
 }
 
 /**
- * Throws BadRequestException if sellingPrice is below the 5% margin floor.
- * No-op when cost is missing/zero (cannot compute a meaningful floor).
- * sellingPrice is treated as GST-inclusive; cost as GST-exclusive.
+ * Checks whether the selling price meets the minimum margin.
+ * Returns a human-readable warning string if below, null if OK.
+ * Never throws — use this wherever you want a soft warning instead of a block.
  */
-export function assertMargin(params: {
+export function checkMargin(params: {
   sellingPrice: number;
   costPrice?: number | null;
   gstRate?: number | null;
   cessRate?: number | null;
   label?: string;
   bypass?: boolean;
-}): void {
-  if (params.bypass) return; // product explicitly flagged to allow below-margin pricing
+}): string | null {
+  if (params.bypass) return null;
   const cost = Number(params.costPrice ?? 0);
-  if (cost <= 0) return; // no real cost on record → cannot enforce
+  if (cost <= 0) return null;
   const sp   = Number(params.sellingPrice ?? 0);
   const gst  = Number(params.gstRate ?? 0);
   const cess = Number(params.cessRate ?? 0);
   const minSp = minSellingPrice(cost, gst, cess);
   if (sp < minSp - 0.001) {
     const name = params.label ? ` for "${params.label}"` : '';
-    throw new BadRequestException(
-      `Selling price ₹${sp.toFixed(2)}${name} is below the minimum ${MIN_MARGIN_PCT}% margin. ` +
-      `Minimum allowed: ₹${minSp.toFixed(2)} ` +
-      `(cost ₹${cost.toFixed(2)} + ${gst + cess}% tax + ${MIN_MARGIN_PCT}% margin).`,
+    return (
+      `Low margin${name}: selling ₹${sp.toFixed(2)} — ` +
+      `minimum for ${MIN_MARGIN_PCT}% margin is ₹${minSp.toFixed(2)} ` +
+      `(cost ₹${cost.toFixed(2)} + ${gst + cess}% tax).`
     );
   }
+  return null;
+}
+
+/**
+ * @deprecated Constraint removed — below-margin sales are now allowed.
+ * Call checkMargin() instead to get a non-blocking warning string.
+ */
+export function assertMargin(_params: Parameters<typeof checkMargin>[0]): void {
+  // No longer throws. Left in place so existing call-sites compile without changes.
 }

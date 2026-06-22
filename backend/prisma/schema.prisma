@@ -76,6 +76,8 @@ model Business {
   bankAccounts        BankAccount[]
   bankTransactions    BankTransaction[]
   onlineOrders        OnlineOrder[]
+  waIncomingLists     WaIncomingList[]
+  systemSettings      SystemSetting[]
 
   @@map("business")
 }
@@ -1184,6 +1186,8 @@ model SystemSetting {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  business   Business @relation(fields: [businessId], references: [id])
+
   @@unique([businessId, key])
   @@map("system_setting")
 }
@@ -1698,5 +1702,41 @@ model StorefrontProfile {
 
   @@index([phone])
   @@map("storefront_profile")
+}
+
+// ─── WHATSAPP INCOMING LISTS ─────────────────────────────────────────────────
+model WaIncomingList {
+  id           String   @id @default(cuid())
+  businessId   String
+
+  // Sender
+  senderPhone  String
+  senderName   String?
+
+  // Message content
+  msgType      String            // TEXT | IMAGE | DOCUMENT | PDF
+  rawText      String?           // original typed text
+  ocrText      String?           // OCR extracted from image
+  mediaId      String?           // Meta media ID
+  mediaPath    String?           // saved file path on server
+  mediaMime    String?
+
+  // Generated doc
+  docPath      String?           // .docx file path on server
+  docReady     Boolean           @default(false)
+
+  // Workflow
+  status       String            @default("PENDING") // PENDING | PROCESSING | READY | DOWNLOADED
+  errorMsg     String?
+
+  receivedAt   DateTime          @default(now())
+  processedAt  DateTime?
+
+  business     Business          @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@index([senderPhone])
+  @@index([status])
+  @@map("wa_incoming_list")
 }
 

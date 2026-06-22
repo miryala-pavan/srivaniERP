@@ -1071,4 +1071,31 @@ export class AdminService {
       };
     }, { timeout: 60000 });
   }
+
+  async fixOnlinePlus(businessId: string) {
+    const products = await this.prisma.product.findMany({
+      where: { businessId },
+      select: { id: true },
+    });
+    let productsWithStock = 0;
+    for (const product of products) {
+      const latestWithStock = await this.prisma.productPlu.findFirst({
+        where: { productId: product.id, isActive: true, isArchived: false, stockOnHand: { gt: 0 } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      await this.prisma.productPlu.updateMany({
+        where: { productId: product.id, businessId },
+        data: { availableOnline: false },
+      });
+      if (latestWithStock) {
+        await this.prisma.productPlu.update({
+          where: { id: latestWithStock.id },
+          data: { availableOnline: true },
+        });
+        productsWithStock++;
+      }
+    }
+    return { message: 'Online PLU flags fixed', total: products.length, productsWithStock };
+  }
 }

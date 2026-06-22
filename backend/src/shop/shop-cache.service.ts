@@ -55,6 +55,18 @@ export class ShopCacheService implements OnModuleDestroy {
     }
   }
 
+  async bustProduct(productCode: string): Promise<void> {
+    await this.del(`shop:product:${productCode}`);
+  }
+
+  async bustNavigation(): Promise<void> {
+    await Promise.all([
+      this.del('shop:categories'),
+      this.del('shop:departments'),
+      this.del('shop:nav-tree'),
+    ]);
+  }
+
   onModuleDestroy() {
     this.redis?.disconnect();
   }

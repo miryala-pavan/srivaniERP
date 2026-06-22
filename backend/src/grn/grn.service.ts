@@ -13,6 +13,7 @@ import { UpdateGrnDto } from './dto/update-grn.dto';
 import { GrnQueryDto } from './dto/grn-query.dto';
 import { BankService } from '../bank/bank.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { ShopCacheService } from '../shop/shop-cache.service';
 
 @Injectable()
 export class GrnService {
@@ -24,6 +25,7 @@ export class GrnService {
     private suppliersService: SuppliersService,
     private bankService: BankService,
     private audit: AuditLogService,
+    private shopCache: ShopCacheService,
   ) {}
 
   private r2(n: number) { return Math.round(n * 100) / 100; }
@@ -648,6 +650,13 @@ export class GrnService {
     if (actor) {
       this.audit.log({ ...actor, businessId }, { action: 'APPROVE', entity: 'GRN', entityId: id, entityRef: purchase.grnNumber ?? id, description: `GRN ${purchase.grnNumber} approved by ${approverName ?? actor.userName}` }).catch(() => {});
     }
+
+    // Bust shop cache for all products whose stock/price changed in this GRN
+    const productIds = [...new Set(purchase.items.map((i) => i.productId))];
+    this.prisma.product.findMany({ where: { id: { in: productIds } }, select: { productCode: true } })
+      .then((prods) => Promise.all(prods.filter(p => p.productCode).map(p => this.shopCache.bustProduct(p.productCode!))))
+      .catch(() => {});
+
     return this.findOne(businessId, id);
   }
 
@@ -812,6 +821,24 @@ export class GrnService {
           });
         } // end else (new MRP batch)
       } // end STEP 2B
+
+      // STEP 2C: Auto-manage availableOnline — latest active PLU with positive stock
+      // gets online=true, all others for this product get online=false.
+      const latestWithStock = await tx.productPlu.findFirst({
+        where: { productId: item.productId, isActive: true, isArchived: false, stockOnHand: { gt: 0 } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      await tx.productPlu.updateMany({
+        where: { productId: item.productId, businessId },
+        data:  { availableOnline: false },
+      });
+      if (latestWithStock) {
+        await tx.productPlu.update({
+          where: { id: latestWithStock.id },
+          data:  { availableOnline: true },
+        });
+      }
 
       // STEP 3: Update Product.totalStock = sum of all active PLU stockOnHand.
       // Only sync master prices (mrp/sellingPrice/costPrice) when this item's PLU

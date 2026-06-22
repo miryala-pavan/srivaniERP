@@ -21,12 +21,14 @@ import { DepartmentsModule } from './departments/departments.module';
 import { EventsModule } from './events/events.module';
 import { SearchModule } from './search/search.module';
 import { ShopModule } from './shop/shop.module';
+import { ShopCacheModule } from './shop/shop-cache.module';
 import { BankModule } from './bank/bank.module';
 import { FinancialYearModule } from './financial-year/financial-year.module';
 import { OnlineOrdersModule } from './online-orders/online-orders.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { StorefrontProfileModule } from './storefront-profile/storefront-profile.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
+import { ListsModule } from './lists/lists.module';
 
 @Module({
   controllers: [AppController],
@@ -51,6 +53,7 @@ import { AuditLogModule } from './audit-log/audit-log.module';
     UsersModule,
     EventsModule,
     SearchModule,
+    ShopCacheModule,
     ShopModule,
     BankModule,
     FinancialYearModule,
@@ -58,6 +61,7 @@ import { AuditLogModule } from './audit-log/audit-log.module';
     AddressesModule,
     StorefrontProfileModule,
     AuditLogModule,
+    ListsModule,
   ],
 })
 export class AppModule {}

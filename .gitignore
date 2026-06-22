@@ -5,6 +5,16 @@
 *.env
 .env.*
 !.env.example
+id_ed25519
+id_ed25519.pub
+*.pem
+
+# Local kiosk dashboard (contains TLS private key) — never commit
+# Anchored to repo root so it does NOT match frontend/src/app/dashboard/
+/dashboard/
+
+# Tesseract language data (downloaded at runtime)
+*.traineddata
 
 # Build output
 dist/

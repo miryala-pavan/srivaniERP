@@ -114,11 +114,10 @@ type PluRow = {
   onlineStockCap: unknown;
 };
 
-// totalStock = sum of ALL PLU stockOnHand (maintained by GRN approval + sales).
-// We use it as the authoritative in-stock signal because the GRN approval updates
-// the GRN PLU's stockOnHand but not the "availableOnline" PLU's stockOnHand.
-// Without this, a product with 160 units received via GRN shows as Out-of-Stock
-// on the storefront because the online-flagged PLU still has stockOnHand=0.
+// totalStock = sum of ALL PLU stockOnHand across the product.
+// Used as the inStock signal because stock lives on whichever PLU received the GRN,
+// which is often different from the online-flagged PLU. This ensures a product with
+// physical inventory is never incorrectly shown as out-of-stock on the storefront.
 function mapPacks(plusList: PluRow[], unit: string, allowNegativeStock: boolean, totalStock = 0): ShopPack[] {
   const packs = plusList.map((plu): ShopPack => {
     const storePrice = toDecimal(plu.sellingPrice);
@@ -126,13 +125,11 @@ function mapPacks(plusList: PluRow[], unit: string, allowNegativeStock: boolean,
       ? toDecimal(plu.onlinePrice)
       : storePrice;
 
-    // Cap: how many units this PLU is allowed to sell online
-    // null = no cap → use totalStock (shared physical stock)
     const cap = plu.onlineStockCap !== null && plu.onlineStockCap !== undefined
       ? Number(plu.onlineStockCap)
       : null;
 
-    // Effective online quantity = min(totalStock, cap) if cap set, else totalStock
+    // Effective online quantity = total physical stock, capped if onlineStockCap is set
     const availableQty = cap !== null ? Math.min(totalStock, cap) : totalStock;
 
     return {
@@ -386,6 +383,8 @@ export class ShopService {
           },
           plusList: {
             where: pluFilter,
+            orderBy: { createdAt: 'desc' },
+            take: 1,
             select: PLU_SELECT,
           },
         },
@@ -395,8 +394,7 @@ export class ShopService {
 
     const data: ShopProduct[] = products
       .map((p): ShopProduct | null => {
-        const totalStock = Number((p as any).totalStock ?? 0);
-        const packs = mapPacks(p.plusList, p.unitOfMeasure, p.allowNegativeStock, totalStock);
+        const packs = mapPacks(p.plusList, p.unitOfMeasure, p.allowNegativeStock, Number((p as any).totalStock ?? 0));
         if (packs.length === 0) return null;
         const cat = p.category;
         return {
@@ -461,6 +459,8 @@ export class ShopService {
         },
         plusList: {
           where: ONLINE_PLU_FILTER,
+          orderBy: { createdAt: 'desc' },
+          take: 1,
           select: PLU_SELECT,
         },
       },
@@ -494,7 +494,7 @@ export class ShopService {
               allowNegativeStock: true,
               totalStock:         true,
               unitOfMeasure:      true,
-              plusList: { where: ONLINE_PLU_FILTER, select: { sellingPrice: true, onlinePrice: true, stockOnHand: true, onlineStockCap: true } },
+              plusList: { where: ONLINE_PLU_FILTER, orderBy: { createdAt: 'desc' }, take: 1, select: { sellingPrice: true, onlinePrice: true, stockOnHand: true, onlineStockCap: true } },
             },
           },
         },
@@ -570,9 +570,9 @@ export class ShopService {
           },
           plusList: {
             where: ONLINE_PLU_FILTER,
-            select: { sellingPrice: true, onlinePrice: true },
-            orderBy: { sellingPrice: 'asc' },
+            orderBy: { createdAt: 'desc' },
             take: 1,
+            select: { sellingPrice: true, onlinePrice: true },
           },
         },
       }),

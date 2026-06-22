@@ -14,6 +14,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { canViewCost } from '../common/helpers/cost-visibility';
 import { wildcardFilter, hasWildcard, toSqlLike } from '../common/helpers/search.helper';
+import { ShopCacheService } from '../shop/shop-cache.service';
 
 function isManagerRole(role?: string): boolean {
   return role === 'SUPER_ADMIN' || role === 'BRANCH_MANAGER';
@@ -76,6 +77,7 @@ export class ProductsService {
   constructor(
     private prisma: PrismaService,
     private eventsService: EventsService,
+    private shopCache: ShopCacheService,
   ) {}
 
   // ─── AUDIT LOG ──────────────────────────────────────────────────────────────
@@ -1588,6 +1590,10 @@ export class ProductsService {
       });
     } catch (_err) { /* fire-and-forget */ }
 
+    // Bust shop cache: new PLU may change price/availability on the storefront
+    this.shopCache.bustProduct(product.productCode ?? '').catch(() => {});
+    this.shopCache.bustNavigation().catch(() => {});
+
     return newPlu;
   }
 
@@ -1613,8 +1619,14 @@ export class ProductsService {
       throw new BadRequestException('MRP must be >= selling price');
     if (body.mrp !== undefined && body.sellingPrice === undefined && body.mrp < Number(plu.sellingPrice))
       throw new BadRequestException('MRP must be >= current selling price');
-    // Enforce 5% margin whenever price/tax fields are being set
-    if (body.sellingPrice !== undefined || body.gstRate !== undefined || body.cessRate !== undefined) {
+    // Enforce margin only when a price/tax field is genuinely being changed.
+    // If the frontend sends back the same value that's already stored (e.g. user
+    // only toggled availableOnline), skip the check so old under-margin PLUs
+    // can still be updated for non-price fields.
+    const spChanged   = body.sellingPrice !== undefined && Number(body.sellingPrice) !== Number(plu.sellingPrice);
+    const gstChanged  = body.gstRate      !== undefined && Number(body.gstRate)      !== Number(plu.gstRate  ?? 0);
+    const cessChanged = body.cessRate     !== undefined && Number(body.cessRate)     !== Number(plu.cessRate ?? 0);
+    if (spChanged || gstChanged || cessChanged) {
       const prod = await this.prisma.product.findUnique({
         where: { id: productId }, select: { allowBelowMargin: true },
       });
@@ -1660,6 +1672,14 @@ export class ProductsService {
         pluId, productId, pluCode: plu.pluCode,
       });
     } catch (_err) { /* fire-and-forget */ }
+
+    // Bust shop cache: price, MRP, availableOnline or packLabel changed
+    const prod = await this.prisma.product.findUnique({ where: { id: productId }, select: { productCode: true } });
+    if (prod?.productCode) {
+      this.shopCache.bustProduct(prod.productCode).catch(() => {});
+      if (body.availableOnline !== undefined) this.shopCache.bustNavigation().catch(() => {});
+    }
+
     return updated;
   }
 
@@ -1687,6 +1707,10 @@ export class ProductsService {
         pluId, productId, pluCode: plu.pluCode,
       });
     } catch (_err) { /* fire-and-forget */ }
+
+    const prod = await this.prisma.product.findUnique({ where: { id: productId }, select: { productCode: true } });
+    if (prod?.productCode) this.shopCache.bustProduct(prod.productCode).catch(() => {});
+
     return { message: 'Default PLU updated' };
   }
 
@@ -1726,6 +1750,13 @@ export class ProductsService {
         pluId, productId, pluCode: plu.pluCode,
       });
     } catch (_err) { /* fire-and-forget */ }
+
+    // Deactivating a PLU changes online visibility and stock — bust both
+    const prod = await this.prisma.product.findUnique({ where: { id: productId }, select: { productCode: true } });
+    if (prod?.productCode) {
+      this.shopCache.bustProduct(prod.productCode).catch(() => {});
+      this.shopCache.bustNavigation().catch(() => {});
+    }
 
     return { message: 'PLU deactivated' };
   }

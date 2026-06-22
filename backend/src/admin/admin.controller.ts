@@ -55,4 +55,9 @@ export class AdminController {
   }) {
     return this.adminService.resetBillSeries(req.user.businessId, body);
   }
+
+  @Post('fix-online-plus')
+  fixOnlinePlus(@Request() req: any) {
+    return this.adminService.fixOnlinePlus(req.user.businessId);
+  }
 }
