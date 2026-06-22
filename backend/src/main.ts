@@ -15,7 +15,12 @@ process.on('uncaughtException', (err) => {
 });
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // rawBody:true keeps the raw request buffer available for the WhatsApp
+  // webhook signature check; useBodyParser raises the size limit so base64
+  // image/PDF uploads (e.g. /lists/manual) aren't rejected as 413.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  app.useBodyParser('json',       { limit: '25mb' });
+  app.useBodyParser('urlencoded', { limit: '25mb', extended: true });
 
   app.setGlobalPrefix('api');
 
