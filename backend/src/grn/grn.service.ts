@@ -274,8 +274,8 @@ export class GrnService {
       cessTotal: billTotals.cessTotal,
       billDiscountPercent: billDiscPct,
       billDiscountAmount: billTotals.billDiscountAmount,
-      cashDiscountPercent: dto.cashDiscountPercent ?? 0,
-      cashDiscountAmount: 0,
+      cashDiscountPercent: dto.billCashDiscPercent ?? 0,
+      cashDiscountAmount: dto.billCashDiscRs ?? 0,
       freightCharges,
       hamaliCharges,
       otherCharges,
@@ -325,6 +325,7 @@ export class GrnService {
         cessAmount: Number(i.cessAmount), lineTotal: Number(i.lineTotal),
       })),
       billDiscPct, freightCharges, hamaliCharges, otherCharges, roundingAmount,
+      dto.billCashDiscRs ?? 0,
     );
 
     const isDraft = dto.isDraft ?? false;
@@ -427,6 +428,8 @@ export class GrnService {
     const otherCharges = dto.otherCharges ?? Number(existing.otherCharges ?? 0);
     const roundingAmount = dto.roundingAmount ?? Number(existing.roundingAmount ?? 0);
     const billDiscPct = dto.billDiscountPercent ?? Number(existing.billDiscountPercent ?? 0);
+    const billCashRs = dto.billCashDiscRs ?? Number((existing as any).cashDiscountAmount ?? 0);
+    const billCashPct = dto.billCashDiscPercent ?? Number((existing as any).cashDiscountPercent ?? 0);
     const isInterState = await this.resolveInterState(businessId, supplier.gstin);
 
     let billTotals: ReturnType<GrnCalculationsService['calculateBillTotals']> | null = null;
@@ -442,6 +445,7 @@ export class GrnService {
           cessAmount: Number(i.cessAmount), lineTotal: Number(i.lineTotal),
         })),
         billDiscPct, freightCharges, hamaliCharges, otherCharges, roundingAmount,
+        billCashRs,
       );
       // Skip validation on update — caller (submit) enforces business rules
     }
@@ -479,6 +483,8 @@ export class GrnService {
             cessTotal: billTotals.cessTotal,
             billDiscountPercent: billDiscPct,
             billDiscountAmount: billTotals.billDiscountAmount,
+            cashDiscountPercent: billCashPct,
+            cashDiscountAmount: billTotals.cashDiscountAmount,
             freightCharges,
             hamaliCharges,
             otherCharges,

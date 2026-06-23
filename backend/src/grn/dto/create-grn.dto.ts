@@ -26,7 +26,10 @@ export class CreateGrnDto {
   items: GrnItemDto[];
 
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) billDiscountPercent?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) cashDiscountPercent?: number;
+  // Bill-level cash discount (linked pair from the form): Cash% and Cash Rs.
+  // billCashDiscRs is the authoritative amount subtracted from the grand total.
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) billCashDiscPercent?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) billCashDiscRs?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) freightCharges?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) hamaliCharges?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) otherCharges?: number;

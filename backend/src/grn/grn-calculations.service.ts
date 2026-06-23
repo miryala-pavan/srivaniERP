@@ -26,6 +26,7 @@ export interface BillTotals {
   cessTotal: number;
   totalTaxAmount: number;
   billDiscountAmount: number;
+  cashDiscountAmount: number;
   grandTotal: number;
 }
 
@@ -124,6 +125,7 @@ export class GrnCalculationsService {
     hamaliCharges: number,
     otherCharges: number,
     roundingAmount: number,
+    cashDiscountAmount = 0,
   ): BillTotals {
     const r2 = this.r2.bind(this);
 
@@ -138,16 +140,20 @@ export class GrnCalculationsService {
     // Bill discount is applied on the invoice line total (taxable + tax), not just taxableTotal.
     // This matches how all supplier bills show the discount (on the gross payable amount).
     const billDiscountAmount = r2(itemsTotal * billDiscountPercent / 100);
+    // Cash discount is a post-tax reduction of the payable — it lowers the grand
+    // total but does NOT change taxable value or GST/ITC.
+    const cashDisc = r2(cashDiscountAmount);
     const grandTotal = r2(
       itemsTotal
       - billDiscountAmount
       + freightCharges
       + hamaliCharges
       + otherCharges
-      + roundingAmount,
+      + roundingAmount
+      - cashDisc,
     );
 
-    return { taxableTotal, cgstTotal, sgstTotal, igstTotal, cessTotal, totalTaxAmount, billDiscountAmount, grandTotal };
+    return { taxableTotal, cgstTotal, sgstTotal, igstTotal, cessTotal, totalTaxAmount, billDiscountAmount, cashDiscountAmount: cashDisc, grandTotal };
   }
 
   validateInvoiceControlTotal(calculated: number, controlTotal: number): void {
