@@ -492,7 +492,11 @@ export class GrnService {
             grandTotal: billTotals.grandTotal,
             advanceAdjusted,
             amountPayable: this.r2(billTotals.grandTotal - advanceAdjusted),
-            balanceAmount: this.r2(billTotals.grandTotal - advanceAdjusted),
+            // Outstanding must subtract what was already paid (paidAmount is kept
+            // in sync by both the manual and bank-reconciliation payment paths),
+            // so editing a GRN — e.g. applying a cash discount — lowers the due
+            // correctly instead of overstating it. Clamp at 0.
+            balanceAmount: this.r2(Math.max(0, billTotals.grandTotal - advanceAdjusted - Number((existing as any).paidAmount ?? 0))),
           } : {}),
           ...(dto.paymentDueDate ? { paymentDueDate: new Date(dto.paymentDueDate) } : {}),
           ...(dto.paymentMode !== undefined ? { paymentMode: dto.paymentMode } : {}),
