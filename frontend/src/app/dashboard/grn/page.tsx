@@ -153,6 +153,14 @@ export default function GrnPage() {
     setPaymentStatus(''); setPage(1);
   }
 
+  // Sort indicator icon for a column header
+  function sortArrow(col: string) {
+    if (sortBy !== col) return <ArrowUpDown className="w-3 h-3 text-gray-300" />;
+    return sortDir === 'asc'
+      ? <ArrowUp className="w-3 h-3 text-[#1B4F8A]" />
+      : <ArrowDown className="w-3 h-3 text-[#1B4F8A]" />;
+  }
+
   // Toggle a sortable column: same column flips direction, new column resets to desc
   function toggleSort(col: string) {
     if (sortBy === col) {
@@ -567,6 +575,133 @@ export default function GrnPage() {
           variant="pill"
         />
 
+        {/* Filter bar (GRN tabs only) */}
+        {activeTab !== 'CREDIT_NOTES' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Search */}
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search GRN #, invoice or supplier…"
+                  className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+                />
+                {searchInput && (
+                  <button onClick={() => setSearchInput('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Filters toggle */}
+              <button
+                onClick={() => setShowFilters((v) => !v)}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  showFilters || hasActiveFilters
+                    ? 'border-[#1B4F8A] text-[#1B4F8A] bg-blue-50'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4" /> Filters
+                {hasActiveFilters && (
+                  <span className="ml-0.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-[#1B4F8A] rounded-full">●</span>
+                )}
+              </button>
+
+              {/* Sort dropdown */}
+              <select
+                value={`${sortBy}:${sortDir}`}
+                onChange={(e) => {
+                  const [b, d] = e.target.value.split(':');
+                  setSortBy(b); setSortDir(d as 'asc' | 'desc'); setPage(1);
+                }}
+                className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] bg-white text-gray-700"
+                title="Sort"
+              >
+                <option value="date:desc">Newest first</option>
+                <option value="date:asc">Oldest first</option>
+                <option value="amount:desc">Amount: high → low</option>
+                <option value="amount:asc">Amount: low → high</option>
+                <option value="supplier:asc">Supplier: A → Z</option>
+                <option value="supplier:desc">Supplier: Z → A</option>
+                <option value="grnNumber:desc">GRN # ↓</option>
+                <option value="grnNumber:asc">GRN # ↑</option>
+                <option value="invoiceNumber:asc">Invoice # ↑</option>
+                <option value="invoiceNumber:desc">Invoice # ↓</option>
+              </select>
+
+              {hasActiveFilters && (
+                <button onClick={clearFilters}
+                  className="inline-flex items-center gap-1 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg">
+                  <X className="w-4 h-4" /> Clear
+                </button>
+              )}
+            </div>
+
+            {/* Advanced filters panel */}
+            {showFilters && (
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Supplier</label>
+                  <select
+                    value={supplierFilter}
+                    onChange={(e) => setSupplierFilter(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] bg-white"
+                  >
+                    <option value="">All suppliers</option>
+                    {supplierOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Payment status</label>
+                  <select
+                    value={paymentStatus}
+                    onChange={(e) => setPaymentStatus(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] bg-white"
+                  >
+                    <option value="">Any</option>
+                    <option value="UNPAID">Unpaid</option>
+                    <option value="PARTIAL">Partially paid</option>
+                    <option value="PAID">Paid</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Invoice date from</label>
+                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] bg-white" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Invoice date to</label>
+                  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] bg-white" />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Min amount (Rs.)</label>
+                  <input type="number" min="0" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} placeholder="0"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] bg-white" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Max amount (Rs.)</label>
+                  <input type="number" min="0" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} placeholder="Any"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] bg-white" />
+                </div>
+
+                {paymentStatus && (
+                  <p className="col-span-full text-xs text-gray-400">
+                    Payment status filter applies to approved GRNs only.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Credit Notes Tab Content */}
         {activeTab === 'CREDIT_NOTES' ? (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -647,10 +782,26 @@ export default function GrnPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600">GRN #</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600">Supplier</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">Invoice</th>
-                    <th className="text-right px-4 py-3 font-medium text-gray-600">Total</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">
+                      <button onClick={() => toggleSort('grnNumber')} className="inline-flex items-center gap-1 hover:text-[#1B4F8A]">
+                        GRN # {sortArrow('grnNumber')}
+                      </button>
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">
+                      <button onClick={() => toggleSort('supplier')} className="inline-flex items-center gap-1 hover:text-[#1B4F8A]">
+                        Supplier {sortArrow('supplier')}
+                      </button>
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">
+                      <button onClick={() => toggleSort('invoiceNumber')} className="inline-flex items-center gap-1 hover:text-[#1B4F8A]">
+                        Invoice {sortArrow('invoiceNumber')}
+                      </button>
+                    </th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-600">
+                      <button onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 hover:text-[#1B4F8A] ml-auto">
+                        Total {sortArrow('amount')}
+                      </button>
+                    </th>
                     {activeTab === 'ALL' && (
                       <th className="text-center px-4 py-3 font-medium text-gray-600">Status</th>
                     )}
