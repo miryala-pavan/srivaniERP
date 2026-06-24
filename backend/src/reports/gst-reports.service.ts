@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import * as XLSX from 'xlsx';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -506,6 +507,228 @@ export class GstReportsService {
     };
 
     return { period, purchases: purchaseList, summary };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // GSTR-2B Reconciliation
+  // Match an uploaded GSTR-2B (JSON or Excel from the GST portal) against the
+  // approved purchases (GRNs) in the books, to verify ITC eligibility.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async reconcile2B(businessId: string, file: { buffer: Buffer; originalname: string }) {
+    if (!file?.buffer?.length) throw new BadRequestException('No file uploaded');
+
+    const entries = this.parse2B(file);
+    if (entries.length === 0) {
+      throw new BadRequestException(
+        'No B2B invoices found. Upload a GSTR-2B file downloaded from the GST portal (JSON or Excel).',
+      );
+    }
+
+    // Date window from the 2B (bounds the "in books, not in 2B" check)
+    const dts = entries.map((e) => e.invoiceDate).filter(Boolean) as Date[];
+    const minDt = dts.length ? new Date(Math.min(...dts.map((d) => d.getTime()))) : null;
+    const maxDt = dts.length ? new Date(Math.max(...dts.map((d) => d.getTime()))) : null;
+
+    const purchases = await this.prisma.purchase.findMany({
+      where: { businessId, status: 'APPROVED' as any, supplierGstin: { not: null } },
+      select: {
+        id: true, grnNumber: true, invoiceNumber: true, invoiceDate: true,
+        supplierName: true, supplierGstin: true,
+        taxableAmount: true, totalTaxAmount: true,
+        cgstTotal: true, sgstTotal: true, igstTotal: true, cessTotal: true,
+      },
+    });
+
+    const normInv = (s: string) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const keyOf = (gstin: string, inv: string) => `${(gstin ?? '').toUpperCase()}|${normInv(inv)}`;
+
+    const booksMap = new Map<string, (typeof purchases)[number]>();
+    for (const p of purchases) {
+      if (p.supplierGstin) booksMap.set(keyOf(p.supplierGstin, p.invoiceNumber), p);
+    }
+
+    const matched: any[] = [];
+    const mismatch: any[] = [];
+    const onlyIn2B: any[] = [];
+    const matchedIds = new Set<string>();
+
+    for (const e of entries) {
+      const e2bTax = r2(e.igst + e.cgst + e.sgst + e.cess);
+      const p = booksMap.get(keyOf(e.gstin, e.invoiceNo));
+      if (p) {
+        matchedIds.add(p.id);
+        const bookTaxable = Number(p.taxableAmount);
+        const bookTax = Number(p.totalTaxAmount);
+        const taxableDiff = r2(bookTaxable - e.taxable);
+        const taxDiff = r2(bookTax - e2bTax);
+        const ok =
+          Math.abs(taxableDiff) <= Math.max(2, e.taxable * 0.005) &&
+          Math.abs(taxDiff) <= Math.max(2, e2bTax * 0.01);
+        const row = {
+          gstin: e.gstin, supplierName: e.supplierName || p.supplierName,
+          invoiceNo: e.invoiceNo, invoiceDate: e.invoiceDate?.toISOString() ?? null,
+          grnNumber: p.grnNumber, grnId: p.id,
+          b2bTaxable: r2(e.taxable), b2bTax: e2bTax,
+          bookTaxable: r2(bookTaxable), bookTax: r2(bookTax),
+          taxableDiff, taxDiff,
+        };
+        (ok ? matched : mismatch).push(row);
+      } else {
+        onlyIn2B.push({
+          gstin: e.gstin, supplierName: e.supplierName,
+          invoiceNo: e.invoiceNo, invoiceDate: e.invoiceDate?.toISOString() ?? null,
+          b2bTaxable: r2(e.taxable), b2bTax: e2bTax,
+        });
+      }
+    }
+
+    // In books but not in 2B → ITC at risk. Bounded to the 2B date window.
+    const onlyInBooks = purchases
+      .filter((p) => !matchedIds.has(p.id))
+      .filter((p) => {
+        if (!minDt || !maxDt) return true;
+        const d = new Date(p.invoiceDate);
+        return d >= minDt && d <= maxDt;
+      })
+      .map((p) => ({
+        gstin: p.supplierGstin, supplierName: p.supplierName,
+        invoiceNo: p.invoiceNumber, invoiceDate: new Date(p.invoiceDate).toISOString(),
+        grnNumber: p.grnNumber, grnId: p.id,
+        bookTaxable: r2(Number(p.taxableAmount)), bookTax: r2(Number(p.totalTaxAmount)),
+      }));
+
+    const sum = (arr: any[], k: string) => r2(arr.reduce((s, x) => s + (Number(x[k]) || 0), 0));
+
+    return {
+      fileName: file.originalname,
+      window: { from: minDt?.toISOString() ?? null, to: maxDt?.toISOString() ?? null },
+      summary: {
+        b2bInvoices: entries.length,
+        matched: matched.length,
+        mismatch: mismatch.length,
+        onlyIn2B: onlyIn2B.length,
+        onlyInBooks: onlyInBooks.length,
+        itcIn2B:     sum([...matched, ...mismatch, ...onlyIn2B], 'b2bTax'),
+        itcMatched:  sum(matched, 'b2bTax'),
+        itcAtRisk:   sum(onlyInBooks, 'bookTax'),   // claimed in books, supplier hasn't filed
+        itcUnbooked: sum(onlyIn2B, 'b2bTax'),       // in 2B, not recorded in books
+      },
+      matched, mismatch, onlyIn2B, onlyInBooks,
+    };
+  }
+
+  // Detect JSON vs Excel and route to the right parser
+  private parse2B(file: { buffer: Buffer; originalname: string }) {
+    const name = (file.originalname ?? '').toLowerCase();
+    const head = file.buffer.subarray(0, 64).toString('utf8').trimStart();
+    const isJson = name.endsWith('.json') || head.startsWith('{') || head.startsWith('[');
+    return isJson ? this.parse2BJson(file.buffer) : this.parse2BExcel(file.buffer);
+  }
+
+  private static parseGstDate(s: any): Date | null {
+    if (s instanceof Date) return isNaN(s.getTime()) ? null : s;
+    if (!s) return null;
+    const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(String(s).trim());
+    if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    const d = new Date(String(s));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  private parse2BJson(buf: Buffer): Array<{
+    gstin: string; supplierName: string; invoiceNo: string; invoiceDate: Date | null;
+    taxable: number; igst: number; cgst: number; sgst: number; cess: number;
+  }> {
+    let json: any;
+    try { json = JSON.parse(buf.toString('utf8')); } catch { throw new BadRequestException('Invalid JSON file'); }
+    const dd = json?.data?.docdata ?? json?.docdata ?? json?.data ?? json;
+    const out: any[] = [];
+
+    // Sum a tax field from inv.items[] (2B), falling back to inv-level (2A) names
+    const grab = (doc: any, k2b: string, kAlt: string) =>
+      Array.isArray(doc.items)
+        ? doc.items.reduce((s: number, it: any) => s + Number(it[k2b] ?? it[kAlt] ?? 0), 0)
+        : Number(doc[k2b] ?? doc[kAlt] ?? 0);
+
+    const push = (sup: any, doc: any, invField: string) => {
+      out.push({
+        gstin: sup.ctin ?? '',
+        supplierName: sup.trdnm ?? sup.trade_name ?? '',
+        invoiceNo: doc[invField] ?? '',
+        invoiceDate: GstReportsService.parseGstDate(doc.dt),
+        taxable: grab(doc, 'txval', 'txval'),
+        igst: grab(doc, 'igst', 'iamt'),
+        cgst: grab(doc, 'cgst', 'camt'),
+        sgst: grab(doc, 'sgst', 'samt'),
+        cess: grab(doc, 'cess', 'csamt'),
+      });
+    };
+
+    for (const sup of (dd?.b2b ?? [])) for (const inv of (sup.inv ?? [])) push(sup, inv, 'inum');
+    for (const sup of (dd?.cdnr ?? [])) for (const nt of (sup.nt ?? [])) push(sup, nt, 'ntnum');
+    return out.filter((e) => e.gstin && e.invoiceNo);
+  }
+
+  private parse2BExcel(buf: Buffer) {
+    const wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
+    const raw: any[] = [];
+
+    for (const sheetName of wb.SheetNames) {
+      const upper = sheetName.toUpperCase();
+      if (!(upper === 'B2B' || upper.startsWith('B2B') || upper.includes('CDNR'))) continue;
+      const isCdnr = upper.includes('CDNR');
+      const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, defval: '' });
+
+      let hdr = -1;
+      for (let i = 0; i < Math.min(rows.length, 20); i++) {
+        if (rows[i].map((c) => String(c).toLowerCase()).join('|').includes('gstin of supplier')) { hdr = i; break; }
+      }
+      if (hdr < 0) continue;
+
+      const cols = rows[hdr].map((c) => String(c).toLowerCase().trim());
+      const idx = (kw: string) => cols.findIndex((c) => c.includes(kw));
+      const ci = {
+        gstin: idx('gstin of supplier'),
+        name:  idx('trade'),
+        inv:   isCdnr ? idx('note number') : idx('invoice number'),
+        dt:    isCdnr ? idx('note date')   : idx('invoice date'),
+        taxable: idx('taxable value'),
+        igst:  idx('integrated tax'),
+        cgst:  idx('central tax'),
+        sgst:  idx('state/ut tax') >= 0 ? idx('state/ut tax') : idx('state'),
+        cess:  idx('cess'),
+      };
+      const num = (v: any) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+
+      for (let i = hdr + 1; i < rows.length; i++) {
+        const r = rows[i];
+        const gstin = ci.gstin >= 0 ? String(r[ci.gstin] ?? '').trim() : '';
+        const inv   = ci.inv >= 0 ? String(r[ci.inv] ?? '').trim() : '';
+        if (!GSTIN_REGEX.test(gstin) || !inv) continue;
+        raw.push({
+          gstin, supplierName: ci.name >= 0 ? String(r[ci.name] ?? '').trim() : '',
+          invoiceNo: inv, invoiceDate: ci.dt >= 0 ? GstReportsService.parseGstDate(r[ci.dt]) : null,
+          taxable: ci.taxable >= 0 ? num(r[ci.taxable]) : 0,
+          igst: ci.igst >= 0 ? num(r[ci.igst]) : 0,
+          cgst: ci.cgst >= 0 ? num(r[ci.cgst]) : 0,
+          sgst: ci.sgst >= 0 ? num(r[ci.sgst]) : 0,
+          cess: ci.cess >= 0 ? num(r[ci.cess]) : 0,
+        });
+      }
+    }
+
+    // One invoice can span several rate-rows — aggregate by GSTIN + invoice
+    const map = new Map<string, any>();
+    for (const e of raw) {
+      const k = `${e.gstin.toUpperCase()}|${e.invoiceNo.toUpperCase().replace(/[^A-Z0-9]/g, '')}`;
+      const ex = map.get(k);
+      if (ex) {
+        ex.taxable += e.taxable; ex.igst += e.igst; ex.cgst += e.cgst; ex.sgst += e.sgst; ex.cess += e.cess;
+      } else {
+        map.set(k, { ...e });
+      }
+    }
+    return Array.from(map.values());
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,9 @@
 import {
-  Controller, Get, Query, Req, Res, UseGuards, ParseIntPipe,
+  Controller, Get, Post, Query, Req, Res, UseGuards, ParseIntPipe,
+  UseInterceptors, UploadedFile, BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import type { Response } from 'express';
 import { JwtAuthGuard }    from '../auth/guards/jwt-auth.guard';
 import { RolesGuard }      from '../auth/guards/roles.guard';
@@ -102,6 +105,18 @@ export class GstReportsController {
     @Query('year',  ParseIntPipe) year:  number,
   ) {
     return this.gstReports.preflight(req.user.businessId, month, year);
+  }
+
+  // ─── GSTR-2B Reconciliation ───────────────────────────────────────────────
+
+  @Post('reconcile-2b')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 },
+  }))
+  reconcile2B(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    return this.gstReports.reconcile2B(req.user.businessId, file);
   }
 
   // ─── GSTR-1 JSON ──────────────────────────────────────────────────────────
