@@ -93,6 +93,17 @@ export class GstReportsController {
     return this.gstReports.getHSNSummary(req.user.businessId, month, year);
   }
 
+  // ─── Pre-flight validation ────────────────────────────────────────────────
+
+  @Get('preflight')
+  preflight(
+    @Req() req: any,
+    @Query('month', ParseIntPipe) month: number,
+    @Query('year',  ParseIntPipe) year:  number,
+  ) {
+    return this.gstReports.preflight(req.user.businessId, month, year);
+  }
+
   // ─── GSTR-1 JSON ──────────────────────────────────────────────────────────
 
   @Get('gstr1-json')

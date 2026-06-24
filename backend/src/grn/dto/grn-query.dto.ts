@@ -9,4 +9,16 @@ export class GrnQueryDto {
   @IsOptional() @IsString() endDate?: string;
   @IsOptional() @IsString() invoiceNumber?: string;
   @IsOptional() @IsString() excludeStatus?: string;
+
+  // Free-text: matches grnNumber / invoiceNumber / supplierName
+  @IsOptional() @IsString() search?: string;
+  // grandTotal range
+  @IsOptional() @IsString() minAmount?: string;
+  @IsOptional() @IsString() maxAmount?: string;
+  // PAID | PARTIAL | UNPAID (approved GRNs only)
+  @IsOptional() @IsString() paymentStatus?: string;
+  // date | amount | supplier | grnNumber | invoiceNumber
+  @IsOptional() @IsString() sortBy?: string;
+  // asc | desc
+  @IsOptional() @IsString() sortDir?: string;
 }

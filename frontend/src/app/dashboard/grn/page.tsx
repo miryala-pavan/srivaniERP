@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Eye, Pencil, Trash2, Send,
   CheckCircle2, XCircle, RotateCcw,
   Package, Printer, CreditCard, X, Check, Tag, FileText, AlertTriangle,
+  Search, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal,
 } from 'lucide-react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import Header from '@/components/layout/Header';
@@ -125,6 +126,46 @@ export default function GrnPage() {
   const [page, setPage]             = useState(1);
   const [cnPage, setCnPage]         = useState(1);
 
+  // Filters & sorting
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch]           = useState('');   // debounced
+  const [supplierFilter, setSupplierFilter] = useState('');
+  const [dateFrom, setDateFrom]       = useState('');
+  const [dateTo, setDateTo]           = useState('');
+  const [minAmount, setMinAmount]     = useState('');
+  const [maxAmount, setMaxAmount]     = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('');  // PAID | PARTIAL | UNPAID
+  const [sortBy, setSortBy]           = useState('date');   // date | amount | supplier | grnNumber | invoiceNumber
+  const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('desc');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Debounce the search box
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const hasActiveFilters = !!(search || supplierFilter || dateFrom || dateTo || minAmount || maxAmount || paymentStatus);
+
+  function clearFilters() {
+    setSearchInput(''); setSearch(''); setSupplierFilter('');
+    setDateFrom(''); setDateTo(''); setMinAmount(''); setMaxAmount('');
+    setPaymentStatus(''); setPage(1);
+  }
+
+  // Toggle a sortable column: same column flips direction, new column resets to desc
+  function toggleSort(col: string) {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col); setSortDir('desc');
+    }
+    setPage(1);
+  }
+
+  // Reset to page 1 whenever a filter changes
+  useEffect(() => { setPage(1); }, [search, supplierFilter, dateFrom, dateTo, minAmount, maxAmount, paymentStatus]);
+
   // Reject modal
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -163,9 +204,23 @@ export default function GrnPage() {
   // ─── Queries ──────────────────────────────────────────────────────────────────
 
   const { data: grnData, isLoading } = useQuery({
-    queryKey: ['grns', { tab: activeTab, page }],
+    queryKey: ['grns', { tab: activeTab, page, search, supplierFilter, dateFrom, dateTo, minAmount, maxAmount, paymentStatus, sortBy, sortDir }],
     queryFn: async () => {
-      const res = await api.get('/grn', { params: { page, limit: 20, status: statusForTab || undefined } });
+      const res = await api.get('/grn', {
+        params: {
+          page, limit: 20,
+          status:        statusForTab || undefined,
+          search:        search || undefined,
+          supplierId:    supplierFilter || undefined,
+          startDate:     dateFrom || undefined,
+          endDate:       dateTo || undefined,
+          minAmount:     minAmount || undefined,
+          maxAmount:     maxAmount || undefined,
+          paymentStatus: paymentStatus || undefined,
+          sortBy,
+          sortDir,
+        },
+      });
       const list: GrnSummary[] = res.data.data;
 
       // Batch-fetch payment summaries for approved GRNs
@@ -234,6 +289,19 @@ export default function GrnPage() {
   const creditNotes  = cnQueryData?.creditNotes ?? [];
   const cnListTotal  = cnQueryData?.total       ?? 0;
   const cnTotalPages = cnQueryData?.totalPages  ?? 1;
+
+  // Suppliers for the filter dropdown
+  const { data: supplierOptions = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['grn-supplier-options'],
+    queryFn: async () => {
+      const res = await api.get('/suppliers', { params: { limit: 500 } });
+      const rows = (res.data?.data ?? res.data ?? []) as any[];
+      return rows
+        .map((s) => ({ id: s.id, name: s.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
   // ─── WS live updates ──────────────────────────────────────────────────────────
 

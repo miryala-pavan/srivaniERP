@@ -983,10 +983,53 @@ export class GrnService {
       if (query.endDate) where.invoiceDate.lte = new Date(query.endDate);
     }
 
+    // Free-text search across GRN number, invoice number and supplier name
+    if (query.search?.trim()) {
+      const s = query.search.trim();
+      where.OR = [
+        { grnNumber:     { contains: s, mode: 'insensitive' } },
+        { invoiceNumber: { contains: s, mode: 'insensitive' } },
+        { supplierName:  { contains: s, mode: 'insensitive' } },
+      ];
+    }
+
+    // grandTotal range
+    const min = query.minAmount !== undefined ? parseFloat(query.minAmount) : NaN;
+    const max = query.maxAmount !== undefined ? parseFloat(query.maxAmount) : NaN;
+    if (!isNaN(min) || !isNaN(max)) {
+      where.grandTotal = {};
+      if (!isNaN(min)) where.grandTotal.gte = min;
+      if (!isNaN(max)) where.grandTotal.lte = max;
+    }
+
+    // Payment status (needs paidAmount vs grandTotal column comparison → raw ids)
+    const payStatus = query.paymentStatus?.toUpperCase();
+    if (payStatus === 'PAID' || payStatus === 'PARTIAL' || payStatus === 'UNPAID') {
+      const rows = await (
+        payStatus === 'PAID'
+          ? this.prisma.$queryRaw<{ id: string }[]>`SELECT id FROM purchase WHERE "businessId" = ${businessId} AND status = 'APPROVED' AND COALESCE("paidAmount",0) >= "grandTotal"`
+          : payStatus === 'PARTIAL'
+          ? this.prisma.$queryRaw<{ id: string }[]>`SELECT id FROM purchase WHERE "businessId" = ${businessId} AND status = 'APPROVED' AND COALESCE("paidAmount",0) > 0 AND COALESCE("paidAmount",0) < "grandTotal"`
+          : this.prisma.$queryRaw<{ id: string }[]>`SELECT id FROM purchase WHERE "businessId" = ${businessId} AND status = 'APPROVED' AND COALESCE("paidAmount",0) <= 0`
+      );
+      where.id = { in: rows.map((r) => r.id) };
+    }
+
+    // Sorting
+    const dir: 'asc' | 'desc' = query.sortDir === 'asc' ? 'asc' : 'desc';
+    const sortMap: Record<string, any> = {
+      date:          { createdAt: dir },
+      amount:        { grandTotal: dir },
+      supplier:      { supplierName: dir },
+      grnNumber:     { grnNumber: dir },
+      invoiceNumber: { invoiceNumber: dir },
+    };
+    const orderBy = sortMap[query.sortBy ?? 'date'] ?? { createdAt: 'desc' };
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.purchase.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: limit,
         select: {
