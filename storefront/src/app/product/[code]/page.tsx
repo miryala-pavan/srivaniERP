@@ -9,6 +9,12 @@ import WishlistButton from '@/components/WishlistButton';
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:4002').replace(/\/$/, '');
 
+// Social proof — real numbers, only shown when they're impressive enough.
+const SOLD_THRESHOLD      = 12;  // show "X bought" only if sold ≥ this (last 90 days)
+const LOW_STOCK_THRESHOLD = 5;   // show "Only X left" only if stock ≤ this (and > 0)
+
+const fmtDeliveryDate = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+
 function buildJsonLd(product: ShopProduct) {
   const inStockPacks = product.packs.filter(p => p.inStock);
   const allPacks     = product.packs;
@@ -197,6 +203,39 @@ export default async function ProductPage({ params }: Props) {
                 </div>
               </div>
             )}
+
+            {/* ── Social proof (real data, shown only when impressive) ── */}
+            {(() => {
+              const dFrom = new Date(); dFrom.setDate(dFrom.getDate() + 2);
+              const dTo   = new Date(); dTo.setDate(dTo.getDate() + 4);
+              const showSold     = typeof product.unitsSold === 'number' && product.unitsSold >= SOLD_THRESHOLD;
+              const showLowStock = typeof product.stockLeft === 'number' && product.stockLeft > 0 && product.stockLeft <= LOW_STOCK_THRESHOLD;
+              return (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: '8px',
+                  margin: '4px 0 18px', padding: '12px 14px',
+                  background: 'var(--paper-2, #F3E8CF)', borderRadius: '12px',
+                  fontSize: '13px', color: 'var(--ink-soft)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span aria-hidden="true">🚚</span>
+                    <span>Estimated delivery: <strong style={{ color: 'var(--ink)' }}>{fmtDeliveryDate(dFrom)} – {fmtDeliveryDate(dTo)}</strong></span>
+                  </div>
+                  {showSold && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span aria-hidden="true">🔥</span>
+                      <span><strong style={{ color: 'var(--ink)' }}>{product.unitsSold}</strong> bought in the last 3 months</span>
+                    </div>
+                  )}
+                  {showLowStock && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#c2410c' }}>
+                      <span aria-hidden="true">⚡</span>
+                      <span>Only <strong>{product.stockLeft} left</strong> — order soon!</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <p className="packs-heading">
               {product.packs.length === 1 ? 'Available pack' : 'Available packs'}

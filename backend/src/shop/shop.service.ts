@@ -55,6 +55,9 @@ export interface ShopProduct {
   description?: string | null;
   keywords?: string | null;
   groupVariants?: ShopGroupVariant[];
+  // Real social-proof signals (frontend decides whether to show, by threshold)
+  unitsSold?: number;   // times purchased in the last 90 days (real)
+  stockLeft?: number;   // effective online quantity available now
 }
 
 export interface NavSubcategory {
@@ -437,6 +440,7 @@ export class ShopService {
         plusList: { some: ONLINE_PLU_FILTER },
       },
       select: {
+        id: true,
         productCode: true,
         name: true,
         unitOfMeasure: true,
@@ -520,6 +524,19 @@ export class ShopService {
       });
     }
 
+    // ── Real social-proof signals ─────────────────────────────────────────────
+    // unitsSold = times this product was purchased in the last 90 days (FINAL,
+    // non-voided bills). stockLeft = highest effective online qty across packs.
+    const since = new Date();
+    since.setDate(since.getDate() - 90);
+    const unitsSold = await this.prisma.salesItem.count({
+      where: {
+        productId: (product as any).id,
+        bill: { businessId, status: 'FINAL' as any, isVoided: false, billDate: { gte: since } },
+      },
+    });
+    const stockLeft = packs.length > 0 ? Math.max(...packs.map(pk => pk.availableQty)) : 0;
+
     const result: ShopProduct = {
       code:               product.productCode ?? '',
       name:               product.name,
@@ -534,6 +551,8 @@ export class ShopService {
       packs,
       description:        product.description ?? null,
       keywords:           product.keywords ?? null,
+      unitsSold,
+      stockLeft,
       ...(groupVariants ? { groupVariants } : {}),
     };
     await this.cache.set(cacheKey, result, CACHE_TTL.product);

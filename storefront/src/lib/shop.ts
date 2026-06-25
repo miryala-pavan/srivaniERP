@@ -60,6 +60,8 @@ export interface ShopProduct {
   description?: string | null;
   keywords?: string | null;
   groupVariants?: ShopGroupVariant[];
+  unitsSold?: number;   // real: times purchased in last 90 days
+  stockLeft?: number;   // real: effective online qty available
 }
 
 export interface NavSubcategory { code: string; name: string; productCount: number; }
