@@ -12,6 +12,8 @@ import { CommandPalette } from '@/components/shared/CommandPalette';
 import { FYProvider } from '@/context/FYContext';
 import FYSwitcher from '@/components/layout/FYSwitcher';
 import OnlineOrderAlert from '@/components/layout/OnlineOrderAlert';
+import { GstHealthBanner } from '@/components/layout/GstHealthBanner';
+import { GstToast } from '@/components/layout/GstToast';
 
 interface StoredUser { role: string; fullName?: string }
 
@@ -235,11 +237,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Sidebar />
           <div className="flex-1 md:ml-56 flex flex-col min-h-screen">
             <FYSwitcher />
+            <GstHealthBanner />
             {children}
           </div>
           {updateAvailable && <UpdateBanner onDismiss={dismiss} />}
           <CommandPalette />
           <OnlineOrderAlert />
+          <GstToast />
         </div>
       </FYProvider>
     </WebSocketProvider>

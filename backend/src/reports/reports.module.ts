@@ -5,9 +5,13 @@ import { GstReportsService }     from './gst-reports.service';
 import { ExcelExportService }    from './excel-export.service';
 import { CaExportService }       from './ca-export.service';
 import { GstReportsController }  from './gst-reports.controller';
+import { GstHealthService }      from './gst-health.service';
+import { GstHealthController }   from './gst-health.controller';
+import { NotificationsModule }   from '../notifications/notifications.module';
 
 @Module({
-  providers:   [ReportsService, GstReportsService, ExcelExportService, CaExportService],
-  controllers: [ReportsController, GstReportsController],
+  imports:     [NotificationsModule],
+  providers:   [ReportsService, GstReportsService, ExcelExportService, CaExportService, GstHealthService],
+  controllers: [ReportsController, GstReportsController, GstHealthController],
 })
 export class ReportsModule {}

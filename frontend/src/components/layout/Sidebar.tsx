@@ -44,6 +44,7 @@ import {
   MessageSquare,
   Globe,
   Scale,
+  ShieldCheck,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -119,6 +120,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/dashboard/activity',          label: 'Activity Log',     icon: History,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/reports',          label: 'Reports',          icon: BarChart2,  roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'VIEWER'] },
+      { href: '/dashboard/reports/gst-health', label: 'GST Health',         icon: ShieldCheck,     roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
       { href: '/dashboard/reports/gst',       label: 'GST Reports',      icon: ScrollText,       roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
       { href: '/dashboard/reports/gst-reconciliation', label: 'GST Reconciliation', icon: Scale,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
       { href: '/dashboard/reports/ca-export',        label: 'CA Export',          icon: FileSpreadsheet,  roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
