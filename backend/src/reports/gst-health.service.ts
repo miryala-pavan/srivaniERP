@@ -157,7 +157,7 @@ export class GstHealthService {
         where: {
           businessId,
           isActive: true,
-          OR: [{ hsnCode: null }, { hsnCode: '' }, { hsnCode: '0000' }],
+          OR: [{ hsnCode: '' }, { hsnCode: '0000' }],
         },
       }),
 
