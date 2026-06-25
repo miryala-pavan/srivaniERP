@@ -119,9 +119,9 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/dashboard/activity',          label: 'Activity Log',     icon: History,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/reports',          label: 'Reports',          icon: BarChart2,  roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'VIEWER'] },
-      { href: '/dashboard/reports/gst',       label: 'GST Reports',      icon: ScrollText,       roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
-      { href: '/dashboard/reports/gst-reconciliation', label: 'GST Reconciliation', icon: Scale,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
-      { href: '/dashboard/reports/ca-export',        label: 'CA Export',          icon: FileSpreadsheet,  roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
+      { href: '/dashboard/reports/gst',       label: 'GST Reports',      icon: ScrollText,       roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
+      { href: '/dashboard/reports/gst-reconciliation', label: 'GST Reconciliation', icon: Scale,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
+      { href: '/dashboard/reports/ca-export',        label: 'CA Export',          icon: FileSpreadsheet,  roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
       { href: '/dashboard/reports/year-comparison',  label: 'Year Comparison',    icon: TrendingUp,       roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/historical-bills',          label: 'Historical Bills',   icon: History,          roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
     ],

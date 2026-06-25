@@ -40,6 +40,7 @@ const ROLE_LABELS: Record<string, string> = {
   PACKING_STAFF:    'Repacking Staff',
   SALES_REP:        'Sales Rep',
   VIEWER:           'Viewer',
+  CA:               'CA / Auditor',
 };
 
 const ROLE_COLORS: Record<string, string> = {
@@ -52,6 +53,7 @@ const ROLE_COLORS: Record<string, string> = {
   PACKING_STAFF:    'bg-gray-500 text-white',
   SALES_REP:        'bg-pink-500 text-white',
   VIEWER:           'bg-gray-400 text-white',
+  CA:               'bg-amber-700 text-white',
 };
 
 const CREATABLE_ROLES = [
@@ -63,6 +65,7 @@ const CREATABLE_ROLES = [
   { value: 'PACKING_STAFF',    label: 'Repacking Staff' },
   { value: 'SALES_REP',        label: 'Sales Rep' },
   { value: 'VIEWER',           label: 'Viewer' },
+  { value: 'CA',               label: 'CA / Auditor' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
