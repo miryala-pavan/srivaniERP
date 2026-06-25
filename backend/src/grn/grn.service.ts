@@ -300,6 +300,7 @@ export class GrnService {
       this.prisma.branch.findFirst({ where: { id: dto.branchId, businessId } }),
     ]);
     if (!supplier) throw new NotFoundException('Supplier not found');
+    if (!supplier.isActive) throw new BadRequestException('This supplier is inactive. Reactivate it before creating a GRN.');
     if (!branch) throw new NotFoundException('Branch not found');
 
     const duplicate = await this.prisma.purchase.findFirst({

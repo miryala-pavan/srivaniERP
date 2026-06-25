@@ -124,6 +124,11 @@ export class SuppliersController {
     return this.suppliersService.update(req.user.businessId, id, dto);
   }
 
+  @Patch(':id/active')
+  setActive(@Request() req: any, @Param('id') id: string, @Body('isActive') isActive: boolean) {
+    return this.suppliersService.setActive(req.user.businessId, id, isActive);
+  }
+
   // ─── BANK ACCOUNTS ────────────────────────────────────
 
   @Get(':id/bank-accounts')

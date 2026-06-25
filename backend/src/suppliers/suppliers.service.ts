@@ -86,7 +86,9 @@ export class SuppliersService {
     const skip  = (page - 1) * limit;
 
     const where: any = { businessId };
-    if (query.isActive !== undefined) {
+    if (query.isActive === 'all') {
+      // no isActive filter — include inactive suppliers too
+    } else if (query.isActive !== undefined) {
       where.isActive = query.isActive === 'true';
     } else {
       where.isActive = true;
@@ -229,7 +231,7 @@ export class SuppliersService {
       if (conflict) throw new ConflictException(`GSTIN ${dto.gstin} already in use`);
     }
 
-    return this.prisma.supplier.update({
+    const updated = await this.prisma.supplier.update({
       where: { id },
       data: {
         name:             dto.name !== undefined ? tcField(dto.name) ?? dto.name : undefined,
@@ -243,6 +245,27 @@ export class SuppliersService {
         isGstRegistered:  dto.isGstRegistered,
         isActive:         dto.isActive,
       },
+    });
+
+    // When a GSTIN is added to a supplier, backfill it to all their existing GRNs
+    // that were saved without one — so GST reports don't treat those purchases as unregistered.
+    if (dto.gstin && !supplier.gstin) {
+      await this.prisma.purchase.updateMany({
+        where: { businessId, supplierId: id, supplierGstin: null },
+        data:  { supplierGstin: dto.gstin },
+      });
+    }
+
+    return updated;
+  }
+
+  async setActive(businessId: string, id: string, isActive: boolean) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id, businessId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    return this.prisma.supplier.update({
+      where: { id },
+      data:  { isActive: !!isActive },
+      select: { id: true, name: true, isActive: true },
     });
   }
 

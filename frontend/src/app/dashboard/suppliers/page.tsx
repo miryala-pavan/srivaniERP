@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { Plus, Search, Edit2, Phone, Mail, MapPin, X, Check, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Edit2, Phone, Mail, MapPin, X, Check, AlertTriangle, Ban } from 'lucide-react';
 import { toTitleCase, cleanSpaces, formatPhoneDisplay, validatePhone, validateGSTIN } from '@/lib/input-utils';
 import { FieldHelp } from '@/components/ui/FieldHelp';
 import { useFormAutosave } from '@/hooks/useFormAutosave';
@@ -77,6 +77,7 @@ export default function SuppliersPage() {
   const [search, setSearch]   = useState('');
   const [page, setPage]       = useState(1);
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing]     = useState<Supplier | null>(null);
@@ -111,15 +112,24 @@ export default function SuppliersPage() {
 
   // ── Query ──────────────────────────────────────────────
   const { data, isLoading } = useQuery({
-    queryKey: ['suppliers', { page, search: debouncedSearch }],
+    queryKey: ['suppliers', { page, search: debouncedSearch, showInactive }],
     queryFn:  async () => {
       const res = await api.get('/suppliers', {
-        params: { page, limit: 20, search: debouncedSearch || undefined },
+        params: { page, limit: 20, search: debouncedSearch || undefined, isActive: showInactive ? 'all' : undefined },
       });
       return res.data as { data: Supplier[]; meta: { totalPages: number; total: number } };
     },
     placeholderData: (prev) => prev,
     staleTime: 30_000,
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: (s: Supplier) => api.patch(`/suppliers/${s.id}/active`, { isActive: !s.isActive }),
+    onSuccess: (_res, s) => {
+      toast.success(s.isActive ? 'Supplier deactivated' : 'Supplier reactivated');
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update supplier'),
   });
 
   const suppliers  = data?.data ?? [];
@@ -258,6 +268,16 @@ export default function SuppliersPage() {
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
             />
           </div>
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none ml-2"
+            title="Include deactivated suppliers in the list">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => { setShowInactive(e.target.checked); setPage(1); }}
+              className="rounded border-gray-300 text-[#1B4F8A] focus:ring-[#1B4F8A]"
+            />
+            Show inactive
+          </label>
           <span className="text-sm text-gray-400 ml-auto">{total} supplier{total !== 1 ? 's' : ''}</span>
           <button
             onClick={() => openInNewWindow('/dashboard/suppliers/import-bank-accounts')}
@@ -300,9 +320,16 @@ export default function SuppliersPage() {
                   return (
                     <tr key={s.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3">
-                        <EntityLink type="supplier" id={s.id} className="font-medium">
-                          {s.name}
-                        </EntityLink>
+                        <span className="inline-flex items-center gap-1.5">
+                          <EntityLink type="supplier" id={s.id} className="font-medium">
+                            {s.name}
+                          </EntityLink>
+                          {!s.isActive && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                              Inactive
+                            </span>
+                          )}
+                        </span>
                         {s.address && (
                           <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                             <MapPin className="w-3 h-3" /> {s.address}
@@ -372,6 +399,23 @@ export default function SuppliersPage() {
                             className="p-1.5 rounded-lg text-gray-400 hover:text-[#1B4F8A] hover:bg-blue-50 transition-colors"
                           >
                             <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              const msg = s.isActive
+                                ? `Deactivate "${s.name}"?\n\nIt will be hidden from search and new GRNs can't be created against it. You can reactivate later.`
+                                : `Reactivate "${s.name}"?`;
+                              if (confirm(msg)) toggleActiveMutation.mutate(s);
+                            }}
+                            disabled={toggleActiveMutation.isPending && toggleActiveMutation.variables?.id === s.id}
+                            title={s.isActive ? 'Deactivate supplier' : 'Reactivate supplier'}
+                            className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                              s.isActive
+                                ? 'text-gray-400 hover:text-red-600 hover:bg-red-50'
+                                : 'text-green-600 hover:text-green-700 hover:bg-green-50'
+                            }`}
+                          >
+                            {s.isActive ? <Ban className="w-4 h-4" /> : <Check className="w-4 h-4" />}
                           </button>
                         </div>
                       </td>
