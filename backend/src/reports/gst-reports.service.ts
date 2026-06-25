@@ -459,16 +459,19 @@ export class GstReportsService {
         status:      'APPROVED' as any,
         invoiceDate: { gte: startDate, lte: endDate },
       },
+      include: { supplier: { select: { gstin: true } } },
       orderBy: { invoiceDate: 'asc' },
     });
 
     const purchaseList = purchases.map((p) => {
       const eligible = p.itcEligibility !== 'NOT_ELIGIBLE';
+      // Fall back to supplier master GSTIN if GRN was saved before GSTIN was entered
+      const effectiveGstin = p.supplierGstin ?? p.supplier?.gstin ?? '';
       return {
         grnNumber:      p.grnNumber ?? '',
         grnDate:        (p.approvedAt ?? p.invoiceDate).toISOString(),
         supplierName:   p.supplierName,
-        supplierGstin:  p.supplierGstin ?? '',
+        supplierGstin:  effectiveGstin,
         invoiceNumber:  p.invoiceNumber,
         invoiceDate:    p.invoiceDate.toISOString(),
         isInterState:   p.isInterState,
@@ -531,12 +534,13 @@ export class GstReportsService {
     const maxDt = dts.length ? new Date(Math.max(...dts.map((d) => d.getTime()))) : null;
 
     const purchases = await this.prisma.purchase.findMany({
-      where: { businessId, status: 'APPROVED' as any, supplierGstin: { not: null } },
+      where: { businessId, status: 'APPROVED' as any },
       select: {
         id: true, grnNumber: true, invoiceNumber: true, invoiceDate: true,
         supplierName: true, supplierGstin: true,
         taxableAmount: true, totalTaxAmount: true,
         cgstTotal: true, sgstTotal: true, igstTotal: true, cessTotal: true,
+        supplier: { select: { gstin: true } },
       },
     });
 
@@ -545,7 +549,8 @@ export class GstReportsService {
 
     const booksMap = new Map<string, (typeof purchases)[number]>();
     for (const p of purchases) {
-      if (p.supplierGstin) booksMap.set(keyOf(p.supplierGstin, p.invoiceNumber), p);
+      const effectiveGstin = p.supplierGstin ?? p.supplier?.gstin ?? null;
+      if (effectiveGstin) booksMap.set(keyOf(effectiveGstin, p.invoiceNumber), p);
     }
 
     const matched: any[] = [];
@@ -592,7 +597,7 @@ export class GstReportsService {
         return d >= minDt && d <= maxDt;
       })
       .map((p) => ({
-        gstin: p.supplierGstin, supplierName: p.supplierName,
+        gstin: p.supplierGstin ?? p.supplier?.gstin ?? null, supplierName: p.supplierName,
         invoiceNo: p.invoiceNumber, invoiceDate: new Date(p.invoiceDate).toISOString(),
         grnNumber: p.grnNumber, grnId: p.id,
         bookTaxable: r2(Number(p.taxableAmount)), bookTax: r2(Number(p.totalTaxAmount)),
