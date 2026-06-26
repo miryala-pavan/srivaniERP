@@ -62,7 +62,11 @@ const LOCAL_BUSINESS_LD = {
     },
   ],
   hasMap: 'https://www.google.com/maps/search/Srivani+Stores+Sangareddy',
-  sameAs: ['https://wa.me/919382828484'],
+  sameAs: [
+    'https://wa.me/919382828484',
+    'https://www.facebook.com/srivanistore/',
+    'https://www.instagram.com/srivanigroup/',
+  ],
 };
 
 const WEBSITE_LD = {
