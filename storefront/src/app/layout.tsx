@@ -109,6 +109,7 @@ export const metadata: Metadata = {
     images: ['/logo.png'],
   },
   robots: { index: true, follow: true },
+  verification: { google: 'sWmIokErR7KC55s3RJ0fw1STUB5ihhBgCELL1XEqAoE' },
   other: { 'theme-color': '#D98324' },
 };
 
