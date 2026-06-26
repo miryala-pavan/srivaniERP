@@ -803,6 +803,7 @@ model Purchase {
   amendedAt            DateTime?
   approvedByName       String?
   rejectedByName       String?
+  excludeFromGst       Boolean        @default(false)
   receivedDate         DateTime?      @map("receiveddate")
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt

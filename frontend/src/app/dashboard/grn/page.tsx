@@ -6,7 +6,7 @@ import {
   Plus, Eye, Pencil, Trash2, Send,
   CheckCircle2, XCircle, RotateCcw,
   Package, Printer, CreditCard, X, Check, Tag, FileText, AlertTriangle,
-  Search, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal,
+  Search, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal, ShieldOff,
 } from 'lucide-react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import Header from '@/components/layout/Header';
@@ -33,6 +33,7 @@ interface GrnSummary {
   status: GrnStatus;
   createdAt: string;
   notes?: string | null;
+  excludeFromGst?: boolean;
   _count: { items: number };
 }
 
@@ -869,9 +870,16 @@ export default function GrnPage() {
                           </td>
                           {activeTab === 'ALL' && (
                             <td className="px-4 pt-3 pb-0.5 text-center">
-                              <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium ${badge.color}`}>
-                                {badge.label}
-                              </span>
+                              <div className="flex flex-col items-center gap-1">
+                                <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium ${badge.color}`}>
+                                  {badge.label}
+                                </span>
+                                {g.excludeFromGst && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium" title="Excluded from GST returns">
+                                    <ShieldOff className="w-3 h-3" /> GST Excl.
+                                  </span>
+                                )}
+                              </div>
                             </td>
                           )}
                           <td className="px-4 pt-3 pb-0.5">

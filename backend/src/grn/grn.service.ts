@@ -945,6 +945,13 @@ export class GrnService {
     return this.prisma.purchase.update({ where: { id }, data: { status: 'CANCELLED' } });
   }
 
+  async setExcludeFromGst(businessId: string, id: string, exclude: boolean) {
+    const grn = await this.prisma.purchase.findFirst({ where: { id, businessId } });
+    if (!grn) throw new NotFoundException('GRN not found');
+    await this.prisma.purchase.update({ where: { id }, data: { excludeFromGst: !!exclude } });
+    return { id, excludeFromGst: !!exclude };
+  }
+
   async deleteGrn(businessId: string, id: string) {
     const grn = await this.prisma.purchase.findFirst({ where: { id, businessId } });
     if (!grn) throw new NotFoundException('GRN not found');
@@ -1039,6 +1046,7 @@ export class GrnService {
           grandTotal: true, taxableAmount: true, totalTaxAmount: true,
           invoiceControlTotal: true, receivedDate: true,
           paidAmount: true, status: true, createdAt: true, notes: true,
+          excludeFromGst: true,
           _count: { select: { items: true } },
         },
       }),

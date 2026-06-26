@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { Printer, CheckCircle2, XCircle, RotateCcw, ArrowLeft } from 'lucide-react';
+import { Printer, CheckCircle2, XCircle, RotateCcw, ArrowLeft, ShieldOff, ShieldCheck } from 'lucide-react';
+import { getUser } from '@/lib/auth';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -40,6 +41,7 @@ interface GrnDetail {
   approvedByName?: string | null;
   approvedAt?: string | null;
   rejectedByName?: string | null;
+  excludeFromGst?: boolean;
   createdAt: string;
   supplier: { id: string; name: string; phone?: string | null; gstin?: string | null };
   branch: { id: string; name: string };
@@ -100,9 +102,12 @@ export default function GrnViewPage() {
 
   const [grn, setGrn]           = useState<GrnDetail | null>(null);
   const [loading, setLoading]   = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [rejectOpen, setRejectOpen]       = useState(false);
-  const [rejectReason, setRejectReason]   = useState('');
+  const [actionLoading, setActionLoading]   = useState<string | null>(null);
+  const [rejectOpen, setRejectOpen]         = useState(false);
+  const [rejectReason, setRejectReason]     = useState('');
+  const [excludeLoading, setExcludeLoading] = useState(false);
+  const userRole = getUser<{ role: string }>()?.role ?? '';
+  const canToggleExclude = userRole === 'SUPER_ADMIN' || userRole === 'BRANCH_MANAGER';
   const printTriggered = useRef(false);
 
   useEffect(() => {
@@ -148,6 +153,25 @@ export default function GrnViewPage() {
       toast.error(e?.response?.data?.message ?? 'Rejection failed');
     } finally {
       setActionLoading(null);
+    }
+  }
+
+  async function handleToggleExcludeGst() {
+    if (!grn) return;
+    const next = !grn.excludeFromGst;
+    const msg  = next
+      ? 'Exclude this GRN from GST returns? It will be hidden from purchase register, GSTR-3B and ITC calculations.'
+      : 'Include this GRN in GST returns?';
+    if (!confirm(msg)) return;
+    setExcludeLoading(true);
+    try {
+      await api.patch(`/grn/${id}/exclude-gst`, { exclude: next });
+      setGrn(g => g ? { ...g, excludeFromGst: next } : g);
+      toast.success(next ? 'GRN excluded from GST returns' : 'GRN included in GST returns');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to update GST exclusion');
+    } finally {
+      setExcludeLoading(false);
     }
   }
 
@@ -280,6 +304,51 @@ export default function GrnViewPage() {
 
         {/* Content */}
         <div className="max-w-4xl mx-auto p-6 space-y-6">
+
+          {/* GST Exclusion banner — only for APPROVED GRNs */}
+          {grn.status === 'APPROVED' && canToggleExclude && (
+            <div className={`rounded-xl border px-5 py-4 flex items-start gap-4 print:hidden ${
+              grn.excludeFromGst
+                ? 'bg-red-50 border-red-200'
+                : 'bg-gray-50 border-gray-200'
+            }`}>
+              <div className="mt-0.5">
+                {grn.excludeFromGst
+                  ? <ShieldOff className="w-5 h-5 text-red-500" />
+                  : <ShieldCheck className="w-5 h-5 text-gray-400" />
+                }
+              </div>
+              <div className="flex-1">
+                {grn.excludeFromGst ? (
+                  <>
+                    <p className="text-sm font-semibold text-red-700">Excluded from GST Returns</p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      This GRN will not appear in purchase register, GSTR-3B, ITC calculations, or GSTR-2B reconciliation.
+                      Typically used to exclude test/demo entries.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-gray-700">Included in GST Returns</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      This GRN appears in purchase register and ITC calculations. Exclude it if it was a test entry.
+                    </p>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={handleToggleExcludeGst}
+                disabled={excludeLoading}
+                className={`flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${
+                  grn.excludeFromGst
+                    ? 'bg-white border-red-300 text-red-700 hover:bg-red-100'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {excludeLoading ? 'Saving…' : grn.excludeFromGst ? 'Include in GST' : 'Exclude from GST'}
+              </button>
+            </div>
+          )}
 
           {/* Header card */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">

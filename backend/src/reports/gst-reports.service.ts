@@ -250,6 +250,7 @@ export class GstReportsService {
           where: {
             businessId,
             status:         'APPROVED' as any,
+            excludeFromGst: false,
             invoiceDate:    { gte: startDate, lte: endDate },
             itcEligibility: { not: 'NOT_ELIGIBLE' },
           },
@@ -475,8 +476,9 @@ export class GstReportsService {
     const purchases = await this.prisma.purchase.findMany({
       where: {
         businessId,
-        status:      'APPROVED' as any,
-        invoiceDate: { gte: startDate, lte: endDate },
+        status:         'APPROVED' as any,
+        excludeFromGst: false,
+        invoiceDate:    { gte: startDate, lte: endDate },
       },
       include: { supplier: { select: { gstin: true } } },
       orderBy: { invoiceDate: 'asc' },
@@ -553,7 +555,7 @@ export class GstReportsService {
     const maxDt = dts.length ? new Date(Math.max(...dts.map((d) => d.getTime()))) : null;
 
     const purchases = await this.prisma.purchase.findMany({
-      where: { businessId, status: 'APPROVED' as any },
+      where: { businessId, status: 'APPROVED' as any, excludeFromGst: false },
       select: {
         id: true, grnNumber: true, invoiceNumber: true, invoiceDate: true,
         supplierName: true, supplierGstin: true,

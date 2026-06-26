@@ -150,6 +150,16 @@ export class GrnController {
     return this.grnService.deleteGrn(req.user.businessId, id);
   }
 
+  @Patch(':id/exclude-gst')
+  @Roles(...APPROVE_ROLES)
+  toggleExcludeFromGst(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body('exclude') exclude: boolean,
+  ) {
+    return this.grnService.setExcludeFromGst(req.user.businessId, id, exclude);
+  }
+
   // ── Status transition routes ──────────────────────────────────────────────
 
   @Post(':id/submit')
