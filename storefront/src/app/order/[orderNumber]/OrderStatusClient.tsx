@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { OnlineOrder } from '@/lib/orders';
 
 const WA = '919382828484';
-const GOOGLE_REVIEW_URL = 'https://www.google.com/maps/search/Srivani+Stores+Sangareddy+New+Bus+Stand+Area';
+const GOOGLE_REVIEW_URL = 'https://g.page/r/CXZY6ACcJig_EAE/review';
 
 const STATUS_LABELS: Record<string, { label: string; color: string; desc: string; icon: string }> = {
   PENDING_PAYMENT: { label: 'Payment Pending', color: '#f59e0b', desc: 'Waiting for payment confirmation.', icon: '⏳' },
