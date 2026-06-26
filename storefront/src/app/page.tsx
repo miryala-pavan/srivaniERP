@@ -17,6 +17,85 @@ export const metadata: Metadata = {
   },
 };
 
+const FAQ_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: 'Where is Srivani Stores located?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Sri Vani Kirana & General Stores — also known as Srivani Stores, Srivani Kirana, or Sri Vani Store — is located at New Bus Stand Area, Sangareddy, Telangana 502001. You can also shop online at shop.srivani.com.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Does Srivani Stores deliver home in Sangareddy?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes, Srivani Stores offers home delivery across Sangareddy, Telangana. Place your order at shop.srivani.com or WhatsApp +91 93828 28484 and we will deliver to your doorstep. Store pickup is also available.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'What products does Srivani Kirana sell?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Srivani Stores sells a complete range of groceries: rice, atta, maida, dals, pulses, cooking oils, ghee, spices, masalas, dry fruits, cashews, almonds, raisins, sugar, salt, tea, coffee, biscuits, snacks, chips, dairy products, milk powder, soaps, shampoo, detergents and all daily household essentials. We also stock Srivani brand freshly repacked staples.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'What are the timings of Srivani Kirana store Sangareddy?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Sri Vani Kirana & General Stores is open Monday to Sunday, 8:00 AM to 9:30 PM. You can also order online anytime at shop.srivani.com.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'How to order from Srivani Stores online?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'You can order groceries from Srivani Stores online at shop.srivani.com, or on WhatsApp by messaging +91 93828 28484. We accept UPI, debit card, credit card and cash on delivery.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Is Sri Vani and Srivani Stores the same?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes. Sri Vani Kirana & General Stores, Srivani Stores, Srivani Kirana, and Sri Vani Store are all the same shop — founded by Mr. M. Pandurangam in 1983 at New Bus Stand Area, Sangareddy, Telangana. It is one of the oldest and most trusted grocery stores in Sangareddy.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'What is the phone number for Srivani Stores Sangareddy?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'You can reach Srivani Stores Sangareddy at +91 93828 28484 by phone or WhatsApp. Email: srivanistore.srd@gmail.com. Address: New Bus Stand Area, Sangareddy, Telangana 502001.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Where to buy dry fruits and spices in Sangareddy?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Srivani Stores in Sangareddy stocks a wide range of dry fruits (cashews, almonds, raisins, dates, pistachios) and spices (red chilli powder, turmeric, coriander, cumin, garam masala, and more). Order online at shop.srivani.com or visit New Bus Stand Area, Sangareddy.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Where to buy rice and groceries in Sangareddy?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Srivani Stores, Sangareddy stocks all varieties of rice (Sona Masoori, Basmati, HMT, Kolam, Raw rice, Boiled rice), dals, pulses and all grocery staples at near-wholesale prices. Shop online at shop.srivani.com or visit us at New Bus Stand Area, Sangareddy, Telangana.',
+      },
+    },
+  ],
+};
+
 export default async function HomePage() {
   const [categories, featured] = await Promise.all([
     getCategories(),
@@ -300,6 +379,11 @@ export default async function HomePage() {
           </div>
         </section>
       </div>
+
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_LD) }}
+      />
     </>
   );
 }

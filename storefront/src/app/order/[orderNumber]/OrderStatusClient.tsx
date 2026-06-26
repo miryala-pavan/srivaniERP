@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { OnlineOrder } from '@/lib/orders';
 
 const WA = '919382828484';
+const GOOGLE_REVIEW_URL = 'https://www.google.com/maps/search/Srivani+Stores+Sangareddy+New+Bus+Stand+Area';
 
 const STATUS_LABELS: Record<string, { label: string; color: string; desc: string; icon: string }> = {
   PENDING_PAYMENT: { label: 'Payment Pending', color: '#f59e0b', desc: 'Waiting for payment confirmation.', icon: '⏳' },
@@ -269,6 +270,43 @@ export default function OrderStatusClient({
           >
             Continue Shopping
           </Link>
+
+          {/* Review nudge — only shown after delivery */}
+          {order.status === 'DELIVERED' && (
+            <div style={{
+              marginTop: '8px',
+              padding: '20px 18px',
+              background: 'linear-gradient(135deg, #fef9ec 0%, #fef3c7 100%)',
+              border: '1.5px solid #fcd34d',
+              borderRadius: '16px',
+              textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '28px', marginBottom: '6px' }}>⭐</div>
+              <p style={{ fontWeight: 800, fontSize: '15px', color: '#92400e', marginBottom: '4px' }}>
+                Enjoyed your order?
+              </p>
+              <p style={{ fontSize: '13px', color: '#78350f', marginBottom: '14px', lineHeight: 1.5 }}>
+                A 30-second Google review helps other families in Sangareddy discover our store.
+                It means the world to us. 🙏
+              </p>
+              <a
+                href={GOOGLE_REVIEW_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  padding: '10px 22px', borderRadius: '10px',
+                  background: '#4285F4', color: '#fff',
+                  fontSize: '13px', fontWeight: 700, textDecoration: 'none',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                </svg>
+                Leave a Google Review
+              </a>
+            </div>
+          )}
         </div>
       </section>
     </div>
