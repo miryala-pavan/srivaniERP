@@ -42,7 +42,7 @@ const LOCAL_BUSINESS_LD = {
   currenciesAccepted: 'INR',
   address: {
     '@type': 'PostalAddress',
-    streetAddress: 'New Bus Stand Area',
+    streetAddress: '3-5-14 Main Road, Opp New Bus Stand',
     addressLocality: 'Sangareddy',
     addressRegion: 'Telangana',
     postalCode: '502001',
