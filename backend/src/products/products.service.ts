@@ -1075,19 +1075,19 @@ export class ProductsService {
 
     const singlesCreated = body.bulkQty * bundle.conversionQty;
 
-    await this.prisma.$transaction([
+    await this.prisma.$transaction(async (tx) => {
       // Deduct from bulk PLU
-      this.prisma.productPlu.update({
+      await tx.productPlu.update({
         where: { id: bundle.bulkPluId },
         data: { stockOnHand: { decrement: body.bulkQty } },
-      }),
+      });
       // Add to single PLU
-      this.prisma.productPlu.update({
+      await tx.productPlu.update({
         where: { id: bundle.singlePluId },
         data: { stockOnHand: { increment: singlesCreated } },
-      }),
+      });
       // Log it
-      this.prisma.breakBulkLog.create({
+      await tx.breakBulkLog.create({
         data: {
           businessId,
           pluBundleId:    bundle.id,
@@ -1099,8 +1099,25 @@ export class ProductsService {
           createdById:    body.userId,
           createdByName:  body.userName,
         },
-      }),
-    ]);
+      });
+      // Sync product.totalStock for both products
+      const singleAgg = await tx.productPlu.aggregate({
+        where: { productId: bundle.singlePlu.product.id },
+        _sum: { stockOnHand: true },
+      });
+      await tx.product.update({
+        where: { id: bundle.singlePlu.product.id },
+        data: { totalStock: Number(singleAgg._sum.stockOnHand ?? 0) },
+      });
+      const bulkAgg = await tx.productPlu.aggregate({
+        where: { productId: bundle.bulkPlu.product.id },
+        _sum: { stockOnHand: true },
+      });
+      await tx.product.update({
+        where: { id: bundle.bulkPlu.product.id },
+        data: { totalStock: Number(bulkAgg._sum.stockOnHand ?? 0) },
+      });
+    });
 
     try {
       this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
