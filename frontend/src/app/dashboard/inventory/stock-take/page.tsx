@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, RefreshCw, Download,
-  Upload, AlertCircle, CheckCircle, Package, ChevronDown,
+  Upload, AlertCircle, CheckCircle, Package, ChevronDown, Camera, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -12,6 +12,7 @@ import Header from '@/components/layout/Header';
 import { useWebSocket } from '@/providers/WebSocketProvider';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export default function StockTakePage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [entries, setEntries]                 = useState<ManualEntry[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
+  const barcodeScanner = useBarcodeScanner((code) => { setSearchQuery(code); setDebouncedSearch(code); });
 
   // Import tab state
   const [importFile, setImportFile]       = useState<File | null>(null);
@@ -308,37 +310,62 @@ export default function StockTakePage() {
             {/* Product search */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <label className="block text-sm font-medium text-gray-700 mb-2">Add Product</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  ref={searchRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  onKeyDown={async (e) => {
-                    if (e.key !== 'Enter') return;
-                    e.preventDefault();
-                    const q = searchQuery.trim();
-                    if (!q) return;
-                    if (visibleSearchResults.length > 0) {
-                      const exact = visibleSearchResults.find((p: any) => p.barcode === q || p.productCode === q || p.ean === q);
-                      const target = exact ?? (visibleSearchResults.length === 1 ? visibleSearchResults[0] : null);
-                      if (target) addProduct(target);
-                      return;
-                    }
-                    // Debounce not fired yet (scanner) — search immediately
-                    try {
-                      const res = await api.get('/products', { params: { search: q, includeInactive: true, limit: 10 } });
-                      const results = res.data?.data ?? [];
-                      const exact = results.find((p: any) => p.barcode === q || p.productCode === q || p.ean === q);
-                      const target = exact ?? (results.length === 1 ? results[0] : null);
-                      if (target) addProduct(target);
-                    } catch {}
-                  }}
-                  placeholder="Search by name or barcode (includes inactive products)..."
-                  className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                />
-                {searchLoading && <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
+              <div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      const q = searchQuery.trim();
+                      if (!q) return;
+                      if (visibleSearchResults.length > 0) {
+                        const exact = visibleSearchResults.find((p: any) => p.barcode === q || p.productCode === q || p.ean === q);
+                        const target = exact ?? (visibleSearchResults.length === 1 ? visibleSearchResults[0] : null);
+                        if (target) addProduct(target);
+                        return;
+                      }
+                      try {
+                        const res = await api.get('/products', { params: { search: q, includeInactive: true, limit: 10 } });
+                        const results = res.data?.data ?? [];
+                        const exact = results.find((p: any) => p.barcode === q || p.productCode === q || p.ean === q);
+                        const target = exact ?? (results.length === 1 ? results[0] : null);
+                        if (target) addProduct(target);
+                      } catch {}
+                    }}
+                    placeholder="Search by name or barcode or scan…"
+                    className="w-full pl-9 pr-9 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                  {searchLoading
+                    ? <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+                    : (
+                      <button
+                        type="button"
+                        onClick={barcodeScanner.cameraSupported ? (barcodeScanner.showCamera ? barcodeScanner.stopCamera : barcodeScanner.startCamera) : undefined}
+                        title={barcodeScanner.showCamera ? 'Stop camera' : 'Scan barcode with camera'}
+                        className={`absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors ${
+                          !barcodeScanner.cameraSupported ? 'text-gray-300 cursor-default'
+                          : barcodeScanner.showCamera ? 'text-red-500 hover:text-red-700'
+                          : 'text-blue-600 hover:text-blue-800'
+                        }`}
+                      >
+                        {barcodeScanner.showCamera ? <X className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
+                      </button>
+                    )
+                  }
+                </div>
+                {barcodeScanner.showCamera && (
+                  <div className="mt-1.5 rounded-xl overflow-hidden border border-gray-200 bg-black relative" style={{ height: 140 }}>
+                    <video ref={barcodeScanner.videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
+                    <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 h-0.5 bg-green-400 opacity-80 animate-pulse" />
+                    <p className="absolute bottom-1 left-0 right-0 text-center text-white text-[10px] opacity-70">Point at barcode · Scanning automatically</p>
+                  </div>
+                )}
+                {barcodeScanner.cameraError && <p className="text-xs text-red-500 mt-1">{barcodeScanner.cameraError}</p>}
               </div>
 
               {visibleSearchResults.length > 0 && (

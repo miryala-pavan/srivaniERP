@@ -13,6 +13,7 @@ import { useWebSocket } from '@/providers/WebSocketProvider';
 import api from '@/lib/api';
 import { getUser } from '@/lib/auth';
 import { canViewCost } from '@/lib/cost-visibility';
+import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -547,15 +548,12 @@ export default function PluManagementPage() {
       <div className="border-b border-gray-100 bg-gray-50 shrink-0">
         {/* Row 1: Search + main filters + sort */}
         <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-          <div className="relative flex-1 min-w-52">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name / code / PLU / EAN / category…"
-              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-blue-500"
-            />
-          </div>
+          <BarcodeScannerInput
+            value={search} onChange={setSearch}
+            placeholder="Search name / code / PLU / EAN or scan barcode…"
+            className="flex-1 min-w-52"
+            inputClassName="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-blue-500"
+          />
 
           <select value={filterDept} onChange={(e) => { setFilterDept(e.target.value); setFilterCat(''); setFilterSubCat(''); }}
             className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white focus:outline-none focus:border-blue-500 min-w-36">

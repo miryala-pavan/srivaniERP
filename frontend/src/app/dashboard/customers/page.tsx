@@ -17,6 +17,7 @@ import {
   validatePhone, validateGSTIN,
 } from '@/lib/input-utils';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
+import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
 
 interface Customer {
   id: string;
@@ -245,15 +246,11 @@ export default function CustomersPage() {
       <main className="flex-1 p-6 space-y-4">
         {/* Toolbar */}
         <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              value={search}
-              onChange={(e) => handleSearch(e.target.value)}
-              placeholder="Search name, phone, code..."
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
-            />
-          </div>
+          <BarcodeScannerInput
+            value={search} onChange={handleSearch}
+            placeholder="Search name, phone, code or scan…"
+            className="flex-1 max-w-xs"
+          />
           <span className="text-sm text-gray-400 ml-auto">
             {total} customer{total !== 1 ? 's' : ''}
           </span>

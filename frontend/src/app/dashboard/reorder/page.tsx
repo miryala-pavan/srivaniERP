@@ -9,6 +9,7 @@ import {
 import { toast } from 'react-hot-toast';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
+import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -246,12 +247,11 @@ export default function ReorderPage() {
               {checked.size > 0 && (
                 <span className="text-xs text-gray-500">{checked.size} selected</span>
               )}
-              <input
-                type="search"
-                placeholder="Search products…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1B4F8A]/30 w-48"
+              <BarcodeScannerInput
+                placeholder="Search or scan barcode…"
+                value={search} onChange={setSearch}
+                showSearchIcon={false}
+                inputClassName="border border-gray-200 rounded-lg pl-3 pr-9 py-1.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1B4F8A]/30 w-48"
               />
             </div>
           </div>

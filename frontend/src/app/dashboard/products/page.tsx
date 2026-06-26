@@ -24,6 +24,7 @@ import { RestoreBanner } from '@/components/ui/RestoreBanner';
 import { EntityLink } from '@/components/shared/EntityLink';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { ProductImage } from '@/components/shared/ProductImage';
+import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1227,14 +1228,11 @@ export default function ProductsPage() {
 
         {/* ── Toolbar Row 1: Search + Sort + View ── */}
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search products, code…"
-              className="pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] w-56"
-            />
-          </div>
+          <BarcodeScannerInput
+            value={search} onChange={setSearch}
+            placeholder="Search products, code or scan barcode…"
+            inputClassName="pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] w-56"
+          />
 
           {/* Department → Category → Sub-category filter */}
           <select

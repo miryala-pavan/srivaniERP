@@ -9,6 +9,7 @@ import {
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import api from '@/lib/api';
+import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -248,17 +249,13 @@ export default function OnlineVisibilityPage() {
 
       {/* Search + bulk actions */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search product name or code..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && applySearch(search)}
-            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          />
-        </div>
+        <BarcodeScannerInput
+          placeholder="Search product name, code or scan barcode…"
+          value={search} onChange={setSearch}
+          onKeyDown={e => e.key === 'Enter' && applySearch(search)}
+          className="flex-1 min-w-[200px] max-w-sm"
+          inputClassName="w-full pl-9 pr-9 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
         <button onClick={() => applySearch(search)}
           className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium">
           Search

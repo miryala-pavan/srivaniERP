@@ -8,6 +8,7 @@ import {
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
+import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -194,16 +195,12 @@ export default function OpeningStockPage() {
       </div>
 
       {/* Search */}
-      <div className="relative mb-4">
-        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search by name, barcode, code or category…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1B4F8A]"
-        />
-      </div>
+      <BarcodeScannerInput
+        placeholder="Search by name, barcode, code or scan…"
+        value={search} onChange={setSearch}
+        className="mb-4"
+        inputClassName="w-full pl-9 pr-9 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1B4F8A]"
+      />
 
       {/* Table */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">

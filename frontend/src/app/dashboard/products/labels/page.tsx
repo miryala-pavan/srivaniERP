@@ -7,6 +7,7 @@ import { BackButton } from '@/components/shared/BackButton';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -561,11 +562,11 @@ function LabelsPageInner() {
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Products</p>
               <div className="relative" ref={searchRef}>
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input value={search} onChange={e => setSearch(e.target.value)}
+                <BarcodeScannerInput
+                  value={search} onChange={setSearch}
                   onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
-                  placeholder="Search products…"
-                  className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+                  placeholder="Search products or scan barcode…"
+                  inputClassName="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
                 />
                 {searchOpen && searchResults.length > 0 && (
                   <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
