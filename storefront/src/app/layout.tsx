@@ -23,21 +23,107 @@ const hanken = Hanken_Grotesk({
   display: 'swap',
 });
 
-export const metadata: Metadata = {
-  title: 'Srivani Stores — Shop Online',
-  description: 'Fresh groceries from Srivani Stores, Sangareddy. Pure, Trust & Quality since 1983.',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:4002'),
-  openGraph: {
-    siteName: 'Srivani Stores',
-    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Srivani Stores — Pure, Trust & Quality since 1983' }],
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:4002').replace(/\/$/, '');
+
+const LOCAL_BUSINESS_LD = {
+  '@context': 'https://schema.org',
+  '@type': ['GroceryStore', 'LocalBusiness'],
+  name: 'Srivani Stores',
+  alternateName: 'Sri Vani Kirana & General Stores',
+  description: 'Fresh groceries, staples, oils, dals, masalas, dairy and household essentials. Serving Sangareddy, Telangana since 1983.',
+  url: SITE_URL,
+  telephone: '+919382828484',
+  email: 'srivanistore.srd@gmail.com',
+  logo: `${SITE_URL}/logo.png`,
+  image: `${SITE_URL}/logo.png`,
+  foundingDate: '1983',
+  priceRange: '₹-₹₹',
+  paymentAccepted: 'Cash, UPI, Debit Card, Credit Card',
+  currenciesAccepted: 'INR',
+  address: {
+    '@type': 'PostalAddress',
+    streetAddress: 'New Bus Stand Area',
+    addressLocality: 'Sangareddy',
+    addressRegion: 'Telangana',
+    postalCode: '502001',
+    addressCountry: 'IN',
   },
+  geo: {
+    '@type': 'GeoCoordinates',
+    latitude: 17.4148,
+    longitude: 78.0877,
+  },
+  openingHoursSpecification: [
+    {
+      '@type': 'OpeningHoursSpecification',
+      dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      opens: '08:00',
+      closes: '21:30',
+    },
+  ],
+  hasMap: 'https://www.google.com/maps/search/Srivani+Stores+Sangareddy',
+  sameAs: ['https://wa.me/919382828484'],
+};
+
+const WEBSITE_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'Srivani Stores',
+  url: SITE_URL,
+  potentialAction: {
+    '@type': 'SearchAction',
+    target: {
+      '@type': 'EntryPoint',
+      urlTemplate: `${SITE_URL}/search?q={search_term_string}`,
+    },
+    'query-input': 'required name=search_term_string',
+  },
+};
+
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: 'Srivani Stores — Online Grocery, Sangareddy, Telangana',
+    template: '%s | Srivani Stores, Sangareddy',
+  },
+  description:
+    'Shop fresh groceries, staples, oils, dals, masalas and household essentials online. Free home delivery in Sangareddy, Telangana. Trusted since 1983.',
+  keywords: [
+    'grocery store Sangareddy', 'kirana store Sangareddy', 'online grocery Sangareddy',
+    'home delivery grocery Sangareddy', 'grocery Telangana', 'Srivani Stores',
+    'Sri Vani Kirana', 'online grocery Telangana', 'buy groceries online Sangareddy',
+  ],
+  authors: [{ name: 'Srivani Stores' }],
+  openGraph: {
+    type: 'website',
+    siteName: 'Srivani Stores',
+    title: 'Srivani Stores — Online Grocery, Sangareddy, Telangana',
+    description:
+      'Shop fresh groceries, staples, oils, dals, masalas and household essentials online. Free home delivery in Sangareddy, Telangana. Trusted since 1983.',
+    images: [{ url: '/logo.png', width: 512, height: 512, alt: 'Srivani Stores — Pure, Trust & Quality since 1983' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Srivani Stores — Online Grocery, Sangareddy',
+    description: 'Fresh groceries delivered home in Sangareddy, Telangana. Pure, Trust & Quality since 1983.',
+    images: ['/logo.png'],
+  },
+  robots: { index: true, follow: true },
   other: { 'theme-color': '#D98324' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${fraunces.variable} ${hanken.variable}`}>
+    <html lang="en-IN" className={`${fraunces.variable} ${hanken.variable}`}>
       <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(LOCAL_BUSINESS_LD) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBSITE_LD) }}
+        />
         {process.env.NODE_ENV === 'production' && (
           <script
             dangerouslySetInnerHTML={{

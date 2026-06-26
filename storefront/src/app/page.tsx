@@ -1,7 +1,21 @@
+import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { getCategories, getProducts } from '@/lib/shop';
 import ProductCard from '@/components/ProductCard';
+
+export const metadata: Metadata = {
+  title: 'Srivani Stores — Online Grocery in Sangareddy, Telangana',
+  description:
+    'Order groceries, staples, oils, dals, masalas, dairy & household essentials online. Home delivery in Sangareddy. Sri Vani Kirana & General Stores — trusted since 1983.',
+  alternates: { canonical: '/' },
+  openGraph: {
+    title: 'Srivani Stores — Online Grocery in Sangareddy, Telangana',
+    description:
+      'Order groceries online and get home delivery in Sangareddy, Telangana. Pure, Trust & Quality since 1983.',
+    url: '/',
+  },
+};
 
 export default async function HomePage() {
   const [categories, featured] = await Promise.all([

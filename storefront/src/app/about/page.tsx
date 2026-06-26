@@ -3,8 +3,10 @@ import Link from 'next/link';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export const metadata: Metadata = {
-  title: 'About Us — Srivani Stores',
-  description: 'Srivani Stores, Sangareddy — Pure, Trust & Quality since 1983.',
+  title: 'About Sri Vani Kirana & General Stores — Sangareddy since 1983',
+  description:
+    'Sri Vani Kirana & General Stores, New Bus Stand Area, Sangareddy, Telangana — serving local families with fresh groceries and staples since 1983. Now online at shop.srivani.com.',
+  alternates: { canonical: '/about' },
 };
 
 export default function AboutPage() {

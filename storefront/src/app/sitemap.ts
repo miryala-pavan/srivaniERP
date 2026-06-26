@@ -3,13 +3,15 @@ import { getCategories, getProducts } from '@/lib/shop';
 
 export const revalidate = 3600; // regenerate every hour
 
+const NOW = new Date();
+
 const STATIC: MetadataRoute.Sitemap = [
-  { url: '',          changeFrequency: 'daily',   priority: 1.0 },
-  { url: '/products', changeFrequency: 'daily',   priority: 0.9 },
-  { url: '/deals',    changeFrequency: 'daily',   priority: 0.8 },
-  { url: '/search',   changeFrequency: 'weekly',  priority: 0.5 },
-  { url: '/about',    changeFrequency: 'monthly', priority: 0.5 },
-  { url: '/contact',  changeFrequency: 'monthly', priority: 0.5 },
+  { url: '',          changeFrequency: 'daily',   priority: 1.0, lastModified: NOW },
+  { url: '/products', changeFrequency: 'daily',   priority: 0.9, lastModified: NOW },
+  { url: '/deals',    changeFrequency: 'daily',   priority: 0.8, lastModified: NOW },
+  { url: '/search',   changeFrequency: 'weekly',  priority: 0.5, lastModified: NOW },
+  { url: '/about',    changeFrequency: 'monthly', priority: 0.5, lastModified: NOW },
+  { url: '/contact',  changeFrequency: 'monthly', priority: 0.5, lastModified: NOW },
   { url: '/privacy-policy',   changeFrequency: 'yearly',  priority: 0.3 },
   { url: '/terms-of-service', changeFrequency: 'yearly',  priority: 0.3 },
   { url: '/data-deletion',    changeFrequency: 'yearly',  priority: 0.3 },

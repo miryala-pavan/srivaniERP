@@ -3,8 +3,10 @@ import Link from 'next/link';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export const metadata: Metadata = {
-  title: 'Contact Us — Srivani Stores',
-  description: 'Contact Srivani Stores, Sangareddy — phone, WhatsApp, email and address.',
+  title: 'Contact — Phone, WhatsApp & Store Address in Sangareddy',
+  description:
+    'Call or WhatsApp +91 93828 28484 · New Bus Stand Area, Sangareddy, Telangana 502001 · Open Mon–Sun 8AM–9:30PM. Srivani Stores — groceries delivered home.',
+  alternates: { canonical: '/contact' },
 };
 
 export default function ContactPage() {
