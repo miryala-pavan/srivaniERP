@@ -19,6 +19,7 @@ export interface GstHealthReport {
   score: number;
   grade: 'A' | 'B' | 'C' | 'D' | 'F';
   checkedAt: string;
+  fromDate: string;
   critical: GstIssue[];
   high: GstIssue[];
   medium: GstIssue[];
@@ -28,6 +29,12 @@ export interface GstHealthReport {
   summary: { criticalCount: number; highCount: number; mediumCount: number; lowCount: number };
 }
 
+function currentFyStart(): Date {
+  const now = new Date();
+  const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  return new Date(year, 3, 1); // April 1
+}
+
 @Injectable()
 export class GstHealthService {
   constructor(
@@ -35,14 +42,18 @@ export class GstHealthService {
     private notifications: NotificationsService,
   ) {}
 
-  async runHealthChecks(businessId: string): Promise<GstHealthReport> {
-    const now       = new Date();
-    const days30    = new Date(now.getTime() - 30 * 86_400_000);
-    const days90    = new Date(now.getTime() - 90 * 86_400_000);
-    const days180   = new Date(now.getTime() - 180 * 86_400_000);
+  async runHealthChecks(businessId: string, fromDate?: Date): Promise<GstHealthReport> {
+    const now      = new Date();
+    const since    = fromDate ?? currentFyStart();
+    const days30   = new Date(Math.max(since.getTime(), now.getTime() - 30 * 86_400_000));
+    const days90   = new Date(Math.max(since.getTime(), now.getTime() - 90 * 86_400_000));
+    const days180  = new Date(Math.max(since.getTime(), now.getTime() - 180 * 86_400_000));
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const prevStart  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevEnd    = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+
+    // Use ::text cast on the column so Prisma string params can compare to uuid column
+    const bId = businessId;
 
     const [
       business,
@@ -61,57 +72,60 @@ export class GstHealthService {
       roundRows,
     ] = await Promise.all([
       this.prisma.business.findUnique({
-        where:  { id: businessId },
+        where:  { id: bId },
         select: { gstin: true, stateCode: true },
       }),
 
-      // C2 — items sold in last 30 days with no/placeholder HSN
+      // C2 — items sold since fromDate with no/placeholder HSN
       this.prisma.salesItem.count({
         where: {
-          bill: { businessId, billDate: { gte: days30 }, status: 'FINAL' as any, isVoided: false },
+          bill: { businessId: bId, billDate: { gte: since }, status: 'FINAL' as any, isVoided: false },
           OR: [{ hsnCode: null }, { hsnCode: '' }, { hsnCode: '0000' }],
         },
       }),
 
-      // C3 — duplicate bill numbers (FINAL, non-voided)
+      // C3 — duplicate bill numbers since fromDate (FINAL, non-voided)
       this.prisma.$queryRaw<Array<{ cnt: bigint }>>`
         SELECT COUNT(*)::bigint AS cnt FROM (
           SELECT "billNumber" FROM sales_bill
-          WHERE "businessId" = ${businessId}::uuid
+          WHERE "businessId"::text = ${bId}
+            AND "billDate" >= ${since}
             AND status = 'FINAL' AND "isVoided" = false
           GROUP BY "billNumber" HAVING COUNT(*) > 1
         ) d
       `,
 
-      // C4 — GRNs > 180 days old, supplier GSTIN present, still has unpaid balance
+      // C4 — GRNs since fromDate, > 180 days old, supplier GSTIN present, unpaid balance
       this.prisma.$queryRaw<Array<{ cnt: bigint }>>`
         SELECT COUNT(*)::bigint AS cnt FROM purchase
-        WHERE "businessId" = ${businessId}::uuid
+        WHERE "businessId"::text = ${bId}
+          AND "invoiceDate" >= ${since}
           AND status = 'APPROVED'
           AND "invoiceDate" <= ${days180}
           AND "supplierGstin" IS NOT NULL AND "supplierGstin" != ''
           AND COALESCE("paidAmount", 0) < "grandTotal"
       `,
 
-      // H1 — approved GRNs with no supplier GSTIN
+      // H1 — approved GRNs since fromDate with no supplier GSTIN
       this.prisma.purchase.count({
         where: {
-          businessId,
+          businessId: bId,
           status: 'APPROVED' as any,
+          invoiceDate: { gte: since },
           OR: [{ supplierGstin: null }, { supplierGstin: '' }],
         },
       }),
 
-      // H2 — suppliers that have a GSTIN set (for format check in code)
+      // H2 — suppliers with a GSTIN set (for format validation in code)
       this.prisma.supplier.findMany({
-        where:  { businessId, gstin: { not: null } },
+        where:  { businessId: bId, gstin: { not: null } },
         select: { gstin: true, name: true },
       }),
 
-      // H3 — B2B bills with no customer GSTIN in last 30 days
+      // H3 — B2B bills since fromDate with no customer GSTIN (last 30 days)
       this.prisma.salesBill.count({
         where: {
-          businessId,
+          businessId: bId,
           isB2B:    true,
           billDate: { gte: days30 },
           status:   'FINAL' as any,
@@ -120,60 +134,72 @@ export class GstHealthService {
         },
       }),
 
-      // M1a — voided bills in last 30 days
+      // M1a — voided bills since fromDate (last 30 days)
       this.prisma.salesBill.count({
         where: {
-          businessId,
+          businessId: bId,
           isVoided: true,
           voidedAt: { gte: days30 },
           status:   'FINAL' as any,
         },
       }),
 
-      // M1b — total non-voided FINAL bills in last 30 days
+      // M1b — total non-voided FINAL bills since fromDate (last 30 days)
       this.prisma.salesBill.count({
         where: {
-          businessId,
+          businessId: bId,
           billDate: { gte: days30 },
           status:   'FINAL' as any,
           isVoided: false,
         },
       }),
 
-      // M2a — this month's purchase total
+      // M2a — this month's purchase total (respects fromDate)
       this.prisma.purchase.aggregate({
-        where: { businessId, status: 'APPROVED' as any, invoiceDate: { gte: monthStart } },
-        _sum:  { grandTotal: true },
+        where: {
+          businessId: bId,
+          status: 'APPROVED' as any,
+          invoiceDate: { gte: since.getTime() > monthStart.getTime() ? since : monthStart },
+        },
+        _sum: { grandTotal: true },
       }),
 
-      // M2b — last month's purchase total
+      // M2b — last month's purchase total (respects fromDate)
       this.prisma.purchase.aggregate({
-        where: { businessId, status: 'APPROVED' as any, invoiceDate: { gte: prevStart, lte: prevEnd } },
-        _sum:  { grandTotal: true },
+        where: {
+          businessId: bId,
+          status: 'APPROVED' as any,
+          invoiceDate: {
+            gte: since.getTime() > prevStart.getTime() ? since : prevStart,
+            lte: prevEnd,
+          },
+        },
+        _sum: { grandTotal: true },
       }),
 
-      // M3 — active products with no valid HSN
+      // M3 — active products with no valid HSN (catalog-level, no fromDate needed)
       this.prisma.product.count({
         where: {
-          businessId,
+          businessId: bId,
           isActive: true,
           OR: [{ hsnCode: '' }, { hsnCode: '0000' }],
         },
       }),
 
-      // M4 — GRNs > 90 days old, still partially unpaid
+      // M4 — GRNs since fromDate, > 90 days old, still partially unpaid
       this.prisma.$queryRaw<Array<{ cnt: bigint }>>`
         SELECT COUNT(*)::bigint AS cnt FROM purchase
-        WHERE "businessId" = ${businessId}::uuid
+        WHERE "businessId"::text = ${bId}
+          AND "invoiceDate" >= ${since}
           AND status = 'APPROVED'
           AND "invoiceDate" <= ${days90}
           AND COALESCE("paidAmount", 0) < "grandTotal"
       `,
 
-      // L1 — bills in last 30 days with round-figure totals (divisible by 1000, ≥ ₹5000)
+      // L1 — round-figure bills in last 30 days since fromDate (≥ ₹5000, divisible by 1000)
       this.prisma.$queryRaw<Array<{ cnt: bigint }>>`
         SELECT COUNT(*)::bigint AS cnt FROM sales_bill
-        WHERE "businessId" = ${businessId}::uuid
+        WHERE "businessId"::text = ${bId}
           AND "isVoided" = false AND status = 'FINAL'
           AND "billDate" >= ${days30}
           AND "grandTotal" >= 5000
@@ -204,7 +230,7 @@ export class GstHealthService {
     if (hsnZeroCount > 0) {
       issues.push({
         id: 'C2', severity: 'CRITICAL', blocksFilingI: true, count: hsnZeroCount,
-        title: `${hsnZeroCount} sales items in last 30 days have missing or placeholder HSN codes`,
+        title: `${hsnZeroCount} sales items have missing/placeholder HSN codes`,
         description: 'Items with HSN "0000" or blank will fail HSN validation in GSTR-1. Assign correct HSN codes to these products before filing.',
         actionUrl: '/dashboard/plu', actionLabel: 'Fix HSN in PLU',
       });
@@ -236,7 +262,7 @@ export class GstHealthService {
       issues.push({
         id: 'H1', severity: 'HIGH', blocksFilingI: false, count: noGstinGrnCount,
         title: `${noGstinGrnCount} approved GRN(s) have no supplier GSTIN — ITC may be disallowed`,
-        description: 'ITC cannot be claimed on purchases from unregistered suppliers. If the supplier is GST-registered, enter their GSTIN in supplier master immediately — existing GRNs will be auto-updated.',
+        description: 'ITC cannot be claimed on purchases from unregistered suppliers. If the supplier is GST-registered, enter their GSTIN in supplier master — existing GRNs will be auto-updated.',
         actionUrl: '/dashboard/suppliers', actionLabel: 'Update Suppliers',
       });
     }
@@ -248,7 +274,7 @@ export class GstHealthService {
       issues.push({
         id: 'H2', severity: 'HIGH', blocksFilingI: false, count: invalidSuppliers.length,
         title: `${invalidSuppliers.length} supplier(s) have invalid GSTIN format`,
-        description: `Suppliers with invalid GSTINs: ${names}${invalidSuppliers.length > 3 ? ' and others' : ''}. ITC claimed on their GRNs may be disallowed during audit.`,
+        description: `Suppliers: ${names}${invalidSuppliers.length > 3 ? ' and others' : ''}. ITC claimed on their GRNs may be disallowed during audit.`,
         actionUrl: '/dashboard/suppliers', actionLabel: 'Fix Supplier GSTINs',
       });
     }
@@ -256,8 +282,8 @@ export class GstHealthService {
     if (b2bNoGstinCount > 0) {
       issues.push({
         id: 'H3', severity: 'HIGH', blocksFilingI: false, count: b2bNoGstinCount,
-        title: `${b2bNoGstinCount} B2B bill(s) in last 30 days are missing customer GSTIN`,
-        description: 'Bills marked as B2B without a customer GSTIN will be reported as B2C in GSTR-1, causing a mismatch with the buyer\'s purchase register and potential scrutiny.',
+        title: `${b2bNoGstinCount} B2B bill(s) missing customer GSTIN`,
+        description: 'Bills marked B2B without customer GSTIN will be reported as B2C in GSTR-1, causing a mismatch with the buyer\'s purchase register and potential scrutiny.',
         actionUrl: '/dashboard/bills', actionLabel: 'Fix Bills',
       });
     }
@@ -268,7 +294,7 @@ export class GstHealthService {
     if (voidRate > 5) {
       issues.push({
         id: 'M1', severity: 'MEDIUM', blocksFilingI: false, count: voidedCount,
-        title: `High cancellation rate: ${voidRate.toFixed(1)}% of last 30 days' bills were voided`,
+        title: `High cancellation rate: ${voidRate.toFixed(1)}% of recent bills were voided`,
         description: 'Cancellation rates above 5% are a GST risk indicator. Excessive cancellations can attract departmental scrutiny. Ensure each voided bill has a valid business reason.',
         actionUrl: '/dashboard/bills', actionLabel: 'Review Voided Bills',
       });
@@ -281,7 +307,7 @@ export class GstHealthService {
       issues.push({
         id: 'M2', severity: 'MEDIUM', blocksFilingI: false,
         title: `Purchase volume this month is ${pct}% higher than last month`,
-        description: `This month: ₹${(thisMonth / 1000).toFixed(0)}K vs last month: ₹${(lastMonth / 1000).toFixed(0)}K. Sudden spikes in purchase volume can trigger GST scrutiny. Verify all GRNs are genuine.`,
+        description: `This month: ₹${(thisMonth / 1000).toFixed(0)}K vs last month: ₹${(lastMonth / 1000).toFixed(0)}K. Sudden spikes can trigger GST scrutiny. Verify all GRNs are genuine.`,
         actionUrl: '/dashboard/grn', actionLabel: 'Review GRNs',
       });
     }
@@ -289,7 +315,7 @@ export class GstHealthService {
     if (productsNoHsnCount > 0) {
       issues.push({
         id: 'M3', severity: 'MEDIUM', blocksFilingI: false, count: productsNoHsnCount,
-        title: `${productsNoHsnCount} active product(s) have no valid HSN code in the catalog`,
+        title: `${productsNoHsnCount} active product(s) have no valid HSN code`,
         description: 'Products without HSN codes cannot be correctly reported in GSTR-1 HSN summary. Bulk-assign HSN codes before the next filing date.',
         actionUrl: '/dashboard/plu', actionLabel: 'Assign HSN Codes',
       });
@@ -311,8 +337,8 @@ export class GstHealthService {
     if (roundCount >= 5) {
       issues.push({
         id: 'L1', severity: 'LOW', blocksFilingI: false, count: roundCount,
-        title: `${roundCount} bills in last 30 days have round-figure totals (multiples of ₹1,000)`,
-        description: 'A high count of round-figure invoice amounts is a common GST audit risk flag. Verify these bills represent genuine transactions with correct item-level billing.',
+        title: `${roundCount} recent bills have round-figure totals (multiples of ₹1,000)`,
+        description: 'A high count of round-figure amounts is a common GST audit risk flag. Verify these are genuine transactions with correct item-level billing.',
         actionUrl: '/dashboard/bills', actionLabel: 'Review Bills',
       });
     }
@@ -336,6 +362,7 @@ export class GstHealthService {
     return {
       score, grade,
       checkedAt:    now.toISOString(),
+      fromDate:     since.toISOString(),
       critical, high, medium, low,
       totalIssues:  issues.length,
       isFilingReady: critical.length === 0,
@@ -348,12 +375,11 @@ export class GstHealthService {
     };
   }
 
-  async runAndNotify(businessId: string): Promise<GstHealthReport> {
-    const report = await this.runHealthChecks(businessId);
+  async runAndNotify(businessId: string, fromDate?: Date): Promise<GstHealthReport> {
+    const report = await this.runHealthChecks(businessId, fromDate);
     const since  = new Date(Date.now() - 24 * 3_600_000);
 
-    const alertIssues = [...report.critical, ...report.high];
-    for (const issue of alertIssues) {
+    for (const issue of [...report.critical, ...report.high]) {
       const existing = await this.prisma.notification.findFirst({
         where: { businessId, title: issue.title, createdAt: { gte: since } },
         select: { id: true },
