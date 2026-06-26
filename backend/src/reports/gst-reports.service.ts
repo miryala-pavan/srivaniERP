@@ -61,11 +61,26 @@ function fmtDate(d: Date): string {
 export class GstReportsService {
   constructor(private prisma: PrismaService) {}
 
-  private getPeriodDates(month: number, year: number) {
-    const startDate = new Date(year, month - 1, 1);
+  private getPeriodDates(month: number, year: number, gstFromDate?: Date | null) {
+    let startDate   = new Date(year, month - 1, 1);
     const endDate   = new Date(year, month, 0, 23, 59, 59, 999);
-    const period    = `${MONTH_NAMES[month - 1]} ${year}`;
+    if (gstFromDate) {
+      const fd = new Date(gstFromDate.getFullYear(), gstFromDate.getMonth(), gstFromDate.getDate());
+      if (fd > startDate && fd <= endDate) startDate = fd;       // from_date is mid-month
+      else if (fd > endDate) startDate = new Date(endDate.getTime() + 1); // whole period is pre-live
+    }
+    const period = `${MONTH_NAMES[month - 1]} ${year}`;
     return { startDate, endDate, period };
+  }
+
+  private async getGstFromDate(businessId: string): Promise<Date | null> {
+    const row = await this.prisma.systemSetting.findFirst({
+      where: { businessId, key: 'gst.from_date' },
+      select: { value: true },
+    });
+    if (!row?.value) return null;
+    const d = new Date(row.value);
+    return isNaN(d.getTime()) ? null : d;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -74,7 +89,8 @@ export class GstReportsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async preflight(businessId: string, month: number, year: number) {
-    const { startDate, endDate, period } = this.getPeriodDates(month, year);
+    const gstFromDate = await this.getGstFromDate(businessId);
+    const { startDate, endDate, period } = this.getPeriodDates(month, year, gstFromDate);
 
     const [biz, itemsWithoutHsn, crossVoidCount, distinctUoms, b2bNoGstinCount] = await Promise.all([
       this.prisma.business.findUnique({
@@ -207,6 +223,7 @@ export class GstReportsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private async computeOpeningITC(businessId: string, month: number, year: number): Promise<number> {
+    const gstFromDate  = await this.getGstFromDate(businessId);
     // GST FY starts in April
     const fyStartYear  = month >= 4 ? year : year - 1;
     const fyStartMonth = 4;
@@ -216,7 +233,7 @@ export class GstReportsService {
     let y = fyStartYear;
 
     while (y < year || (y === year && m < month)) {
-      const { startDate, endDate } = this.getPeriodDates(m, y);
+      const { startDate, endDate } = this.getPeriodDates(m, y, gstFromDate);
 
       const [outAgg, itcAgg] = await Promise.all([
         this.prisma.salesBill.aggregate({
@@ -264,7 +281,8 @@ export class GstReportsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async getSalesRegister(businessId: string, month: number, year: number) {
-    const { startDate, endDate, period } = this.getPeriodDates(month, year);
+    const gstFromDate = await this.getGstFromDate(businessId);
+    const { startDate, endDate, period } = this.getPeriodDates(month, year, gstFromDate);
 
     const [biz, bills] = await Promise.all([
       this.prisma.business.findUnique({
@@ -451,7 +469,8 @@ export class GstReportsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async getPurchaseRegister(businessId: string, month: number, year: number) {
-    const { startDate, endDate, period } = this.getPeriodDates(month, year);
+    const gstFromDate = await this.getGstFromDate(businessId);
+    const { startDate, endDate, period } = this.getPeriodDates(month, year, gstFromDate);
 
     const purchases = await this.prisma.purchase.findMany({
       where: {
@@ -860,7 +879,8 @@ export class GstReportsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async getHSNSummary(businessId: string, month: number, year: number) {
-    const { startDate, endDate, period } = this.getPeriodDates(month, year);
+    const gstFromDate = await this.getGstFromDate(businessId);
+    const { startDate, endDate, period } = this.getPeriodDates(month, year, gstFromDate);
 
     const items = await this.prisma.salesItem.findMany({
       where: {
@@ -926,7 +946,8 @@ export class GstReportsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async getGSTR1Json(businessId: string, month: number, year: number) {
-    const { startDate, endDate } = this.getPeriodDates(month, year);
+    const gstFromDate = await this.getGstFromDate(businessId);
+    const { startDate, endDate } = this.getPeriodDates(month, year, gstFromDate);
 
     const [salesData, biz, periodBills, crossVoidBills] = await Promise.all([
       this.getSalesRegister(businessId, month, year),

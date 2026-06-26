@@ -53,6 +53,7 @@ const SYSTEM_DEFAULTS = {
 
 const GST_DEFAULTS = {
   'gst.filing_deadline_day': '10',
+  'gst.from_date': '',  // ISO date — all GST reports exclude data before this date (set to go-live date)
 };
 
 const LOYALTY_DEFAULTS = {
@@ -288,13 +289,22 @@ export class SettingsService {
     const ops: any[] = [];
     for (const [field, value] of Object.entries(updates)) {
       if (!allowed.includes(field)) continue;
-      const day = parseInt(value, 10);
-      if (isNaN(day) || day < 1 || day > 28) continue;
+      let storedValue: string;
+      if (field === 'from_date') {
+        // Accept ISO date string (YYYY-MM-DD) or empty string to clear
+        if (value !== '' && isNaN(new Date(value).getTime())) continue;
+        storedValue = value;
+      } else {
+        // Numeric day-of-month fields (filing_deadline_day)
+        const day = parseInt(value, 10);
+        if (isNaN(day) || day < 1 || day > 28) continue;
+        storedValue = String(day);
+      }
       const key = `gst.${field}`;
       ops.push(this.prisma.systemSetting.upsert({
         where:  { businessId_key: { businessId, key } },
-        update: { value: String(day) },
-        create: { businessId, key, value: String(day) },
+        update: { value: storedValue },
+        create: { businessId, key, value: storedValue },
       }));
     }
     if (ops.length) await this.prisma.$transaction(ops);

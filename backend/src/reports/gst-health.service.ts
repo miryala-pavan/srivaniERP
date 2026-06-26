@@ -42,9 +42,19 @@ export class GstHealthService {
     private notifications: NotificationsService,
   ) {}
 
+  private async getGstFromDate(businessId: string): Promise<Date | null> {
+    const row = await this.prisma.systemSetting.findFirst({
+      where: { businessId, key: 'gst.from_date' },
+      select: { value: true },
+    });
+    if (!row?.value) return null;
+    const d = new Date(row.value);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   async runHealthChecks(businessId: string, fromDate?: Date): Promise<GstHealthReport> {
-    const now      = new Date();
-    const since    = fromDate ?? currentFyStart();
+    const now   = new Date();
+    const since = fromDate ?? (await this.getGstFromDate(businessId)) ?? currentFyStart();
     const days30   = new Date(Math.max(since.getTime(), now.getTime() - 30 * 86_400_000));
     const days90   = new Date(Math.max(since.getTime(), now.getTime() - 90 * 86_400_000));
     const days180  = new Date(Math.max(since.getTime(), now.getTime() - 180 * 86_400_000));

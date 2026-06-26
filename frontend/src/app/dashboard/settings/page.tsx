@@ -214,10 +214,12 @@ export default function SettingsPage() {
   const [capturingAction, setCapturingAction]   = useState<string | null>(null);
 
   // GST settings
-  const [gstDeadlineDay, setGstDeadlineDay]         = useState('10');
+  const [gstDeadlineDay, setGstDeadlineDay]           = useState('10');
   const [savedGstDeadlineDay, setSavedGstDeadlineDay] = useState('10');
-  const [gstLoading, setGstLoading]                 = useState(false);
-  const [gstSaving, setGstSaving]                   = useState(false);
+  const [gstFromDate, setGstFromDate]                 = useState('');
+  const [savedGstFromDate, setSavedGstFromDate]       = useState('');
+  const [gstLoading, setGstLoading]                   = useState(false);
+  const [gstSaving, setGstSaving]                     = useState(false);
 
   // System settings
   const [sessionTimeout, setSessionTimeout]     = useState('0');
@@ -408,6 +410,9 @@ export default function SettingsPage() {
       const day = data.filing_deadline_day ?? '10';
       setGstDeadlineDay(day);
       setSavedGstDeadlineDay(day);
+      const fd = data.from_date ?? '';
+      setGstFromDate(fd);
+      setSavedGstFromDate(fd);
     } catch {
       toast.error('Failed to load GST settings');
     } finally {
@@ -427,8 +432,9 @@ export default function SettingsPage() {
     }
     setGstSaving(true);
     try {
-      await api.put('/settings/gst', { filing_deadline_day: String(day) });
+      await api.put('/settings/gst', { filing_deadline_day: String(day), from_date: gstFromDate });
       setSavedGstDeadlineDay(String(day));
+      setSavedGstFromDate(gstFromDate);
       toast.success('GST settings saved');
     } catch {
       toast.error('Failed to save GST settings');
@@ -437,7 +443,7 @@ export default function SettingsPage() {
     }
   };
 
-  const gstChanged = gstDeadlineDay !== savedGstDeadlineDay;
+  const gstChanged = gstDeadlineDay !== savedGstDeadlineDay || gstFromDate !== savedGstFromDate;
 
   // ─── System settings ────────────────────────────────────
 
@@ -969,6 +975,38 @@ export default function SettingsPage() {
                   <div className="text-xs text-gray-400">
                     Valid range: 1st to 28th. Default is 10.
                   </div>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-b border-gray-100">
+                <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">GST Data Start Date</h2>
+                <div className="py-3 space-y-3">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900">Go-Live / Live Date</div>
+                    <div className="text-xs text-gray-500 mt-0.5 mb-3">
+                      Set this to the date your store went live with real transactions.
+                      All GST reports (GSTR-1, purchase register, GSTR-3B, health check) will
+                      automatically exclude test data before this date. Leave blank to include all data.
+                    </div>
+                    <input
+                      type="date"
+                      value={gstFromDate}
+                      onChange={e => setGstFromDate(e.target.value)}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  {gstFromDate ? (
+                    <div className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                      GST reports will only include data from{' '}
+                      <span className="font-semibold">
+                        {new Date(gstFromDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </span>{' '}
+                      onwards. Test transactions before this date are excluded from all GST filings.
+                    </div>
+                  ) : (
+                    <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                      No date set — all data including test transactions will appear in GST reports. Recommended: set this to your go-live date.
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
