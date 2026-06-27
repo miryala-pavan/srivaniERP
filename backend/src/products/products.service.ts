@@ -473,6 +473,58 @@ export class ProductsService {
     });
   }
 
+  async getMarginStats(businessId: string) {
+    const rows = await this.prisma.$queryRaw<any[]>`
+      SELECT
+        p.id, p.name, p."sellingPrice", p."costPrice",
+        c.name AS category,
+        CASE WHEN p."sellingPrice" > 0 AND p."costPrice" > 0
+          THEN ROUND(((p."sellingPrice" - p."costPrice") / p."sellingPrice" * 100)::numeric, 1)
+          ELSE NULL END AS margin
+      FROM product p
+      LEFT JOIN category c ON p."categoryId" = c.id
+      WHERE p."businessId" = ${businessId} AND p."isActive" = true AND p."sellingPrice" > 0
+    `;
+
+    const withMargin  = rows.filter(r => r.margin !== null);
+    const zeroCost    = rows.filter(r => r.margin === null); // null margin ↔ costPrice is 0 or null (WHERE already filters sellingPrice > 0)
+    const negative    = withMargin.filter(r => Number(r.margin) < 0)
+                          .sort((a, b) => Number(a.margin) - Number(b.margin))
+                          .slice(0, 10)
+                          .map(r => ({ id: r.id, name: r.name, sellingPrice: Number(r.sellingPrice), costPrice: Number(r.costPrice), margin: Number(r.margin) }));
+
+    // avgMargin excludes extreme outliers (|margin| > 100%) which are bulk-cost vs unit-price entry errors
+    const reliable    = withMargin.filter(r => Math.abs(Number(r.margin)) <= 100);
+    const avgMargin   = reliable.length
+      ? Math.round(reliable.reduce((s, r) => s + Number(r.margin), 0) / reliable.length * 10) / 10
+      : 0;
+    const suspectCount = withMargin.length - reliable.length;
+
+    // Category breakdown
+    const catMap: Record<string, { total: number; count: number }> = {};
+    for (const r of withMargin) {
+      const cat = r.category || 'Uncategorised';
+      if (!catMap[cat]) catMap[cat] = { total: 0, count: 0 };
+      catMap[cat].total += Number(r.margin);
+      catMap[cat].count += 1;
+    }
+    const byCategory = Object.entries(catMap)
+      .map(([name, v]) => ({ name, avgMargin: Math.round(v.total / v.count * 10) / 10, count: v.count }))
+      .sort((a, b) => b.avgMargin - a.avgMargin);
+
+    return {
+      totalProducts:    rows.length,
+      withCostPrice:    withMargin.length,
+      zeroCostCount:    zeroCost.length,
+      negativeCount:    negative.length,
+      suspectCount,
+      avgMargin,
+      topCategories:    byCategory.slice(0, 8),
+      bottomCategories: byCategory.slice(-5).reverse(),
+      negativeMarginProducts: negative,
+    };
+  }
+
   async createBrand(businessId: string, name: string, code?: string) {
     const trimmedName = name.trim();
     if (!trimmedName) throw new BadRequestException('Brand name required');
@@ -542,6 +594,7 @@ export class ProductsService {
           isForSale: dto.isForSale ?? true, isForPurchase: dto.isForPurchase ?? true,
           isRepackingItem: dto.isRepackingItem ?? false, isPerishable: dto.isPerishable ?? false,
           expiryTracking: dto.expiryTracking ?? false, availableOnline: dto.availableOnline ?? false,
+          shelfLifeDays: dto.shelfLifeDays ?? null, nearExpiryAlertDays: dto.nearExpiryAlertDays ?? null,
           preferredSupplierId: dto.preferredSupplierId,
           aisle: dto.aisle, rackNumber: dto.rackNumber, shelfPosition: dto.shelfPosition, binCode,
           imageUrl: dto.imageUrl, isActive: true,
@@ -574,6 +627,8 @@ export class ProductsService {
           costPrice: dto.costPrice ?? 0,
           mrp: dto.mrp,
           sellingPrice: dto.sellingPrice,
+          wholesalePrice: dto.wholesalePrice ?? null,
+          minSellingPrice: dto.minSellingPrice ?? 0,
           receivedQty: 0, soldQty: 0, stockOnHand: 0,
           isDefault: true, isActive: true, isArchived: false,
           createdByName: 'System (auto-created)',
@@ -859,6 +914,8 @@ export class ProductsService {
         isForSale: dto.isForSale,
         isForPurchase: dto.isForPurchase, isRepackingItem: dto.isRepackingItem,
         isPerishable: dto.isPerishable, expiryTracking: dto.expiryTracking,
+        ...(dto.shelfLifeDays       !== undefined ? { shelfLifeDays:       dto.shelfLifeDays       } : {}),
+        ...(dto.nearExpiryAlertDays !== undefined ? { nearExpiryAlertDays: dto.nearExpiryAlertDays } : {}),
         availableOnline: dto.availableOnline, aisle: dto.aisle, rackNumber: dto.rackNumber,
         shelfPosition: dto.shelfPosition, binCode, imageUrl: dto.imageUrl, isActive: dto.isActive,
         ...(dto.keywords    !== undefined ? { keywords:    dto.keywords    } : {}),

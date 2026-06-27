@@ -18,6 +18,8 @@ export class CreateProductDto {
   @Type(() => Number) @IsNumber() @IsPositive() mrp: number;
   @Type(() => Number) @IsNumber() @IsPositive() sellingPrice: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) costPrice?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) wholesalePrice?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) minSellingPrice?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) gstRatePercent?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) reorderLevel?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) minimumStockLevel?: number;
@@ -35,6 +37,8 @@ export class CreateProductDto {
   @IsOptional() @IsBoolean() isRepackingItem?: boolean;
   @IsOptional() @IsBoolean() isPerishable?: boolean;
   @IsOptional() @IsBoolean() expiryTracking?: boolean;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) shelfLifeDays?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) nearExpiryAlertDays?: number;
   @IsOptional() @IsBoolean() availableOnline?: boolean;
 
   @IsOptional() @IsString() aisle?: string;

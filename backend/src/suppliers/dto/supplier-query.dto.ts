@@ -5,4 +5,5 @@ export class SupplierQueryDto {
   @IsOptional() @IsString() limit?: string;
   @IsOptional() @IsString() search?: string;
   @IsOptional() @IsString() isActive?: string;
+  @IsOptional() @IsString() supplierType?: string;
 }

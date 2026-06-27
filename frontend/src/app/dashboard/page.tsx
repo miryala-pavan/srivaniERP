@@ -5,7 +5,9 @@ import {
   IndianRupee, ShoppingBag, AlertTriangle,
   PackageCheck, TrendingUp, TrendingDown, Minus,
   CalendarRange, Wallet, Smartphone, CreditCard, Globe, Clock, ChevronRight,
+  BarChart2, Tag,
 } from 'lucide-react';
+import { getUser } from '@/lib/auth';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
@@ -61,9 +63,123 @@ function fmt(n: number) {
   }).format(n);
 }
 
+interface MarginStats {
+  totalProducts: number;
+  withCostPrice: number;
+  zeroCostCount: number;
+  negativeCount: number;
+  suspectCount: number;
+  avgMargin: number;
+  topCategories: { name: string; avgMargin: number; count: number }[];
+  bottomCategories: { name: string; avgMargin: number; count: number }[];
+  negativeMarginProducts: { id: string; name: string; sellingPrice: number; costPrice: number; margin: number }[];
+}
+
+function MarginCard({ stats }: { stats: MarginStats }) {
+  const marginColor = stats.avgMargin >= 20 ? 'text-green-600' : stats.avgMargin >= 10 ? 'text-amber-600' : 'text-red-600';
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="bg-indigo-600 w-8 h-8 rounded-lg flex items-center justify-center">
+            <BarChart2 className="w-4 h-4 text-white" />
+          </div>
+          <h3 className="text-sm font-semibold text-gray-700">Product Margin Overview</h3>
+        </div>
+        <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full">Owner only</span>
+      </div>
+
+      {/* Summary row */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-indigo-50 rounded-lg p-3 text-center">
+          <p className={`text-2xl font-bold ${marginColor}`}>{stats.avgMargin}%</p>
+          <p className="text-xs text-gray-500 mt-0.5">Gross margin</p>
+          {stats.suspectCount > 0 && (
+            <p className="text-xs text-gray-400 mt-0.5">({stats.suspectCount} outliers excluded)</p>
+          )}
+        </div>
+        <div className="bg-gray-50 rounded-lg p-3 text-center">
+          <p className="text-2xl font-bold text-gray-800">{stats.withCostPrice}</p>
+          <p className="text-xs text-gray-500 mt-0.5">With cost price</p>
+        </div>
+        <div className={`${stats.zeroCostCount > 0 ? 'bg-amber-50' : 'bg-gray-50'} rounded-lg p-3 text-center`}>
+          <p className={`text-2xl font-bold ${stats.zeroCostCount > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{stats.zeroCostCount}</p>
+          <p className="text-xs text-gray-500 mt-0.5">No cost price</p>
+        </div>
+        <div className={`${stats.negativeCount > 0 ? 'bg-red-50' : 'bg-gray-50'} rounded-lg p-3 text-center`}>
+          <p className={`text-2xl font-bold ${stats.negativeCount > 0 ? 'text-red-600' : 'text-gray-800'}`}>{stats.negativeCount}</p>
+          <p className="text-xs text-gray-500 mt-0.5">Below cost</p>
+        </div>
+      </div>
+
+      {/* Category breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Highest margin categories</p>
+          <div className="space-y-1.5">
+            {stats.topCategories.map(c => (
+              <div key={c.name} className="flex items-center justify-between text-sm">
+                <span className="text-gray-600 truncate max-w-[60%]">{c.name}</span>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 rounded-full bg-green-200 w-16">
+                    <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${Math.min(c.avgMargin / 70 * 100, 100)}%` }} />
+                  </div>
+                  <span className="font-semibold text-green-700 w-12 text-right">{c.avgMargin}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Lowest margin categories</p>
+          <div className="space-y-1.5">
+            {stats.bottomCategories.map(c => (
+              <div key={c.name} className="flex items-center justify-between text-sm">
+                <span className="text-gray-600 truncate max-w-[60%]">{c.name}</span>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 rounded-full bg-red-100 w-16">
+                    <div className="h-1.5 rounded-full bg-red-400" style={{ width: `${Math.min(Math.abs(c.avgMargin) / 70 * 100, 100)}%` }} />
+                  </div>
+                  <span className={`font-semibold w-12 text-right ${c.avgMargin < 0 ? 'text-red-600' : 'text-amber-600'}`}>{c.avgMargin}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Negative margin alert */}
+      {stats.negativeCount > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <p className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            {stats.negativeCount} products priced below cost — likely unit mismatch (bulk cost vs unit price)
+          </p>
+          <div className="space-y-1">
+            {stats.negativeMarginProducts.slice(0, 5).map(p => (
+              <Link key={p.id} href={`/dashboard/products/${p.id}`} className="flex items-center justify-between text-xs hover:underline">
+                <span className="text-red-700 truncate max-w-[60%]">{p.name}</span>
+                <span className="text-red-600 font-medium">Cost ₹{p.costPrice.toFixed(0)} / Sell ₹{p.sellingPrice.toFixed(0)}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stats.zeroCostCount > 0 && (
+        <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+          <Tag className="w-3 h-3 inline mr-1" />
+          {stats.zeroCostCount} products have no cost price — margin is understated. Add cost prices in product catalogue.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const queryClient    = useQueryClient();
   const { connected }  = useWebSocket();
+  const user = getUser<{ role: string }>();
 
   const { data, isLoading, isError } = useQuery<DashboardData>({
     queryKey: ['dashboard'],
@@ -72,6 +188,17 @@ export default function DashboardPage() {
       return res.data;
     },
     staleTime: 60_000,
+  });
+
+  const isOwner = user?.role === 'SUPER_ADMIN';
+  const { data: marginStats } = useQuery<MarginStats>({
+    queryKey: ['margin-stats'],
+    queryFn: async () => {
+      const res = await api.get<MarginStats>('/products/margin-stats');
+      return res.data;
+    },
+    enabled: isOwner,
+    staleTime: 300_000,
   });
 
   // ── Granular WS invalidation ──────────────────────────
@@ -314,6 +441,11 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Margin card — owner only */}
+            {isOwner && marginStats && (
+              <MarginCard stats={marginStats} />
             )}
           </>
         )}

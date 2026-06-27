@@ -24,6 +24,13 @@ export class ProductsController {
   @Get('taxes')
   getTaxes(@Request() req: any) { return this.productsService.getTaxes(req.user.businessId); }
 
+  // ─── MARGIN STATS (owner only) ───────────────────────
+  @Get('margin-stats')
+  getMarginStats(@Request() req: any) {
+    if (!canViewCost(req.user.role)) return { error: 'Forbidden' };
+    return this.productsService.getMarginStats(req.user.businessId);
+  }
+
   // ─── BRANDS ──────────────────────────────────────────
   @Get('brands')
   getBrands(@Request() req: any) { return this.productsService.getBrands(req.user.businessId); }

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { Plus, Search, Edit2, Phone, Mail, MapPin, X, Check, AlertTriangle, Ban } from 'lucide-react';
+import { Plus, Search, Edit2, Phone, Mail, MapPin, X, Check, AlertTriangle, Ban, Merge } from 'lucide-react';
 import { toTitleCase, cleanSpaces, formatPhoneDisplay, validatePhone, validateGSTIN } from '@/lib/input-utils';
 import { FieldHelp } from '@/components/ui/FieldHelp';
 import { useFormAutosave } from '@/hooks/useFormAutosave';
@@ -36,6 +36,7 @@ interface Supplier {
   openingBalanceNote?: string | null;
   isGstRegistered: boolean;
   isActive: boolean;
+  supplierType?: string;
   bankAccountNumber?: string | null;
   bankIfscCode?: string | null;
   bankBankName?: string | null;
@@ -54,6 +55,16 @@ interface BankAcc {
 
 const EMPTY_BANK = { accountNumber: '', bankName: '', branchName: '', ifscCode: '', isPrimary: true };
 
+const VENDOR_TYPE_META: Record<string, { label: string; color: string; accounting: string }> = {
+  SUPPLIER:  { label: 'Supplier',          color: 'bg-blue-100 text-blue-700',    accounting: 'Trade Payable (AP)'      },
+  LOAN:      { label: 'Bank / Lender',     color: 'bg-purple-100 text-purple-700', accounting: 'Loan / Liability'        },
+  RENT:      { label: 'Landlord / Rent',   color: 'bg-orange-100 text-orange-700', accounting: 'Rent Expense'            },
+  SERVICE:   { label: 'Service Provider',  color: 'bg-teal-100 text-teal-700',    accounting: 'Operating Expense'       },
+  EXPENSE:   { label: 'One-time / Expense',color: 'bg-amber-100 text-amber-700',  accounting: 'Direct Expense'          },
+  ONE_TIME:  { label: 'One-time Vendor',   color: 'bg-gray-100 text-gray-600',    accounting: 'Direct Expense'          },
+  OTHER:     { label: 'Other',             color: 'bg-gray-100 text-gray-500',    accounting: 'Other Payable'           },
+};
+
 const EMPTY_FORM = {
   name: '',
   gstin: '',
@@ -64,6 +75,7 @@ const EMPTY_FORM = {
   paymentTermsDays: 0,
   creditLimit: 0,
   isGstRegistered: true,
+  supplierType: 'SUPPLIER',
   openingBalance: 0,
   openingBalanceType: 'DEBIT',
   openingBalanceDate: '',
@@ -79,6 +91,10 @@ export default function SuppliersPage() {
   const [page, setPage]       = useState(1);
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('');
+  const [mergeSource, setMergeSource] = useState<{ id: string; name: string } | null>(null);
+  const [mergeTarget, setMergeTarget] = useState('');
+  const [merging, setMerging] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing]     = useState<Supplier | null>(null);
@@ -113,10 +129,10 @@ export default function SuppliersPage() {
 
   // ── Query ──────────────────────────────────────────────
   const { data, isLoading } = useQuery({
-    queryKey: ['suppliers', { page, search: debouncedSearch, showInactive }],
+    queryKey: ['suppliers', { page, search: debouncedSearch, showInactive, typeFilter }],
     queryFn:  async () => {
       const res = await api.get('/suppliers', {
-        params: { page, limit: 20, search: debouncedSearch || undefined, isActive: showInactive ? 'all' : undefined },
+        params: { page, limit: 50, search: debouncedSearch || undefined, isActive: showInactive ? 'all' : undefined, supplierType: typeFilter || undefined },
       });
       return res.data as { data: Supplier[]; meta: { totalPages: number; total: number } };
     },
@@ -155,6 +171,7 @@ export default function SuppliersPage() {
         paymentTermsDays:  Number(form.paymentTermsDays),
         creditLimit:       Number(form.creditLimit),
         isGstRegistered:   form.isGstRegistered,
+        supplierType:      form.supplierType,
       };
       if (editing) {
         await api.put(`/suppliers/${editing.id}`, payload);
@@ -230,6 +247,7 @@ export default function SuppliersPage() {
       paymentTermsDays:    s.paymentTermsDays,
       creditLimit:         Number(s.creditLimit),
       isGstRegistered:     s.isGstRegistered,
+      supplierType:        s.supplierType ?? 'SUPPLIER',
       openingBalance:      Number(s.openingBalance ?? 0),
       openingBalanceType:  s.openingBalanceType ?? 'DEBIT',
       openingBalanceDate:  s.openingBalanceDate ? s.openingBalanceDate.slice(0, 10) : '',
@@ -242,6 +260,23 @@ export default function SuppliersPage() {
   function save() {
     if (!form.name.trim()) { toast.error('Name is required'); return; }
     saveMutation.mutate();
+  }
+
+  async function executeMerge() {
+    if (!mergeSource || !mergeTarget) return;
+    if (!confirm(`Merge "${mergeSource.name}" INTO the selected supplier?\n\nAll purchases, payments and advances from "${mergeSource.name}" will move to the target. "${mergeSource.name}" will be deactivated. This cannot be undone.`)) return;
+    setMerging(true);
+    try {
+      await api.post(`/suppliers/${mergeSource.id}/merge-into/${mergeTarget}`);
+      toast.success('Suppliers merged successfully');
+      setMergeSource(null);
+      setMergeTarget('');
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Merge failed');
+    } finally {
+      setMerging(false);
+    }
   }
 
   const fmt = (n: number | string) =>
@@ -265,8 +300,19 @@ export default function SuppliersPage() {
             placeholder="Search name, phone, GSTIN or scan…"
             className="flex-1 max-w-xs"
           />
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none ml-2"
-            title="Include deactivated suppliers in the list">
+          {/* Vendor type filter */}
+          <select
+            value={typeFilter}
+            onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
+            className="text-sm border border-gray-200 rounded-lg px-2 py-2 text-gray-600 focus:outline-none focus:border-[#1B4F8A]"
+          >
+            <option value="">All types</option>
+            {Object.entries(VENDOR_TYPE_META).map(([k, v]) => (
+              <option key={k} value={k}>{v.label}</option>
+            ))}
+          </select>
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none"
+            title="Include deactivated vendors in the list">
             <input
               type="checkbox"
               checked={showInactive}
@@ -275,7 +321,7 @@ export default function SuppliersPage() {
             />
             Show inactive
           </label>
-          <span className="text-sm text-gray-400 ml-auto">{total} supplier{total !== 1 ? 's' : ''}</span>
+          <span className="text-sm text-gray-400 ml-auto">{total} vendor{total !== 1 ? 's' : ''}</span>
           <button
             onClick={() => openInNewWindow('/dashboard/suppliers/import-bank-accounts')}
             className="flex items-center gap-1.5 border border-[#1B4F8A] text-[#1B4F8A] text-sm font-medium px-3 py-2 rounded-lg hover:bg-blue-50 transition-colors"
@@ -300,7 +346,8 @@ export default function SuppliersPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Supplier</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Vendor</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">Type</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">Contact</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600 hidden lg:table-cell">GSTIN</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600 hidden xl:table-cell">Bank A/c</th>
@@ -332,6 +379,18 @@ export default function SuppliersPage() {
                             <MapPin className="w-3 h-3" /> {s.address}
                           </p>
                         )}
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell">
+                        {(() => {
+                          const t = s.supplierType ?? 'SUPPLIER';
+                          const m = VENDOR_TYPE_META[t] ?? VENDOR_TYPE_META['OTHER'];
+                          return (
+                            <div>
+                              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${m.color}`}>{m.label}</span>
+                              <p className="text-[10px] text-gray-400 mt-0.5">{m.accounting}</p>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
                         <div className="space-y-0.5">
@@ -390,6 +449,13 @@ export default function SuppliersPage() {
                             className="p-1.5 rounded-lg text-gray-300 hover:text-[#1B4F8A] hover:bg-blue-50 transition-colors text-sm leading-none"
                           >
                             ↗
+                          </button>
+                          <button
+                            onClick={() => { setMergeSource({ id: s.id, name: s.name }); setMergeTarget(''); }}
+                            title="Merge duplicate into another vendor"
+                            className="p-1.5 rounded-lg text-gray-300 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                          >
+                            <Merge className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => openEdit(s)}
@@ -471,20 +537,40 @@ export default function SuppliersPage() {
                 ) : null;
               })()}
 
-              {/* ── Row 1: Name (full width) ── */}
-              <div className="space-y-1 mb-4">
-                <div className="flex items-center gap-0.5">
-                  <label className="text-xs font-medium text-gray-600">Supplier Name *</label>
-                  <FieldHelp title="Supplier Name" description="Enter the supplier's name exactly as registered. This appears on GRN documents and payment records." />
+              {/* ── Row 1: Name + Vendor Type ── */}
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="col-span-2 space-y-1">
+                  <div className="flex items-center gap-0.5">
+                    <label className="text-xs font-medium text-gray-600">Vendor Name *</label>
+                    <FieldHelp title="Vendor Name" description="Enter the name exactly as registered. This appears on GRN documents and payment records." />
+                  </div>
+                  <input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    onBlur={(e) => setForm((f) => ({ ...f, name: toTitleCase(cleanSpaces(e.target.value)) }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+                    placeholder="Official name as per GST registration"
+                    autoFocus
+                  />
                 </div>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  onBlur={(e) => setForm((f) => ({ ...f, name: toTitleCase(cleanSpaces(e.target.value)) }))}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
-                  placeholder="Enter supplier name — official name as per GST registration"
-                  autoFocus
-                />
+                <div className="space-y-1">
+                  <div className="flex items-center gap-0.5">
+                    <label className="text-xs font-medium text-gray-600">Vendor Type</label>
+                    <FieldHelp title="Vendor Type" description="Classify this vendor for accounting. Helps your CA categorize payables correctly in the books." example="Product suppliers → 'Supplier', banks → 'Bank / Lender', rent → 'Landlord / Rent'" />
+                  </div>
+                  <select
+                    value={form.supplierType}
+                    onChange={(e) => setForm({ ...form, supplierType: e.target.value })}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+                  >
+                    {Object.entries(VENDOR_TYPE_META).map(([k, v]) => (
+                      <option key={k} value={k}>{v.label}</option>
+                    ))}
+                  </select>
+                  {form.supplierType && VENDOR_TYPE_META[form.supplierType] && (
+                    <p className="text-[10px] text-gray-400">{VENDOR_TYPE_META[form.supplierType].accounting}</p>
+                  )}
+                </div>
               </div>
 
               {/* ── Row 2: Phone | Email | GSTIN ── */}
@@ -844,6 +930,50 @@ export default function SuppliersPage() {
               >
                 <Check className="w-4 h-4" />
                 {saveMutation.isPending ? 'Saving…' : editing ? 'Update' : 'Add Supplier'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Merge dialog */}
+      {mergeSource && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setMergeSource(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-base font-semibold text-gray-800 mb-1">Merge Vendor</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              All purchases, payments and advances from <span className="font-semibold text-gray-700">{mergeSource.name}</span> will move to the target vendor.
+              The source will be deactivated. This cannot be undone.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Source (will be deactivated)</label>
+                <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-medium">{mergeSource.name}</div>
+              </div>
+              <div className="flex items-center justify-center text-gray-400 text-xs">↓ merge into ↓</div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Keep (target vendor)</label>
+                <select
+                  value={mergeTarget}
+                  onChange={(e) => setMergeTarget(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+                >
+                  <option value="">— Select the vendor to keep —</option>
+                  {suppliers.filter(s => s.id !== mergeSource.id).map(s => (
+                    <option key={s.id} value={s.id}>{s.name}{!s.isActive ? ' (inactive)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setMergeSource(null)}
+                className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={executeMerge} disabled={!mergeTarget || merging}
+                className="flex-1 px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 font-medium">
+                {merging ? 'Merging…' : 'Merge & Deactivate Source'}
               </button>
             </div>
           </div>

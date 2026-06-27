@@ -46,7 +46,7 @@ interface Product {
   category?: { id: string; name: string; code?: string; label?: string; parent?: { id: string; name: string; label?: string } | null } | null;
   brand?: { id: string; name: string } | null;
   tax: { id: string; taxName: string; taxRate: number | string };
-  defaultPlu?: { id: string; pluCode: string; sellingPrice: number; mrp: number; costPrice: number; gstRate: number; cessRate: number; wholesalePrice: number | null; stockOnHand: number; } | null;
+  defaultPlu?: { id: string; pluCode: string; sellingPrice: number; mrp: number; costPrice: number; gstRate: number; cessRate: number; wholesalePrice: number | null; minSellingPrice: number; stockOnHand: number; } | null;
   activePluCount?: number;
   imageUrl?: string | null;
   updatedAt?: string;
@@ -98,12 +98,16 @@ const STOCK_OPTIONS_UNIT = ['PCS', 'KG', 'BTL', 'PKT', 'BOX', 'LTR'];
 
 const EMPTY_FORM = {
   name: '', shortName: '', barcode: '', hsnCode: '', unitOfMeasure: 'PCS',
-  productType: 'STANDARD', mrp: '', sellingPrice: '', costPrice: '', reorderLevel: '10',
+  productType: 'STANDARD', mrp: '', sellingPrice: '', costPrice: '',
+  wholesalePrice: '', minSellingPrice: '', reorderLevel: '10',
   departmentId: '', mainCategoryId: '', categoryId: '', taxId: '', isActive: true,
   isReturnable: true, returnPeriodDays: '7', nonReturnableReason: '',
-  expiryTracking: false, minimumStockLevel: '0', reorderQuantity: '0',
-  defaultPackSize: '1', allowNegativeStock: false, allowBelowMargin: false, cessRate: '0',
+  expiryTracking: false, shelfLifeDays: '', nearExpiryAlertDays: '',
+  minimumStockLevel: '0', reorderQuantity: '0',
+  defaultPackSize: '1', allowNegativeStock: false, allowBelowMargin: false,
+  allowDecimalQty: false, isPerishable: false, cessRate: '0',
   purchaseUnit: 'PCS', stockUnit: 'PCS', brandId: '',
+  aisle: '', rackNumber: '', shelfPosition: '',
   keywords: '', description: '',
 };
 
@@ -557,7 +561,10 @@ export default function ProductsPage() {
       name: p.name, shortName: p.shortName ?? '', barcode: p.barcode ?? '', hsnCode: p.hsnCode,
       unitOfMeasure: p.unitOfMeasure, productType: p.productType ?? 'STANDARD',
       mrp: String(p.mrp), sellingPrice: String(p.sellingPrice),
-      costPrice: p.costPrice ? String(p.costPrice) : '', reorderLevel: String(p.reorderLevel),
+      costPrice: p.costPrice ? String(p.costPrice) : '',
+      wholesalePrice: p.defaultPlu?.wholesalePrice ? String(p.defaultPlu.wholesalePrice) : '',
+      minSellingPrice: p.defaultPlu?.minSellingPrice ? String(p.defaultPlu.minSellingPrice) : '',
+      reorderLevel: String(p.reorderLevel),
       departmentId:   deptId,
       mainCategoryId: parentCatId,
       categoryId:     isSubCat ? (p.category?.id ?? '') : '',
@@ -566,15 +573,22 @@ export default function ProductsPage() {
       returnPeriodDays: String(p.returnPeriodDays ?? 7),
       nonReturnableReason: p.nonReturnableReason ?? '',
       expiryTracking: (p as any).expiryTracking ?? false,
+      shelfLifeDays: String((p as any).shelfLifeDays ?? ''),
+      nearExpiryAlertDays: String((p as any).nearExpiryAlertDays ?? ''),
       minimumStockLevel: String((p as any).minimumStockLevel ?? 0),
       reorderQuantity: String((p as any).reorderQuantity ?? 0),
       defaultPackSize: String((p as any).defaultPackSize ?? 1),
       allowNegativeStock: (p as any).allowNegativeStock ?? false,
       allowBelowMargin: (p as any).allowBelowMargin ?? false,
+      allowDecimalQty: (p as any).allowDecimalQty ?? false,
+      isPerishable: (p as any).isPerishable ?? false,
       cessRate: String((p as any).cessRate ?? 0),
       purchaseUnit: (p as any).purchaseUnit ?? 'PCS',
       stockUnit: (p as any).stockUnit ?? 'PCS',
       brandId: p.brand?.id ?? '',
+      aisle: (p as any).aisle ?? '',
+      rackNumber: (p as any).rackNumber ?? '',
+      shelfPosition: (p as any).shelfPosition ?? '',
       keywords: (p as any).keywords ?? '',
       description: (p as any).description ?? '',
     });
@@ -608,6 +622,8 @@ export default function ProductsPage() {
         unitOfMeasure: form.unitOfMeasure, productType: form.productType,
         mrp: Number(form.mrp), sellingPrice: Number(form.sellingPrice),
         costPrice: form.costPrice ? Number(form.costPrice) : undefined,
+        wholesalePrice: (form as any).wholesalePrice ? Number((form as any).wholesalePrice) : undefined,
+        minSellingPrice: (form as any).minSellingPrice ? Number((form as any).minSellingPrice) : undefined,
         reorderLevel: Number(form.reorderLevel) || 10,
         departmentId: (form as any).departmentId || undefined,
         categoryId: resolvedCategoryId, taxId: form.taxId, isActive: form.isActive,
@@ -615,6 +631,13 @@ export default function ProductsPage() {
         returnPeriodDays: Number(form.returnPeriodDays) || 7,
         nonReturnableReason: !form.isReturnable && form.nonReturnableReason.trim() ? form.nonReturnableReason.trim() : undefined,
         expiryTracking: form.expiryTracking,
+        shelfLifeDays: (form as any).shelfLifeDays ? Number((form as any).shelfLifeDays) : undefined,
+        nearExpiryAlertDays: (form as any).nearExpiryAlertDays ? Number((form as any).nearExpiryAlertDays) : undefined,
+        isPerishable: (form as any).isPerishable,
+        allowDecimalQty: (form as any).allowDecimalQty,
+        aisle: (form as any).aisle?.trim() || undefined,
+        rackNumber: (form as any).rackNumber?.trim() || undefined,
+        shelfPosition: (form as any).shelfPosition?.trim() || undefined,
         minimumStockLevel: Number(form.minimumStockLevel) || 0,
         reorderQuantity: Number(form.reorderQuantity) || 0,
         defaultPackSize: Number(form.defaultPackSize) || 1,
@@ -1705,6 +1728,26 @@ export default function ProductsPage() {
                         className={`inp ${costPriceWarn ? 'border-amber-400' : ''}`} min={0} step="0.01" />
                       {costPriceWarn && <p className="text-xs text-amber-600 mt-0.5">{costPriceWarn}</p>}
                     </Fld>
+                    <Fld label="Wholesale Price (₹)" help={{
+                      hint: 'B2B / bulk-buyer price (optional)',
+                      title: 'Wholesale Price',
+                      description: 'Special price for wholesale/institutional buyers. Leave blank to use selling price for all customers.',
+                      example: 'Example: MRP ₹100, Retail ₹85, Wholesale ₹75',
+                    }}>
+                      <input type="number" value={(form as any).wholesalePrice}
+                        onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value } as any)}
+                        className="inp" min={0} step="0.01" placeholder="Optional" />
+                    </Fld>
+                    <Fld label="Min Selling Price (₹)" help={{
+                      hint: 'Floor price — cashier cannot sell below this',
+                      title: 'Minimum Selling Price',
+                      description: 'Cashiers and staff cannot sell below this price. Prevents accidental under-pricing. Leave blank for no floor.',
+                      example: 'Example: If selling price is ₹85, set floor to ₹80 to allow discounts but not below cost.',
+                    }}>
+                      <input type="number" value={(form as any).minSellingPrice}
+                        onChange={(e) => setForm({ ...form, minSellingPrice: e.target.value } as any)}
+                        className="inp" min={0} step="0.01" placeholder="Optional" />
+                    </Fld>
                     <Fld label="Tax Slab *" help={{
                       hint: 'GST rate applicable to this product',
                       title: 'Tax Slab',
@@ -1806,6 +1849,7 @@ export default function ProductsPage() {
                 <div /> {/* blank column placeholder */}
 
                 {/* Toggle cards */}
+                {/* Toggle: Expiry Tracking */}
                 <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
                   <div>
                     <p className="text-xs font-medium text-gray-700">Expiry Tracking</p>
@@ -1817,10 +1861,35 @@ export default function ProductsPage() {
                   </button>
                 </div>
 
+                {/* Toggle: Perishable */}
+                <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+                  <div>
+                    <p className="text-xs font-medium text-gray-700">Perishable</p>
+                    <p className="text-xs text-gray-400">Short shelf life, temperature sensitive</p>
+                  </div>
+                  <button type="button" onClick={() => setForm({ ...form, isPerishable: !(form as any).isPerishable } as any)}
+                    className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ml-2 ${(form as any).isPerishable ? 'bg-[#1B4F8A]' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(form as any).isPerishable ? 'translate-x-4' : ''}`} />
+                  </button>
+                </div>
+
+                {/* Toggle: Allow Decimal Qty */}
+                <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+                  <div>
+                    <p className="text-xs font-medium text-gray-700">Decimal Quantity</p>
+                    <p className="text-xs text-gray-400">Sell in fractions (e.g. 0.5 kg)</p>
+                  </div>
+                  <button type="button" onClick={() => setForm({ ...form, allowDecimalQty: !(form as any).allowDecimalQty } as any)}
+                    className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ml-2 ${(form as any).allowDecimalQty ? 'bg-[#1B4F8A]' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(form as any).allowDecimalQty ? 'translate-x-4' : ''}`} />
+                  </button>
+                </div>
+
+                {/* Toggle: Negative Stock */}
                 <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
                   <div>
                     <p className="text-xs font-medium text-gray-700">Negative Stock</p>
-                    <p className="text-xs text-gray-400">Bill when stock zero</p>
+                    <p className="text-xs text-gray-400">Bill when stock is zero</p>
                   </div>
                   <button type="button" onClick={() => setForm({ ...form, allowNegativeStock: !form.allowNegativeStock })}
                     className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ml-2 ${form.allowNegativeStock ? 'bg-[#1B4F8A]' : 'bg-gray-300'}`}>
@@ -1852,7 +1921,65 @@ export default function ProductsPage() {
                   </button>
                 </div>
 
-                <div /> {/* blank column placeholder */}
+                {/* Shelf life — shown only when expiry tracking is on */}
+                {form.expiryTracking && (<>
+                  <Fld label="Shelf Life (days)" help={{
+                    hint: 'Total shelf life of this product from manufacture date',
+                    title: 'Shelf Life',
+                    description: 'How many days this product stays fresh/usable after manufacture. Used to auto-calculate expiry.',
+                    example: 'Milk: 5 days, Biscuits: 180 days, Spices: 730 days',
+                  }}>
+                    <input type="number" min={1} value={(form as any).shelfLifeDays}
+                      onChange={(e) => setForm({ ...form, shelfLifeDays: e.target.value } as any)}
+                      className="inp" placeholder="e.g. 180" />
+                  </Fld>
+                  <Fld label="Near-Expiry Alert (days)" help={{
+                    hint: 'Days before expiry to show alert',
+                    title: 'Near-Expiry Alert',
+                    description: 'Alert will fire this many days before the batch expires, so you can discount or pull the stock.',
+                    example: 'If shelf life is 180 days, set alert to 30 days',
+                  }}>
+                    <input type="number" min={1} value={(form as any).nearExpiryAlertDays}
+                      onChange={(e) => setForm({ ...form, nearExpiryAlertDays: e.target.value } as any)}
+                      className="inp" placeholder="e.g. 30" />
+                  </Fld>
+                </>)}
+
+                {/* ── Store Location ── */}
+                <SectionDivider label="Store Location" />
+                <Fld label="Aisle" help={{ hint: 'Store aisle where this product is kept', title: 'Aisle', description: 'Aisle or section identifier in your store. Helps staff locate products quickly.', example: 'A1, Aisle 3, Frozen Foods' }}>
+                  <input type="text" value={(form as any).aisle}
+                    onChange={(e) => setForm({ ...form, aisle: e.target.value } as any)}
+                    className="inp" placeholder="e.g. A3" />
+                </Fld>
+                <Fld label="Rack / Bay">
+                  <input type="text" value={(form as any).rackNumber}
+                    onChange={(e) => setForm({ ...form, rackNumber: e.target.value } as any)}
+                    className="inp" placeholder="e.g. R2" />
+                </Fld>
+                <Fld label="Shelf Position">
+                  <input type="text" value={(form as any).shelfPosition}
+                    onChange={(e) => setForm({ ...form, shelfPosition: e.target.value } as any)}
+                    className="inp" placeholder="e.g. Eye level / Bottom" />
+                </Fld>
+                <div />
+
+                {/* ── Search & Discovery ── */}
+                <SectionDivider label="Search & Discovery" />
+                <div className="col-span-2 lg:col-span-4">
+                  <Fld label="Search Keywords" help={{ hint: 'Extra keywords for internal search (aliases, common names)', title: 'Search Keywords', description: 'Comma-separated alternate names or spellings. Helps cashiers find this product at the billing counter.', example: 'toor dal, arhar, pigeon pea' }}>
+                    <input type="text" value={form.keywords}
+                      onChange={(e) => setForm({ ...form, keywords: e.target.value })}
+                      className="inp" placeholder="e.g. surf excel, washing powder, detergent" />
+                  </Fld>
+                </div>
+                <div className="col-span-2 lg:col-span-4">
+                  <Fld label="Product Description" help={{ hint: 'Description shown on online storefront and receipts', title: 'Product Description', description: 'A short description of the product. Shown on the online store and can be printed on receipts.' }}>
+                    <textarea value={form.description}
+                      onChange={(e) => setForm({ ...form, description: e.target.value })}
+                      className="inp resize-none" rows={3} placeholder="e.g. Premium cold-pressed groundnut oil, ideal for frying and cooking." />
+                  </Fld>
+                </div>
 
                 {/* ── Other ── */}
                 <SectionDivider label="Other" />

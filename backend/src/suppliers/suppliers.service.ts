@@ -76,6 +76,7 @@ export class SuppliersService {
         paymentTermsDays:  dto.paymentTermsDays ?? 0,
         creditLimit:       dto.creditLimit ?? 0,
         isGstRegistered:   dto.isGstRegistered ?? true,
+        supplierType:      dto.supplierType ?? 'SUPPLIER',
       },
     });
   }
@@ -92,6 +93,9 @@ export class SuppliersService {
       where.isActive = query.isActive === 'true';
     } else {
       where.isActive = true;
+    }
+    if (query.supplierType) {
+      where.supplierType = query.supplierType;
     }
     if (query.search) {
       const wf = wildcardFilter(query.search);
@@ -244,6 +248,7 @@ export class SuppliersService {
         creditLimit:      dto.creditLimit,
         isGstRegistered:  dto.isGstRegistered,
         isActive:         dto.isActive,
+        ...(dto.supplierType !== undefined ? { supplierType: dto.supplierType } : {}),
       },
     });
 
