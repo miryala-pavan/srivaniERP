@@ -82,7 +82,7 @@ export type SortOption = 'nameAsc' | 'priceAsc' | 'priceDesc' | 'savings';
 export async function getCategories(): Promise<ShopCategory[]> {
   try {
     const res = await fetch(`${API_BASE}/shop/categories`, {
-      next: { revalidate: 60 },
+      next: { revalidate: 60 }, signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
     return res.json();
@@ -94,7 +94,7 @@ export async function getCategories(): Promise<ShopCategory[]> {
 export async function getDepartments(): Promise<ShopDepartment[]> {
   try {
     const res = await fetch(`${API_BASE}/shop/departments`, {
-      next: { revalidate: 60 },
+      next: { revalidate: 60 }, signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
     return res.json();
@@ -106,7 +106,7 @@ export async function getDepartments(): Promise<ShopDepartment[]> {
 export async function getNavTree(): Promise<NavDepartment[]> {
   try {
     const res = await fetch(`${API_BASE}/shop/nav-tree`, {
-      next: { revalidate: 60 },
+      next: { revalidate: 60 }, signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
     return res.json();
@@ -138,7 +138,7 @@ export async function getProducts(params?: {
     if (params?.page)            url.searchParams.set('page', String(params.page));
     if (params?.limit)           url.searchParams.set('limit', String(params.limit));
 
-    const res = await fetch(url.toString(), { next: { revalidate: 30 } });
+    const res = await fetch(url.toString(), { next: { revalidate: 30 }, signal: AbortSignal.timeout(5000) });
     if (!res.ok) return { data: [], total: 0, page: 1, totalPages: 0 };
     return res.json();
   } catch {
@@ -149,7 +149,7 @@ export async function getProducts(params?: {
 export async function getProduct(code: string): Promise<ShopProduct | null> {
   try {
     const res = await fetch(`${API_BASE}/shop/products/${code}`, {
-      cache: 'no-store',
+      cache: 'no-store', signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
     return res.json();

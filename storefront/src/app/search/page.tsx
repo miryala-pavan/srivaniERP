@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { getProducts } from '@/lib/shop';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import ProductGrid from '@/components/ProductGrid';
