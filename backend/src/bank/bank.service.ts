@@ -262,7 +262,7 @@ export class BankService {
     // Load all suppliers with bank details for auto-matching
     const suppliers = await this.prisma.supplier.findMany({
       where:  { businessId, isActive: true },
-      select: { id: true, name: true, bankAccountNumber: true, bankIfscCode: true },
+      select: { id: true, name: true, bankAccountNumber: true, bankIfscCode: true, bankAliases: true },
     });
 
     // Build import batch + transactions in one transaction
@@ -338,11 +338,12 @@ export class BankService {
    * Priority:
    *   1. Exact bank account number in description/ref  → highest confidence
    *   2. IFSC code in description/ref                  → high confidence
-   *   3. Fuzzy name token match (≥60% tokens)          → fallback
+   *   3. Exact alias match (bankAliases field)          → high confidence
+   *   4. Fuzzy name / alias token match (≥60% tokens)  → fallback
    */
   private matchSupplier(
     text: string,
-    suppliers: { id: string; name: string; bankAccountNumber?: string | null; bankIfscCode?: string | null }[],
+    suppliers: { id: string; name: string; bankAccountNumber?: string | null; bankIfscCode?: string | null; bankAliases?: string[] }[],
   ): string | null {
     const t = text.toUpperCase().replace(/\s+/g, ' ');
 
@@ -364,21 +365,33 @@ export class BankService {
       }
     }
 
-    // ── 3. Fuzzy name token match (fallback) ─────────────
+    // ── 3. Exact alias match ──────────────────────────────
+    for (const s of suppliers) {
+      for (const alias of s.bankAliases ?? []) {
+        const a = alias.toUpperCase().trim();
+        if (a.length >= 3 && t.includes(a)) {
+          return s.id;
+        }
+      }
+    }
+
+    // ── 4. Fuzzy name + alias token match (fallback) ──────
+    const NOISE = /\bPVT\b|\bLTD\b|\bPRIVATE\b|\bLIMITED\b|\bENTERPRISES?\b|\bTRADERS?\b|\bAGENCIES\b|\bAGENCY\b|\bSTORES?\b|\bAND\b|\b&\b/g;
     let best: { id: string; score: number } | null = null;
 
-    for (const s of suppliers) {
-      const sName = s.name.toUpperCase()
-        .replace(/\bPVT\b|\bLTD\b|\bPRIVATE\b|\bLIMITED\b|\bENTERPRISES?\b|\bTRADERS?\b|\bAGENCIES\b|\bAGENCY\b/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      if (sName.length < 3) continue;
-
-      const tokens  = sName.split(' ').filter(w => w.length >= 3);
+    const scoreText = (raw: string): number => {
+      const cleaned = raw.toUpperCase().replace(NOISE, '').replace(/\s+/g, ' ').trim();
+      if (cleaned.length < 3) return 0;
+      const tokens  = cleaned.split(' ').filter(w => w.length >= 3);
       const matched = tokens.filter(tok => t.includes(tok));
-      const score   = tokens.length > 0 ? matched.length / tokens.length : 0;
+      return tokens.length > 0 ? matched.length / tokens.length : 0;
+    };
 
+    for (const s of suppliers) {
+      let score = scoreText(s.name);
+      for (const alias of s.bankAliases ?? []) {
+        score = Math.max(score, scoreText(alias));
+      }
       if (score >= 0.6 && (!best || score > best.score)) {
         best = { id: s.id, score };
       }
@@ -392,7 +405,7 @@ export class BankService {
     // Load suppliers with bank details for re-identification pass
     const allSuppliers = await this.prisma.supplier.findMany({
       where:  { businessId, isActive: true },
-      select: { id: true, name: true, bankAccountNumber: true, bankIfscCode: true },
+      select: { id: true, name: true, bankAccountNumber: true, bankIfscCode: true, bankAliases: true },
     });
 
     // First pass: try to identify supplier for transactions that have supplierId=null

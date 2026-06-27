@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Phone, Mail, MapPin, Edit2, AlertTriangle,
-  ChevronLeft, ChevronRight, RefreshCw, X,
+  ChevronLeft, ChevronRight, RefreshCw, X, Tag, GitMerge, Plus,
 } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -88,8 +88,12 @@ export default function SupplierDetailPage() {
   const [grnStatus, setGrnStatus] = useState('');
   const [stmtFrom,  setStmtFrom]  = useState('');
   const [stmtTo,    setStmtTo]    = useState('');
-  const [showPay,   setShowPay]   = useState(false);
-  const [payForm,   setPayForm]   = useState({ ...EMPTY_PAY });
+  const [showPay,      setShowPay]      = useState(false);
+  const [payForm,      setPayForm]      = useState({ ...EMPTY_PAY });
+  const [aliasInput,   setAliasInput]   = useState('');
+  const [showMerge,    setShowMerge]    = useState(false);
+  const [mergeSearch,  setMergeSearch]  = useState('');
+  const [mergeTarget,  setMergeTarget]  = useState<{ id: string; name: string } | null>(null);
 
   useEscapeKey(() => setShowPay(false), showPay);
 
@@ -150,6 +154,31 @@ export default function SupplierDetailPage() {
       qc.invalidateQueries({ queryKey: ['supplier', id] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record payment'),
+  });
+
+  // ── Bank alias mutation ──────────────────────────────────────────────────────
+
+  const addAlias = useMutation({
+    mutationFn: (aliases: string[]) => api.patch(`/suppliers/${id}/bank-aliases`, { aliases }),
+    onSuccess: () => { toast.success('Bank aliases saved'); qc.invalidateQueries({ queryKey: ['supplier', id] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to save aliases'),
+  });
+
+  // ── Merge supplier ───────────────────────────────────────────────────────────
+
+  const { data: mergeResults = [] } = useQuery<any[]>({
+    queryKey: ['suppliers-search', mergeSearch],
+    queryFn: () => api.get('/suppliers', { params: { search: mergeSearch, limit: 8, isActive: 'all' } }).then(r => r.data.suppliers ?? []),
+    enabled: showMerge && mergeSearch.length >= 2,
+  });
+
+  const mergeMut = useMutation({
+    mutationFn: () => api.post(`/suppliers/${id}/merge-into/${mergeTarget!.id}`),
+    onSuccess: (res) => {
+      toast.success(`Merged into ${res.data.into}`);
+      router.push('/dashboard/suppliers');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Merge failed'),
   });
 
   // ── Real-time ────────────────────────────────────────────────────────────────
@@ -256,9 +285,121 @@ export default function SupplierDetailPage() {
               >
                 <Edit2 className="w-4 h-4" />
               </button>
+              <button
+                onClick={() => { setShowMerge(true); setMergeSearch(''); setMergeTarget(null); }}
+                className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500"
+                title="Merge duplicate supplier into another"
+              >
+                <GitMerge className="w-4 h-4" />
+              </button>
             </div>
           </div>
+
+          {/* Bank aliases */}
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="flex items-center gap-1 text-xs text-gray-400 mt-1 shrink-0">
+                <Tag className="w-3 h-3" /> Bank names:
+              </span>
+              {(supplier.bankAliases ?? []).map((a: string) => (
+                <span key={a} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-0.5">
+                  {a}
+                  <button
+                    onClick={() => {
+                      const next = (supplier.bankAliases as string[]).filter((x: string) => x !== a);
+                      addAlias.mutate(next);
+                    }}
+                    className="ml-0.5 hover:text-red-500"
+                    title="Remove alias"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+              <form
+                className="flex items-center gap-1"
+                onSubmit={e => {
+                  e.preventDefault();
+                  const val = aliasInput.trim().toUpperCase();
+                  if (!val) return;
+                  const current: string[] = supplier.bankAliases ?? [];
+                  if (!current.includes(val)) addAlias.mutate([...current, val]);
+                  setAliasInput('');
+                }}
+              >
+                <input
+                  value={aliasInput}
+                  onChange={e => setAliasInput(e.target.value.toUpperCase())}
+                  placeholder="Add bank name…"
+                  className="text-xs border border-dashed border-gray-300 rounded-full px-2.5 py-0.5 w-36 focus:outline-none focus:border-blue-400 bg-transparent"
+                />
+                <button type="submit" className="text-blue-600 hover:text-blue-800" title="Add">
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Type the supplier name exactly as it appears in your bank statement — future uploads will auto-match.
+            </p>
+          </div>
         </div>
+
+        {/* Merge modal */}
+        {showMerge && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <GitMerge className="w-4 h-4" /> Merge Duplicate Supplier
+                </h2>
+                <button onClick={() => setShowMerge(false)}><X className="w-4 h-4 text-gray-400" /></button>
+              </div>
+              <p className="text-sm text-gray-600">
+                This will move all GRNs, payments and advances from <strong>{supplier.name}</strong> into the selected supplier, then deactivate this record.
+              </p>
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-1 block">Search target supplier</label>
+                <input
+                  value={mergeSearch}
+                  onChange={e => { setMergeSearch(e.target.value); setMergeTarget(null); }}
+                  placeholder="Type supplier name…"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#1B4F8A]"
+                  autoFocus
+                />
+                {mergeResults.filter((s: any) => s.id !== id).length > 0 && !mergeTarget && (
+                  <ul className="mt-1 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-auto">
+                    {mergeResults.filter((s: any) => s.id !== id).map((s: any) => (
+                      <li key={s.id}>
+                        <button
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                          onClick={() => { setMergeTarget(s); setMergeSearch(s.name); }}
+                        >
+                          <span className="font-medium">{s.name}</span>
+                          {s.gstin && <span className="ml-2 text-xs text-gray-400 font-mono">{s.gstin}</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {mergeTarget && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                  All records will move to <strong>{mergeTarget.name}</strong>. This cannot be undone.
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setShowMerge(false)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button
+                  disabled={!mergeTarget || mergeMut.isPending}
+                  onClick={() => mergeMut.mutate()}
+                  className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium"
+                >
+                  {mergeMut.isPending ? 'Merging…' : 'Merge & Deactivate'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 6 Metric cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

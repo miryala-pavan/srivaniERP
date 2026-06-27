@@ -129,6 +129,17 @@ export class SuppliersController {
     return this.suppliersService.setActive(req.user.businessId, id, isActive);
   }
 
+  @Patch(':id/bank-aliases')
+  updateBankAliases(@Request() req: any, @Param('id') id: string, @Body('aliases') aliases: string[]) {
+    return this.suppliersService.updateBankAliases(req.user.businessId, id, aliases ?? []);
+  }
+
+  @Post(':id/merge-into/:targetId')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  mergeSupplier(@Request() req: any, @Param('id') sourceId: string, @Param('targetId') targetId: string) {
+    return this.suppliersService.mergeSupplier(req.user.businessId, sourceId, targetId);
+  }
+
   // ─── BANK ACCOUNTS ────────────────────────────────────
 
   @Get(':id/bank-accounts')

@@ -114,7 +114,7 @@ export class SuppliersService {
           address: true, stateCode: true, paymentTermsDays: true,
           creditLimit: true, isGstRegistered: true,
           isActive: true, createdAt: true, supplierType: true,
-          bankAccountNumber: true, bankIfscCode: true, bankBankName: true,
+          bankAccountNumber: true, bankIfscCode: true, bankBankName: true, bankAliases: true,
           bankAccounts: {
             where:   { isPrimary: true },
             select:  { accountNumber: true, bankName: true, branchName: true, ifscCode: true },
@@ -267,6 +267,71 @@ export class SuppliersService {
       data:  { isActive: !!isActive },
       select: { id: true, name: true, isActive: true },
     });
+  }
+
+  async updateBankAliases(businessId: string, id: string, aliases: string[]) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id, businessId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    const clean = [...new Set(aliases.map(a => a.trim()).filter(a => a.length >= 2))];
+    return this.prisma.supplier.update({
+      where:  { id },
+      data:   { bankAliases: clean },
+      select: { id: true, name: true, bankAliases: true },
+    });
+  }
+
+  async mergeSupplier(businessId: string, sourceId: string, targetId: string) {
+    if (sourceId === targetId) throw new BadRequestException('Source and target cannot be the same');
+
+    const [source, target] = await Promise.all([
+      this.prisma.supplier.findFirst({ where: { id: sourceId, businessId } }),
+      this.prisma.supplier.findFirst({ where: { id: targetId, businessId } }),
+    ]);
+    if (!source) throw new NotFoundException('Source supplier not found');
+    if (!target) throw new NotFoundException('Target supplier not found');
+
+    await this.prisma.$transaction([
+      this.prisma.purchase.updateMany({
+        where: { supplierId: sourceId, businessId },
+        data:  { supplierId: targetId },
+      }),
+      this.prisma.supplierPayment.updateMany({
+        where: { supplierId: sourceId, businessId },
+        data:  { supplierId: targetId },
+      }),
+      this.prisma.supplierAdvance.updateMany({
+        where: { supplierId: sourceId, businessId },
+        data:  { supplierId: targetId },
+      }),
+      this.prisma.supplierCreditNote.updateMany({
+        where: { supplierId: sourceId, businessId },
+        data:  { supplierId: targetId },
+      }),
+      this.prisma.bankTransaction.updateMany({
+        where: { supplierId: sourceId, businessId },
+        data:  { supplierId: targetId },
+      }),
+      // Carry source name + its aliases into target's bankAliases
+      this.prisma.supplier.update({
+        where: { id: targetId },
+        data: {
+          bankAliases: {
+            set: [...new Set([
+              ...target.bankAliases,
+              source.name,
+              ...source.bankAliases,
+            ])],
+          },
+        },
+      }),
+      // Deactivate source
+      this.prisma.supplier.update({
+        where: { id: sourceId },
+        data:  { isActive: false, name: `[MERGED] ${source.name}` },
+      }),
+    ]);
+
+    return { merged: source.name, into: target.name };
   }
 
   async updateOpeningBalance(businessId: string, id: string, dto: {

@@ -495,6 +495,9 @@ model Supplier {
   openingBalanceType String    @default("DEBIT")
   openingBalanceNote String?
 
+  // Alternate names as they appear in bank statements — used for auto-matching
+  bankAliases        String[]  @default([])
+
   // Payee type — distinguishes trade suppliers from rent/loan/other payees
   supplierType       String    @default("SUPPLIER") // SUPPLIER | RENT | LOAN | OTHER
 
