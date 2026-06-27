@@ -1213,4 +1213,78 @@ export class SuppliersService {
 
     return { imported, created, skipped };
   }
+
+  async checkDuplicateBankAccount(businessId: string, accountNumber: string, excludeSupplierId?: string) {
+    if (!accountNumber || accountNumber.trim().length < 4) return null;
+    const match = await this.prisma.supplierBankAccount.findFirst({
+      where: {
+        accountNumber: accountNumber.trim(),
+        supplier: {
+          businessId,
+          ...(excludeSupplierId ? { id: { not: excludeSupplierId } } : {}),
+        },
+      },
+      include: {
+        supplier: { select: { id: true, name: true, isActive: true, supplierType: true } },
+      },
+    });
+    if (!match) return null;
+    return {
+      supplierId:   match.supplier.id,
+      supplierName: match.supplier.name,
+      isActive:     match.supplier.isActive,
+      supplierType: match.supplier.supplierType,
+      bankName:     match.bankName,
+      ifscCode:     match.ifscCode ?? null,
+    };
+  }
+
+  async findDuplicates(businessId: string) {
+    // 1. Bank account duplicates — same account number across multiple parties
+    const bankDupes = await this.prisma.$queryRaw<any[]>`
+      SELECT sba."accountNumber", sba."bankName",
+             array_agg(s.id)            AS supplier_ids,
+             array_agg(s.name)          AS supplier_names,
+             array_agg(s."supplierType") AS supplier_types,
+             array_agg(s."isActive"::text) AS is_active
+      FROM "SupplierBankAccount" sba
+      JOIN supplier s ON s.id = sba."supplierId"
+      WHERE s."businessId" = ${businessId}
+      GROUP BY sba."accountNumber", sba."bankName"
+      HAVING COUNT(DISTINCT s.id) > 1
+      ORDER BY sba."bankName"
+    `;
+
+    // 2. Name duplicates — normalise (lowercase, strip spaces/punctuation) and group
+    const allSuppliers = await this.prisma.supplier.findMany({
+      where: { businessId },
+      select: { id: true, name: true, isActive: true, supplierType: true },
+    });
+
+    const normalize = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const nameMap = new Map<string, typeof allSuppliers>();
+    for (const s of allSuppliers) {
+      const key = normalize(s.name);
+      if (!nameMap.has(key)) nameMap.set(key, []);
+      nameMap.get(key)!.push(s);
+    }
+    const nameDupes = [...nameMap.values()].filter(g => g.length > 1);
+
+    return {
+      bankAccountDuplicates: bankDupes.map(r => ({
+        accountNumber: r.accountNumber,
+        bankName:      r.bankName,
+        parties: (r.supplier_ids as string[]).map((id: string, i: number) => ({
+          id,
+          name:         r.supplier_names[i],
+          supplierType: r.supplier_types[i],
+          isActive:     r.is_active[i] === 'true',
+        })),
+      })),
+      nameDuplicates: nameDupes.map(group => ({
+        normalizedName: normalize(group[0].name),
+        parties: group.map(s => ({ id: s.id, name: s.name, supplierType: s.supplierType, isActive: s.isActive })),
+      })),
+    };
+  }
 }

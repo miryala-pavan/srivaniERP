@@ -95,6 +95,8 @@ export default function SuppliersPage() {
   const [mergeSource, setMergeSource] = useState<{ id: string; name: string } | null>(null);
   const [mergeTarget, setMergeTarget] = useState('');
   const [merging, setMerging] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [bankDupeHint, setBankDupeHint] = useState<{ supplierId: string; supplierName: string; bankName: string } | null>(null);
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing]     = useState<Supplier | null>(null);
@@ -152,6 +154,30 @@ export default function SuppliersPage() {
   const suppliers  = data?.data ?? [];
   const totalPages = data?.meta.totalPages ?? 1;
   const total      = data?.meta.total ?? 0;
+
+  // Duplicates query — only fetched when panel is opened
+  const { data: dupData, isLoading: dupLoading, refetch: refetchDups } = useQuery({
+    queryKey: ['supplier-duplicates'],
+    queryFn: () => api.get('/suppliers/find-duplicates').then(r => r.data),
+    enabled: showDuplicates,
+    staleTime: 60_000,
+  });
+
+  // Real-time bank account duplicate check
+  useEffect(() => {
+    setBankDupeHint(null);
+    const acct = bankForm.accountNumber.trim();
+    if (acct.length < 4) return;
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get('/suppliers/bank-accounts/check-duplicate', {
+          params: { accountNumber: acct, excludeSupplierId: editing?.id },
+        });
+        if (res.data) setBankDupeHint(res.data);
+      } catch {}
+    }, 500);
+    return () => clearTimeout(t);
+  }, [bankForm.accountNumber, editing?.id]);
 
   // ── WS listeners ──────────────────────────────────────
   useWebSocketEvent('supplier.payment-recorded', () => queryClient.invalidateQueries({ queryKey: ['suppliers'] }));
@@ -322,6 +348,12 @@ export default function SuppliersPage() {
             Show inactive
           </label>
           <span className="text-sm text-gray-400 ml-auto">{total} vendor{total !== 1 ? 's' : ''}</span>
+          <button
+            onClick={() => { setShowDuplicates(true); refetchDups(); }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 transition-colors"
+          >
+            <Merge className="w-3.5 h-3.5" /> Find Duplicates
+          </button>
           <button
             onClick={() => openInNewWindow('/dashboard/suppliers/import-bank-accounts')}
             className="flex items-center gap-1.5 border border-[#1B4F8A] text-[#1B4F8A] text-sm font-medium px-3 py-2 rounded-lg hover:bg-blue-50 transition-colors"
@@ -832,9 +864,28 @@ export default function SuppliersPage() {
                         <input
                           value={bankForm.accountNumber}
                           onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value.trim() })}
-                          className="w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] bg-white font-mono"
+                          className={`w-full px-2.5 py-1.5 text-sm border rounded-lg focus:outline-none bg-white font-mono ${bankDupeHint ? 'border-amber-400 focus:border-amber-500' : 'border-gray-200 focus:border-[#1B4F8A]'}`}
                           placeholder="e.g. 10234567890"
                         />
+                        {bankDupeHint && (
+                          <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                            <p className="text-xs text-amber-800 font-medium">
+                              This account already belongs to <span className="font-semibold">{bankDupeHint.supplierName}</span> ({bankDupeHint.bankName})
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowModal(false);
+                                setMergeSource(editing ? { id: editing.id, name: editing.name } : null);
+                                setMergeTarget(bankDupeHint.supplierId);
+                                setBankDupeHint(null);
+                              }}
+                              className="mt-1.5 text-xs text-amber-700 underline hover:text-amber-900"
+                            >
+                              Merge this party into {bankDupeHint.supplierName} →
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-gray-600">IFSC Code</label>
@@ -935,6 +986,110 @@ export default function SuppliersPage() {
           </div>
         </div>
       )}
+      {/* Find Duplicates panel */}
+      {showDuplicates && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowDuplicates(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-base font-semibold text-gray-800">Duplicate Parties</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Detected by matching bank account numbers and similar names</p>
+              </div>
+              <button onClick={() => setShowDuplicates(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
+              {dupLoading && <p className="text-sm text-gray-400 text-center py-8">Scanning…</p>}
+              {!dupLoading && dupData && (
+                <>
+                  {/* Bank account duplicates */}
+                  {dupData.bankAccountDuplicates?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Same Bank Account Number</p>
+                      <div className="space-y-3">
+                        {dupData.bankAccountDuplicates.map((group: any, i: number) => (
+                          <div key={i} className="border border-amber-200 rounded-xl p-3 bg-amber-50">
+                            <p className="text-xs text-amber-700 font-medium mb-2">
+                              Account ****{group.accountNumber.slice(-4)} · {group.bankName}
+                            </p>
+                            <div className="space-y-1.5">
+                              {group.parties.map((p: any, j: number) => (
+                                <div key={p.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-100">
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-800">{p.name}</span>
+                                    <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full ${VENDOR_TYPE_META[p.supplierType]?.color ?? 'bg-gray-100 text-gray-500'}`}>
+                                      {VENDOR_TYPE_META[p.supplierType]?.label ?? p.supplierType}
+                                    </span>
+                                    {!p.isActive && <span className="ml-1 text-[10px] text-gray-400">(inactive)</span>}
+                                  </div>
+                                  {j > 0 && (
+                                    <button
+                                      onClick={() => {
+                                        setShowDuplicates(false);
+                                        setMergeSource({ id: p.id, name: p.name });
+                                        setMergeTarget(group.parties[0].id);
+                                      }}
+                                      className="text-xs text-amber-700 hover:text-amber-900 underline"
+                                    >
+                                      Merge into {group.parties[0].name}
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Name duplicates */}
+                  {dupData.nameDuplicates?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Similar Names</p>
+                      <div className="space-y-3">
+                        {dupData.nameDuplicates.map((group: any, i: number) => (
+                          <div key={i} className="border border-blue-200 rounded-xl p-3 bg-blue-50">
+                            <div className="space-y-1.5">
+                              {group.parties.map((p: any, j: number) => (
+                                <div key={p.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-blue-100">
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-800">{p.name}</span>
+                                    <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full ${VENDOR_TYPE_META[p.supplierType]?.color ?? 'bg-gray-100 text-gray-500'}`}>
+                                      {VENDOR_TYPE_META[p.supplierType]?.label ?? p.supplierType}
+                                    </span>
+                                    {!p.isActive && <span className="ml-1 text-[10px] text-gray-400">(inactive)</span>}
+                                  </div>
+                                  {j > 0 && (
+                                    <button
+                                      onClick={() => {
+                                        setShowDuplicates(false);
+                                        setMergeSource({ id: p.id, name: p.name });
+                                        setMergeTarget(group.parties[0].id);
+                                      }}
+                                      className="text-xs text-blue-700 hover:text-blue-900 underline"
+                                    >
+                                      Merge into {group.parties[0].name}
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {dupData.bankAccountDuplicates?.length === 0 && dupData.nameDuplicates?.length === 0 && (
+                    <p className="text-sm text-gray-400 text-center py-8">No duplicates found.</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Merge dialog */}
       {mergeSource && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setMergeSource(null)}>

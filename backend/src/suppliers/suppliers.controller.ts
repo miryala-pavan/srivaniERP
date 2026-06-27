@@ -30,6 +30,20 @@ export class SuppliersController {
     return this.suppliersService.findAll(req.user.businessId, query);
   }
 
+  @Get('bank-accounts/check-duplicate')
+  checkDuplicateBankAccount(
+    @Request() req: any,
+    @Query('accountNumber') accountNumber: string,
+    @Query('excludeSupplierId') excludeSupplierId?: string,
+  ) {
+    return this.suppliersService.checkDuplicateBankAccount(req.user.businessId, accountNumber, excludeSupplierId);
+  }
+
+  @Get('find-duplicates')
+  findDuplicates(@Request() req: any) {
+    return this.suppliersService.findDuplicates(req.user.businessId);
+  }
+
   // ── Multi-segment routes BEFORE /:id ─────────────────
 
   @Get(':id/balance')
