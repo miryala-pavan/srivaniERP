@@ -1,10 +1,23 @@
 'use client';
 
+import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { OnlineOrder } from '@/lib/orders';
+import { cancelOrder } from '@/lib/orders';
 
 const WA = '919382828484';
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CXZY6ACcJig_EAE/review';
+
+const CANCEL_REASONS = [
+  'Changed my mind',
+  'Ordered by mistake',
+  'Found a better price',
+  'Delivery time too long',
+  'Other',
+];
+
+const CANCELLABLE = new Set(['PENDING_PAYMENT', 'PENDING_COD', 'CONFIRMED']);
 
 const STATUS_LABELS: Record<string, { label: string; color: string; desc: string; icon: string }> = {
   PENDING_PAYMENT: { label: 'Payment Pending', color: '#f59e0b', desc: 'Waiting for payment confirmation.', icon: '⏳' },
@@ -39,6 +52,13 @@ export default function OrderStatusClient({
   order: OnlineOrder | null;
   orderNumber: string;
 }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
+  const [cancelError, setCancelError] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+
   if (!order) {
     return (
       <div className="wrap">
@@ -46,7 +66,7 @@ export default function OrderStatusClient({
           <div style={{ fontSize: '56px', marginBottom: '16px' }}>🔍</div>
           <h1 style={{ fontSize: '22px', marginBottom: '10px' }}>Order Not Found</h1>
           <p style={{ color: 'var(--ink-soft)', fontSize: '14px', marginBottom: '28px' }}>
-            We couldn't find order <strong>{orderNumber}</strong>.
+            We couldn&apos;t find order <strong>{orderNumber}</strong>.
             Please check the number or contact us.
           </p>
           <a
@@ -75,10 +95,25 @@ export default function OrderStatusClient({
   };
 
   const isSuccess = ['PENDING_COD', 'CONFIRMED', 'PROCESSING', 'READY', 'DELIVERED'].includes(order.status);
+  const canCancel = CANCELLABLE.has(order.status);
 
   const waMsg = encodeURIComponent(
     `Hi Srivani Stores, I'd like to inquire about my order ${order.orderNumber}.`,
   );
+
+  async function handleCancel() {
+    setCancelling(true);
+    setCancelError('');
+    try {
+      await cancelOrder(order!.orderNumber, cancelReason);
+      setShowCancel(false);
+      startTransition(() => router.refresh());
+    } catch (e: unknown) {
+      setCancelError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <div className="wrap">
@@ -270,6 +305,85 @@ export default function OrderStatusClient({
           >
             Continue Shopping
           </Link>
+
+          {/* Cancel Order */}
+          {canCancel && !showCancel && (
+            <button
+              onClick={() => setShowCancel(true)}
+              disabled={isPending}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '13px 0', borderRadius: '12px',
+                border: '1.5px solid #ef4444',
+                background: 'transparent', color: '#ef4444',
+                fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+                opacity: isPending ? 0.6 : 1,
+              }}
+            >
+              Cancel Order
+            </button>
+          )}
+
+          {/* Cancel confirmation panel */}
+          {canCancel && showCancel && (
+            <div style={{
+              padding: '20px',
+              background: 'var(--paper-2)',
+              border: '1.5px solid #fca5a5',
+              borderRadius: '16px',
+            }}>
+              <p style={{ fontWeight: 700, fontSize: '15px', marginBottom: '4px', color: 'var(--ink)' }}>
+                Cancel this order?
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--ink-soft)', marginBottom: '14px' }}>
+                This cannot be undone. Please select a reason:
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                {CANCEL_REASONS.map((r) => (
+                  <label key={r} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer', color: 'var(--ink)' }}>
+                    <input
+                      type="radio"
+                      name="cancelReason"
+                      value={r}
+                      checked={cancelReason === r}
+                      onChange={() => setCancelReason(r)}
+                      style={{ accentColor: '#ef4444' }}
+                    />
+                    {r}
+                  </label>
+                ))}
+              </div>
+              {cancelError && (
+                <p style={{ fontSize: '13px', color: '#ef4444', marginBottom: '12px' }}>{cancelError}</p>
+              )}
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                  style={{
+                    flex: 1, padding: '11px 0', borderRadius: '10px',
+                    background: '#ef4444', color: '#fff', border: 'none',
+                    fontWeight: 700, fontSize: '14px', cursor: cancelling ? 'not-allowed' : 'pointer',
+                    opacity: cancelling ? 0.7 : 1,
+                  }}
+                >
+                  {cancelling ? 'Cancelling…' : 'Yes, Cancel'}
+                </button>
+                <button
+                  onClick={() => { setShowCancel(false); setCancelError(''); }}
+                  disabled={cancelling}
+                  style={{
+                    flex: 1, padding: '11px 0', borderRadius: '10px',
+                    background: 'var(--paper)', color: 'var(--ink)',
+                    border: '1.5px solid var(--line)',
+                    fontWeight: 700, fontSize: '14px', cursor: 'pointer',
+                  }}
+                >
+                  Keep Order
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Review nudge — only shown after delivery */}
           {order.status === 'DELIVERED' && (

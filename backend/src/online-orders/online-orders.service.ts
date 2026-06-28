@@ -336,6 +336,50 @@ export class OnlineOrdersService {
     });
   }
 
+  async cancelOrder(orderNumber: string, reason?: string) {
+    const order = await this.prisma.onlineOrder.findUnique({ where: { orderNumber } });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const cancellable: OnlineOrderStatus[] = [
+      OnlineOrderStatus.PENDING_PAYMENT,
+      OnlineOrderStatus.PENDING_COD,
+      OnlineOrderStatus.CONFIRMED,
+    ];
+    if (!cancellable.includes(order.status)) {
+      throw new BadRequestException(
+        `Order cannot be cancelled once it is ${order.status.toLowerCase().replace(/_/g, ' ')}`,
+      );
+    }
+
+    await this.prisma.onlineOrder.update({
+      where: { orderNumber },
+      data: { status: OnlineOrderStatus.CANCELLED },
+    });
+
+    if (order.customerPhone) {
+      this.whatsapp.sendCustomerOrderUpdate({
+        customerName: order.customerName,
+        customerPhone: order.customerPhone,
+        orderNumber,
+        status: 'CANCELLED',
+        deliveryType: order.deliveryType,
+      }).catch(() => {});
+    }
+
+    this.events.emitToBusiness(order.businessId, Events.ONLINE_ORDER_STATUS_CHANGED, {
+      orderNumber,
+      status: 'CANCELLED',
+      customerName: order.customerName,
+    });
+
+    this.auditLog.log(
+      { userName: order.customerName, userRole: 'CUSTOMER', businessId: order.businessId },
+      { action: 'CANCEL', entity: 'ONLINE_ORDER', entityId: order.id, entityRef: orderNumber, description: `Order ${orderNumber} cancelled by customer${reason ? `: ${reason}` : ''}` },
+    ).catch(() => {});
+
+    return { success: true, orderNumber };
+  }
+
   async updateOrderStatus(orderNumber: string, status: OnlineOrderStatus, actor?: { userId: string; userName: string; userRole: string }) {
     const order = await this.prisma.onlineOrder.findUnique({
       where: { orderNumber },

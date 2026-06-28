@@ -43,6 +43,14 @@ export class OnlineOrdersController {
     return this.service.listAllOrders(status, date, search, dateFrom, dateTo);
   }
 
+  @Post(':orderNumber/cancel')
+  cancelOrder(
+    @Param('orderNumber') orderNumber: string,
+    @Body('reason') reason?: string,
+  ) {
+    return this.service.cancelOrder(orderNumber, reason);
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...ADMIN_ROLES)
   @Get(':orderNumber')
