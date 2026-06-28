@@ -23,9 +23,9 @@ function base(content: string): string {
 
       <!-- Header -->
       <tr>
-        <td style="background:${BRAND_GREEN};padding:24px 32px;text-align:center;">
-          <span style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:0.5px;">&#127981; Srivani Stores</span><br/>
-          <span style="font-size:12px;color:#c8e6c9;margin-top:4px;display:inline-block;">Sangareddy, Telangana</span>
+        <td style="background:#ffffff;padding:24px 32px;text-align:center;border-bottom:4px solid ${BRAND_GREEN};">
+          <img src="https://shop.srivani.com/logo.png" width="110" height="110" alt="Srivani Stores" style="display:block;margin:0 auto;"/>
+          <p style="margin:6px 0 0;font-size:12px;color:#888;letter-spacing:0.3px;">Sangareddy, Telangana</p>
         </td>
       </tr>
 

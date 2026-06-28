@@ -232,8 +232,8 @@ export default function Sidebar() {
       >
         {/* Logo row */}
         <div className="flex items-center gap-2 px-5 py-5 border-b border-blue-700 shrink-0">
-          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0">
-            <Store className="w-5 h-5 text-[#1B4F8A]" />
+          <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 bg-white">
+            <img src="/icons/logo512x512.png" alt="Srivani Stores" className="w-full h-full object-contain" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-white font-bold text-sm leading-tight">Srivani</p>
