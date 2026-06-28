@@ -51,8 +51,6 @@ export class OnlineOrdersController {
     return this.service.cancelOrder(orderNumber, reason);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(...ADMIN_ROLES)
   @Get(':orderNumber')
   getOrder(@Param('orderNumber') orderNumber: string) {
     return this.service.getOrder(orderNumber);
