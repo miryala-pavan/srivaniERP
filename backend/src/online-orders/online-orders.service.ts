@@ -421,6 +421,47 @@ export class OnlineOrdersService {
     return { success: true, orderNumber };
   }
 
+  async confirmDelivery(orderNumber: string) {
+    const order = await this.prisma.onlineOrder.findUnique({ where: { orderNumber } });
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.status === OnlineOrderStatus.DELIVERED) {
+      return { success: true, orderNumber, alreadyConfirmed: true };
+    }
+
+    if (order.status !== OnlineOrderStatus.READY) {
+      throw new BadRequestException('Order is not currently out for delivery');
+    }
+
+    const data: Prisma.OnlineOrderUpdateInput = { status: OnlineOrderStatus.DELIVERED };
+    if (order.paymentMethod === 'COD') {
+      data.paymentStatus = OnlinePaymentStatus.PAID;
+    }
+
+    await this.prisma.onlineOrder.update({ where: { orderNumber }, data });
+
+    this.events.emitToBusiness(order.businessId, Events.ONLINE_ORDER_STATUS_CHANGED, {
+      orderNumber, status: 'DELIVERED', customerName: order.customerName,
+    });
+
+    if (order.customerEmail) {
+      this.email.sendStatusUpdate({
+        customerName:  order.customerName,
+        customerEmail: order.customerEmail,
+        orderNumber,
+        status:        'DELIVERED',
+        deliveryType:  order.deliveryType,
+      }).catch(() => {});
+    }
+
+    this.auditLog.log(
+      { userName: order.customerName, userRole: 'CUSTOMER', businessId: order.businessId },
+      { action: 'STATUS_CHANGE', entity: 'ONLINE_ORDER', entityRef: orderNumber, description: `Order ${orderNumber} delivery confirmed by customer` },
+    ).catch(() => {});
+
+    return { success: true, orderNumber };
+  }
+
   async updateOrderStatus(orderNumber: string, status: OnlineOrderStatus, actor?: { userId: string; userName: string; userRole: string }) {
     const order = await this.prisma.onlineOrder.findUnique({
       where: { orderNumber },
@@ -460,13 +501,21 @@ export class OnlineOrdersService {
     }
 
     if (order.customerEmail) {
-      this.email.sendStatusUpdate({
-        customerName:  order.customerName,
-        customerEmail: order.customerEmail,
-        orderNumber,
-        status,
-        deliveryType:  order.deliveryType,
-      }).catch(() => {});
+      if (status === OnlineOrderStatus.READY && order.deliveryType === 'HOME_DELIVERY') {
+        this.email.sendDeliveryConfirmationRequest({
+          customerName:  order.customerName,
+          customerEmail: order.customerEmail,
+          orderNumber,
+        }).catch(() => {});
+      } else {
+        this.email.sendStatusUpdate({
+          customerName:  order.customerName,
+          customerEmail: order.customerEmail,
+          orderNumber,
+          status,
+          deliveryType:  order.deliveryType,
+        }).catch(() => {});
+      }
     }
 
     if (actor) {

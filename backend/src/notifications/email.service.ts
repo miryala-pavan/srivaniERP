@@ -252,4 +252,34 @@ export class EmailService {
       html,
     );
   }
+
+  async sendDeliveryConfirmationRequest(order: {
+    customerName: string;
+    customerEmail: string;
+    orderNumber: string;
+  }) {
+    const confirmUrl = `${SHOP_URL}/order/${order.orderNumber}/confirm`;
+    const html = base(`
+      <h2 style="margin:0 0 6px;font-size:22px;color:#111;">&#128663; Your order is on its way!</h2>
+      <p style="margin:0 0 20px;font-size:14px;color:#555;">
+        Hi ${order.customerName}, your Srivani Stores order is out for delivery and should reach you in 30&ndash;60 minutes.
+      </p>
+      ${orderNumberBadge(order.orderNumber)}
+      <p style="margin:20px 0 12px;font-size:14px;color:#333;font-weight:600;">Once you receive your items, please confirm below:</p>
+      <div style="text-align:center;margin:0 0 24px;">
+        <a href="${confirmUrl}" style="display:inline-block;background:${BRAND_GREEN};color:#fff;font-weight:700;font-size:15px;padding:15px 36px;border-radius:10px;text-decoration:none;letter-spacing:0.3px;">
+          &#10003;&nbsp; Yes, I received my order
+        </a>
+      </div>
+      <p style="margin:0;font-size:12px;color:#aaa;text-align:center;">
+        Any issue with your delivery? <a href="https://wa.me/${WA}" style="color:${BRAND_GREEN};">WhatsApp us</a> and we'll sort it out.
+      </p>
+    `);
+
+    await this.send(
+      order.customerEmail,
+      `Your order ${order.orderNumber} is on the way — please confirm receipt`,
+      html,
+    );
+  }
 }

@@ -43,6 +43,11 @@ export class OnlineOrdersController {
     return this.service.listAllOrders(status, date, search, dateFrom, dateTo);
   }
 
+  @Post(':orderNumber/confirm-delivery')
+  confirmDelivery(@Param('orderNumber') orderNumber: string) {
+    return this.service.confirmDelivery(orderNumber);
+  }
+
   @Post(':orderNumber/cancel')
   cancelOrder(
     @Param('orderNumber') orderNumber: string,

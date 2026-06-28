@@ -253,7 +253,7 @@ export class WhatsAppService implements OnModuleInit {
       CONFIRMED:      'Your order is confirmed and we are preparing it! 🎉',
       PROCESSING:     'Your order is being prepared. 👨‍🍳',
       READY:          order.deliveryType === 'HOME_DELIVERY'
-                        ? 'Your order is on the way! 🚴 Expected in 30–60 mins.'
+                        ? `Your order is on the way! 🚴 Expected in 30–60 mins.\nConfirm receipt: shop.srivani.com/order/${order.orderNumber}/confirm`
                         : 'Your order is ready for pickup at our store! 🏪',
       DELIVERED:      'Your order has been delivered. Enjoy! 😊 Thank you for shopping with Srivani Stores.',
       CANCELLED:      'Your order has been cancelled. If you paid online, a refund will be processed in 5–7 working days.',

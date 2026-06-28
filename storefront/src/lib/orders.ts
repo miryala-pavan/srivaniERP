@@ -136,6 +136,18 @@ export async function cancelOrder(orderNumber: string, reason?: string): Promise
   return res.json();
 }
 
+export async function confirmDelivery(orderNumber: string): Promise<{ success: boolean; orderNumber: string; alreadyConfirmed?: boolean }> {
+  const res = await fetch(`${API}/online-orders/${orderNumber}/confirm-delivery`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = Array.isArray((err as any).message) ? (err as any).message.join(', ') : ((err as any).message ?? 'Failed to confirm delivery');
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 export async function fetchMyOrders(phone: string, email?: string): Promise<OnlineOrder[]> {
   try {
     const params = new URLSearchParams();
