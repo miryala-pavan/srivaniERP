@@ -95,6 +95,7 @@ export default function OrderStatusClient({
   };
 
   const isSuccess = ['PENDING_COD', 'CONFIRMED', 'PROCESSING', 'READY', 'DELIVERED'].includes(order.status);
+  const isNewOrder = ['PENDING_COD', 'PENDING_PAYMENT'].includes(order.status);
   const canCancel = CANCELLABLE.has(order.status);
 
   const waMsg = encodeURIComponent(
@@ -130,7 +131,7 @@ export default function OrderStatusClient({
         }}>
           <div style={{ fontSize: '52px', marginBottom: '10px' }}>{statusInfo.icon}</div>
           <h1 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '6px' }}>
-            {isSuccess ? 'Order Placed!' : statusInfo.label}
+            {isNewOrder ? 'Order Placed!' : statusInfo.label}
           </h1>
           <p style={{ fontSize: '14px', color: 'var(--ink-soft)', marginBottom: '14px' }}>
             {statusInfo.desc}
