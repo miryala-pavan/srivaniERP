@@ -239,15 +239,15 @@ export class EmailService {
       ${orderNumberBadge(order.orderNumber)}
       ${order.status !== 'CANCELLED' ? trackBtn(order.orderNumber) : ''}
       ${order.status === 'DELIVERED' ? `
-        <div style="text-align:center;margin-top:16px;">
-          <a href="${SHOP_URL}/order/${order.orderNumber}/review" style="display:inline-block;background:${BRAND_GREEN};color:#fff;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;text-decoration:none;margin-bottom:10px;">
-            &#11088; Rate Your Order
+        <div style="text-align:center;margin-top:20px;padding:20px;background:#f8f9ff;border-radius:12px;border:1.5px solid #e0e7ff;">
+          <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#333;">Enjoyed your order?</p>
+          <p style="margin:0 0 14px;font-size:12px;color:#666;">A Google Review takes 30 seconds and helps us reach more customers in Sangareddy.</p>
+          <a href="https://g.page/r/CXZY6ACcJig_EAE/review" target="_blank" style="display:inline-block;background:#4285F4;color:#fff;font-weight:800;font-size:15px;padding:14px 32px;border-radius:10px;text-decoration:none;letter-spacing:0.2px;">
+            &#11088; Leave a Google Review
           </a>
-        </div>
-        <div style="text-align:center;margin-top:8px;">
-          <a href="https://g.page/r/CXZY6ACcJig_EAE/review" style="display:inline-block;color:#4285F4;font-size:12px;text-decoration:underline;">
-            Also leave us a Google Review
-          </a>
+          <p style="margin:12px 0 0;font-size:11px;color:#aaa;">
+            or <a href="${SHOP_URL}/order/${order.orderNumber}/review" style="color:#555;text-decoration:underline;">rate individual items on our site</a>
+          </p>
         </div>` : ''}
     `);
 
