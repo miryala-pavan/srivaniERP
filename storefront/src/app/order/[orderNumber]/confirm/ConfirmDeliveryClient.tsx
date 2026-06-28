@@ -52,9 +52,9 @@ export default function ConfirmDeliveryClient({ order, orderNumber }: Props) {
   if (!['READY'].includes(order.status)) {
     const notReadyMsg =
       order.status === 'CANCELLED' ? 'This order has been cancelled.' :
-      order.status === 'PENDING_COD' || order.status === 'PENDING_PAYMENT' ? 'Your order hasn't been dispatched yet.' :
-      order.status === 'CONFIRMED' || order.status === 'PROCESSING' ? 'Your order is being prepared and hasn't left our store yet.' :
-      'This order isn't currently out for delivery.';
+      order.status === 'PENDING_COD' || order.status === 'PENDING_PAYMENT' ? "Your order hasn't been dispatched yet." :
+      order.status === 'CONFIRMED' || order.status === 'PROCESSING' ? "Your order is being prepared and hasn't left our store yet." :
+      "This order isn't currently out for delivery.";
 
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
