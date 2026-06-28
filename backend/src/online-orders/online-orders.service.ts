@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { WhatsAppService } from '../notifications/whatsapp.service';
+import { EmailService } from '../notifications/email.service';
 import { Events } from '../events/event-types';
 import {
   CreateOrderDto,
@@ -37,6 +38,7 @@ export class OnlineOrdersService {
     private readonly events: EventsService,
     private readonly auditLog: AuditLogService,
     private readonly whatsapp: WhatsAppService,
+    private readonly email: EmailService,
   ) {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -175,7 +177,7 @@ export class OnlineOrdersService {
       itemCount: dto.items.length,
     }).catch(() => {});
 
-    // WhatsApp: confirm to customer (COD only — Razorpay sends after payment verified)
+    // WhatsApp + email: confirm to customer (COD only — Razorpay sends after payment verified)
     if (dto.paymentMethod === PaymentMethod.COD) {
       this.whatsapp.sendCustomerOrderPlaced({
         customerName: dto.customerName,
@@ -184,6 +186,26 @@ export class OnlineOrdersService {
         total,
         deliveryType: dto.deliveryType,
       }).catch(() => {});
+
+      if (dto.customerEmail) {
+        this.email.sendOrderPlaced({
+          customerName: dto.customerName,
+          customerEmail: dto.customerEmail,
+          orderNumber,
+          paymentMethod: dto.paymentMethod,
+          deliveryType: dto.deliveryType,
+          subtotal,
+          deliveryFee,
+          total,
+          items: dto.items.map(i => ({
+            productName: i.productName,
+            packLabel:   i.packLabel,
+            quantity:    i.quantity,
+            unitPrice:   i.unitPrice,
+            total:       i.unitPrice * i.quantity,
+          })),
+        }).catch(() => {});
+      }
     }
 
     // Notify ERP staff in real time
@@ -247,13 +269,22 @@ export class OnlineOrdersService {
       },
     });
 
-    // WhatsApp: payment confirmed to customer
+    // WhatsApp + email: payment confirmed to customer
     this.whatsapp.sendCustomerPaymentConfirmed({
       customerName: order.customerName,
       customerPhone: order.customerPhone,
       orderNumber: updated.orderNumber,
       total: Number(order.total),
     }).catch(() => {});
+
+    if (order.customerEmail) {
+      this.email.sendPaymentConfirmed({
+        customerName:  order.customerName,
+        customerEmail: order.customerEmail,
+        orderNumber:   updated.orderNumber,
+        total:         Number(order.total),
+      }).catch(() => {});
+    }
 
     return { success: true, orderNumber: updated.orderNumber };
   }
@@ -366,6 +397,16 @@ export class OnlineOrdersService {
       }).catch(() => {});
     }
 
+    if (order.customerEmail) {
+      this.email.sendStatusUpdate({
+        customerName:  order.customerName,
+        customerEmail: order.customerEmail,
+        orderNumber,
+        status:        'CANCELLED',
+        deliveryType:  order.deliveryType,
+      }).catch(() => {});
+    }
+
     this.events.emitToBusiness(order.businessId, Events.ONLINE_ORDER_STATUS_CHANGED, {
       orderNumber,
       status: 'CANCELLED',
@@ -407,11 +448,21 @@ export class OnlineOrdersService {
       customerName: order.customerName,
     });
 
-    // WhatsApp: status update to customer
+    // WhatsApp + email: status update to customer
     if (order.customerPhone) {
       this.whatsapp.sendCustomerOrderUpdate({
         customerName:  order.customerName,
         customerPhone: order.customerPhone,
+        orderNumber,
+        status,
+        deliveryType:  order.deliveryType,
+      }).catch(() => {});
+    }
+
+    if (order.customerEmail) {
+      this.email.sendStatusUpdate({
+        customerName:  order.customerName,
+        customerEmail: order.customerEmail,
         orderNumber,
         status,
         deliveryType:  order.deliveryType,
