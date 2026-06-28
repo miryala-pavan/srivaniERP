@@ -239,9 +239,14 @@ export class EmailService {
       ${orderNumberBadge(order.orderNumber)}
       ${order.status !== 'CANCELLED' ? trackBtn(order.orderNumber) : ''}
       ${order.status === 'DELIVERED' ? `
-        <div style="text-align:center;margin-top:12px;">
-          <a href="https://g.page/r/CXZY6ACcJig_EAE/review" style="display:inline-block;background:#4285F4;color:#fff;font-weight:700;font-size:13px;padding:11px 24px;border-radius:10px;text-decoration:none;">
-            Leave a Google Review &#11088;
+        <div style="text-align:center;margin-top:16px;">
+          <a href="${SHOP_URL}/order/${order.orderNumber}/review" style="display:inline-block;background:${BRAND_GREEN};color:#fff;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;text-decoration:none;margin-bottom:10px;">
+            &#11088; Rate Your Order
+          </a>
+        </div>
+        <div style="text-align:center;margin-top:8px;">
+          <a href="https://g.page/r/CXZY6ACcJig_EAE/review" style="display:inline-block;color:#4285F4;font-size:12px;text-decoration:underline;">
+            Also leave us a Google Review
           </a>
         </div>` : ''}
     `);
@@ -272,7 +277,8 @@ export class EmailService {
         </a>
       </div>
       <p style="margin:0;font-size:12px;color:#aaa;text-align:center;">
-        Any issue with your delivery? <a href="https://wa.me/${WA}" style="color:${BRAND_GREEN};">WhatsApp us</a> and we'll sort it out.
+        Any issue with your delivery? <a href="https://wa.me/${WA}" style="color:${BRAND_GREEN};">WhatsApp us</a> and we'll sort it out.<br/>
+        After receiving, you can also <a href="${SHOP_URL}/order/${order.orderNumber}/review" style="color:${BRAND_GREEN};">rate your items</a>.
       </p>
     `);
 

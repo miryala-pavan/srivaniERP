@@ -294,6 +294,20 @@ export default function OrderStatusClient({
             Track Order on WhatsApp
           </a>
 
+          {order.status === 'DELIVERED' && (
+            <Link
+              href={`/order/${order.orderNumber}/review`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                padding: '13px 0', borderRadius: '12px',
+                background: '#fbbf24', color: '#1a1a1a',
+                fontSize: '14px', fontWeight: 700, textDecoration: 'none',
+              }}
+            >
+              ⭐ Rate Your Order
+            </Link>
+          )}
+
           <Link
             href="/products"
             title="Continue shopping at Srivani Stores"

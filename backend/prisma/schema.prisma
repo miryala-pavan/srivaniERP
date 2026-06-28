@@ -78,6 +78,7 @@ model Business {
   onlineOrders        OnlineOrder[]
   waIncomingLists     WaIncomingList[]
   systemSettings      SystemSetting[]
+  productReviews      ProductReview[]
 
   @@map("business")
 }
@@ -1745,3 +1746,28 @@ model WaIncomingList {
   @@map("wa_incoming_list")
 }
 
+
+// ─── PRODUCT REVIEWS ────────────────────────────────
+model ProductReview {
+  id             String   @id @default(cuid())
+  businessId     String
+  orderNumber    String
+  productCode    String
+  productName    String
+  packLabel      String
+  customerName   String
+  customerPhone  String
+  rating         Int      // 1–5
+  comment        String?
+  sentiment      String?  // POSITIVE | NEUTRAL | NEGATIVE
+  sentimentScore Float?
+  isPublished    Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([orderNumber, productCode])
+  @@index([businessId, productCode])
+  @@index([businessId, createdAt])
+  @@map("product_review")
+}

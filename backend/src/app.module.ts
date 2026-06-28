@@ -29,6 +29,7 @@ import { AddressesModule } from './addresses/addresses.module';
 import { StorefrontProfileModule } from './storefront-profile/storefront-profile.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { ListsModule } from './lists/lists.module';
+import { ReviewsModule } from './reviews/reviews.module';
 
 @Module({
   controllers: [AppController],
@@ -62,6 +63,7 @@ import { ListsModule } from './lists/lists.module';
     StorefrontProfileModule,
     AuditLogModule,
     ListsModule,
+    ReviewsModule,
   ],
 })
 export class AppModule {}

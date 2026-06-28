@@ -37,7 +37,10 @@ export default function ConfirmDeliveryClient({ order, orderNumber }: Props) {
           <h1 className="text-2xl font-bold text-green-700 mb-2">Thank you!</h1>
           <p className="text-gray-600 text-sm mb-1">Delivery confirmed for</p>
           <p className="font-mono font-semibold text-gray-800 mb-6">{orderNumber}</p>
-          <p className="text-gray-500 text-sm mb-6">We're glad your order reached you safely. Thank you for shopping with Srivani Stores!</p>
+          <p className="text-gray-500 text-sm mb-4">We're glad your order reached you safely!</p>
+          <Link href={`/order/${orderNumber}/review`} className="block w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold px-6 py-3 rounded-xl text-sm mb-3">
+            ⭐ Rate Your Items
+          </Link>
           <Link href={`/order/${orderNumber}`} className="inline-block bg-green-700 text-white font-semibold px-6 py-3 rounded-xl text-sm mr-2">
             View Order
           </Link>
