@@ -81,6 +81,7 @@ model Business {
   productReviews      ProductReview[]
   stockAlerts         StockAlert[]
   volumePricingTiers  VolumePricingTier[]
+  repackSessions      RepackSession[]
 
   @@map("business")
 }
@@ -1206,8 +1207,11 @@ model PluBundle {
   businessId      String
   bulkPluId       String   @unique   // e.g. PLU 000278002 (box of 10)
   singlePluId     String             // e.g. PLU 000278001 (single blade)
-  conversionQty   Int                // 1 bulk = conversionQty singles
-  notes           String?            // "1 box = 10 blades"
+  conversionQty   Int                // 1 bulk = conversionQty singles (FIXED) or max capacity (VARIABLE)
+  type            String   @default("FIXED")  // FIXED | VARIABLE
+  bulkWeightG     Decimal? @db.Decimal(10, 3) // weight of 1 bulk unit in grams (VARIABLE only)
+  unitWeightG     Decimal? @db.Decimal(10, 3) // weight of 1 single unit in grams (VARIABLE only)
+  notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1217,6 +1221,46 @@ model PluBundle {
   @@index([businessId])
   @@index([singlePluId])
   @@map("plu_bundle")
+}
+
+// ─── REPACK SESSION ───────────────────────────────────
+model RepackSession {
+  id            String   @id @default(cuid())
+  businessId    String
+  sessionNo     String               // human-readable e.g. RPK-20260629-001
+  sourcePluId   String
+  sourceQty     Decimal  @db.Decimal(10, 3)
+  type          String   @default("FIXED")  // FIXED | VARIABLE
+  totalInputG   Decimal? @db.Decimal(15, 3) // grams available (VARIABLE)
+  totalOutputG  Decimal? @db.Decimal(15, 3) // grams accounted (VARIABLE)
+  wastageG      Decimal  @db.Decimal(15, 3) @default(0)
+  wastageNotes  String?
+  notes         String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+
+  lines    RepackSessionLine[]
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+  @@map("repack_session")
+}
+
+model RepackSessionLine {
+  id          String   @id @default(cuid())
+  sessionId   String
+  targetPluId String
+  qty         Decimal  @db.Decimal(10, 3)
+  unitWeightG Decimal? @db.Decimal(10, 3) // grams per unit (VARIABLE)
+  totalWeightG Decimal? @db.Decimal(15, 3)
+  notes       String?
+
+  session RepackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("repack_session_line")
 }
 
 // ─── BREAK BULK LOG ───────────────────────────────────

@@ -32,6 +32,7 @@ import { AuditLogModule } from './audit-log/audit-log.module';
 import { ListsModule } from './lists/lists.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { VolumePricingModule } from './volume-pricing/volume-pricing.module';
+import { RepackModule } from './repack/repack.module';
 
 @Module({
   controllers: [AppController],
@@ -68,6 +69,7 @@ import { VolumePricingModule } from './volume-pricing/volume-pricing.module';
     ListsModule,
     ReviewsModule,
     VolumePricingModule,
+    RepackModule,
   ],
 })
 export class AppModule {}
