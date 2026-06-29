@@ -3,8 +3,11 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCart } from '@/context/CartContext';
+import { useState } from 'react';
+import { useCart, effectiveUnitPrice } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
+import { useVerifiedPhone } from '@/hooks/useVerifiedPhone';
+import { whatsappCheckout } from '@/lib/orders';
 
 const WA_NUMBER = '919382828484';
 
@@ -27,9 +30,49 @@ function buildWaUrl(items: ReturnType<typeof useCart>['items']) {
 }
 
 export default function CartPageClient() {
-  const { items, removeItem, updateQty, clearAll, totalItems, subtotal } = useCart();
-  const { isLoggedIn } = useAuth();
+  const { items, removeItem, updateQty, clearAll, totalItems, subtotal, baseCost } = useCart();
+  const totalSavings = Math.round((baseCost - subtotal) * 100) / 100;
+  const [waLoading, setWaLoading] = useState(false);
+  const [waError, setWaError] = useState('');
+  const { user, isLoggedIn } = useAuth();
+  const { verifiedPhone } = useVerifiedPhone();
   const router = useRouter();
+
+  async function handleWhatsAppOrder() {
+    const phone = verifiedPhone;
+    if (!isLoggedIn || !phone || !user) {
+      // Fallback: open WhatsApp directly (untracked, guest flow)
+      window.open(buildWaUrl(items), '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setWaLoading(true);
+    setWaError('');
+    try {
+      const { orderNumber } = await whatsappCheckout({
+        customerName: user.name,
+        customerPhone: phone,
+        customerEmail: user.email || undefined,
+        items: items.map(it => ({
+          pluBarcode:  it.code,
+          productCode: it.code.split('-')[0] ?? it.code,
+          productName: it.name,
+          packLabel:   it.packLabel,
+          quantity:    it.qty,
+          unitPrice:   effectiveUnitPrice(it),
+        })),
+      });
+      clearAll();
+      const summary = items.map(
+        (it, i) => `${i + 1}. ${it.name} – ${it.packLabel} ×${it.qty}`,
+      ).join('\n');
+      const text = `Hi Srivani Stores! I've placed order *#${orderNumber}* online.\n\n${summary}\n\nTotal: ₹${fmtPrice(subtotal)}\n\nPlease confirm delivery details. Thank you!`;
+      window.open(`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+      router.push(`/order/${orderNumber}`);
+    } catch (e) {
+      setWaError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
+      setWaLoading(false);
+    }
+  }
 
   function goToCheckout() {
     if (!isLoggedIn) {
@@ -119,9 +162,33 @@ export default function CartPageClient() {
                   <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink)', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.name}
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>
-                    {item.packLabel} · ₹{fmtPrice(item.sellingPrice)} each
-                  </div>
+                  {(() => {
+                    const effPrice = effectiveUnitPrice(item);
+                    const isDiscounted = effPrice < item.sellingPrice;
+                    // Next tier that hasn't been unlocked yet
+                    const nextTier = item.volumeTiers?.find(t => t.minQty > item.qty);
+                    const toUnlock = nextTier ? nextTier.minQty - item.qty : 0;
+                    return (
+                      <>
+                        <div style={{ fontSize: '12px', color: 'var(--ink-soft)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span>{item.packLabel}</span>
+                          {isDiscounted ? (
+                            <>
+                              <span style={{ textDecoration: 'line-through', color: '#bbb' }}>₹{fmtPrice(item.sellingPrice)}</span>
+                              <span style={{ color: '#059669', fontWeight: 700 }}>₹{fmtPrice(effPrice)} each</span>
+                            </>
+                          ) : (
+                            <span>₹{fmtPrice(item.sellingPrice)} each</span>
+                          )}
+                        </div>
+                        {toUnlock > 0 && nextTier && (
+                          <div style={{ fontSize: '11px', color: '#92400e', background: '#fef3c7', borderRadius: '6px', padding: '3px 7px', marginTop: '4px', display: 'inline-block' }}>
+                            Add {toUnlock} more → ₹{fmtPrice(nextTier.price)}/unit
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Qty controls */}
@@ -150,7 +217,7 @@ export default function CartPageClient() {
 
                 {/* Line total */}
                 <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--ink)', flexShrink: 0, minWidth: '64px', textAlign: 'right' }}>
-                  ₹{fmtPrice(item.sellingPrice * item.qty)}
+                  ₹{fmtPrice(effectiveUnitPrice(item) * item.qty)}
                 </div>
               </div>
             ))}
@@ -179,6 +246,12 @@ export default function CartPageClient() {
                 <span>Subtotal ({totalItems} item{totalItems !== 1 ? 's' : ''})</span>
                 <span style={{ fontWeight: 600, color: 'var(--ink)' }}>₹{fmtPrice(subtotal)}</span>
               </div>
+              {totalSavings > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#059669' }}>
+                  <span>Bulk discount savings</span>
+                  <span style={{ fontWeight: 700 }}>−₹{fmtPrice(totalSavings)}</span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ink-soft)' }}>
                 <span>Delivery</span>
                 <span style={{ color: 'var(--leaf)', fontWeight: 600 }}>Calculated at checkout</span>
@@ -206,22 +279,26 @@ export default function CartPageClient() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             </button>
 
-            <a
-              href={buildWaUrl(items)}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={handleWhatsAppOrder}
+              disabled={waLoading}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
                 width: '100%', padding: '11px 0',
                 borderRadius: '12px', border: '1.5px solid #25D366',
                 background: 'transparent', color: '#16a34a',
-                fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                textDecoration: 'none',
+                fontSize: '13px', fontWeight: 600, cursor: waLoading ? 'not-allowed' : 'pointer',
+                opacity: waLoading ? 0.7 : 1,
               }}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="#16a34a" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm5.7 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.7-.6-3-1.3-4.9-4.3-5.1-4.5-.1-.2-1.2-1.5-1.2-2.9s.7-2 1-2.3c.2-.3.5-.4.7-.4h.5c.2 0 .4 0 .6.5l.8 2c.1.1.1.3 0 .5l-.4.5-.3.3c-.1.1-.3.3-.1.6.1.3.7 1.1 1.4 1.8.9.8 1.7 1.1 2 1.2.2.1.4.1.6-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.3.1.5.2.5.4.1.2.1.8-.1 1.4z"/></svg>
-              Order via WhatsApp
-            </a>
+              {waLoading ? 'Placing order…' : 'Order via WhatsApp'}
+            </button>
+            {waError && (
+              <p style={{ fontSize: '12px', color: '#ef4444', textAlign: 'center', marginTop: '6px' }}>
+                {waError}
+              </p>
+            )}
 
             <p style={{ fontSize: '11px', color: 'var(--ink-soft)', marginTop: '14px', textAlign: 'center', lineHeight: 1.5 }}>
               Free delivery on orders above ₹500 · COD available

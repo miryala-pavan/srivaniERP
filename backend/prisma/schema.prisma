@@ -79,6 +79,8 @@ model Business {
   waIncomingLists     WaIncomingList[]
   systemSettings      SystemSetting[]
   productReviews      ProductReview[]
+  stockAlerts         StockAlert[]
+  volumePricingTiers  VolumePricingTier[]
 
   @@map("business")
 }
@@ -1665,6 +1667,7 @@ model OnlineOrder {
   total             Decimal             @db.Decimal(10, 2)
   status            OnlineOrderStatus   @default(PENDING_PAYMENT)
   customerNotes     String?
+  source            String              @default("ONLINE") // ONLINE | WHATSAPP | PHONE
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
@@ -1770,4 +1773,39 @@ model ProductReview {
   @@index([businessId, productCode])
   @@index([businessId, createdAt])
   @@map("product_review")
+}
+
+// ─── STOCK ALERT ─────────────────────────────────────
+model StockAlert {
+  id          String    @id @default(cuid())
+  businessId  String
+  pluBarcode  String
+  productName String
+  packLabel   String
+  phone       String?
+  email       String?
+  notifiedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([pluBarcode, phone])
+  @@index([businessId, pluBarcode])
+  @@map("stock_alert")
+}
+
+model VolumePricingTier {
+  id         String   @id @default(cuid())
+  businessId String
+  pluBarcode String
+  minQty     Int
+  price      Decimal  @db.Decimal(15, 2)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, pluBarcode, minQty])
+  @@index([businessId, pluBarcode])
+  @@map("volume_pricing_tier")
 }

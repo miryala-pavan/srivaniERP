@@ -268,6 +268,27 @@ export class WhatsAppService implements OnModuleInit {
     ]);
   }
 
+  /**
+   * Template: svn_back_in_stock
+   * Body: Hi {{1}}, {{2}} ({{3}}) is back in stock! Order now: {{4}}
+   */
+  async sendBackInStock(data: {
+    customerPhone: string;
+    customerName: string;
+    productName: string;
+    packLabel: string;
+    productUrl: string;
+  }): Promise<void> {
+    const to = this.e164(data.customerPhone);
+    if (!to) return;
+    await this.sendTemplate(to, 'svn_back_in_stock', [
+      data.customerName,
+      data.productName,
+      data.packLabel,
+      data.productUrl,
+    ]);
+  }
+
   // ── Template management (Meta Graph API) ────────────────────────────────────
 
   async listTemplates() {

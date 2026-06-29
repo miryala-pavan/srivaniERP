@@ -218,8 +218,8 @@ export class EmailService {
       },
       DELIVERED: {
         icon: '&#127881;', subject: 'Order Delivered',
-        heading: 'Order delivered - enjoy!',
-        body: "Your order has been delivered. Thank you for shopping with Srivani Stores! We'd love a Google review if you have a moment.",
+        heading: 'Your order has been delivered!',
+        body: "your order has been delivered successfully. We hope you love every item! Thank you for being part of the Srivani Store family. &#128150;",
       },
       CANCELLED: {
         icon: '&#10060;', subject: 'Order Cancelled',
@@ -239,14 +239,24 @@ export class EmailService {
       ${orderNumberBadge(order.orderNumber)}
       ${order.status !== 'CANCELLED' ? trackBtn(order.orderNumber) : ''}
       ${order.status === 'DELIVERED' ? `
-        <div style="text-align:center;margin-top:20px;padding:20px;background:#f8f9ff;border-radius:12px;border:1.5px solid #e0e7ff;">
-          <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#333;">Enjoyed your order?</p>
-          <p style="margin:0 0 14px;font-size:12px;color:#666;">A Google Review takes 30 seconds and helps us reach more customers in Sangareddy.</p>
-          <a href="https://g.page/r/CXZY6ACcJig_EAE/review" target="_blank" style="display:inline-block;background:#4285F4;color:#fff;font-weight:800;font-size:15px;padding:14px 32px;border-radius:10px;text-decoration:none;letter-spacing:0.2px;">
-            &#11088; Leave a Google Review
+        <style>@keyframes grvw{0%,100%{box-shadow:0 4px 18px rgba(66,133,244,.4);transform:scale(1)}50%{box-shadow:0 8px 30px rgba(251,188,5,.5),0 2px 14px rgba(66,133,244,.25);transform:scale(1.035)}}</style>
+        <div style="text-align:center;margin-top:26px;padding:26px 20px 20px;background:#fffbeb;border-radius:14px;border:1.5px solid #fcd34d;">
+          <p style="margin:0 0 6px;font-size:22px;">&#128591;</p>
+          <p style="margin:0 0 8px;font-size:15px;font-weight:800;color:#78350f;">Thank You for Shopping with Srivani Store! &#10084;&#65039;</p>
+          <p style="margin:0 0 14px;font-size:13px;color:#92400e;line-height:1.85;">Your trust has been our greatest strength for over <strong>45&nbsp;years</strong>.<br/>
+          We&rsquo;d be truly grateful if you could spare just <strong>30 seconds</strong><br/>to share your experience on Google.</p>
+          <p style="margin:0 0 20px;font-size:12px;color:#78350f;line-height:1.6;">Your review encourages our team and helps other families<br/>in Sangareddy shop with confidence. &#128150;</p>
+          <a href="https://g.page/r/CXZY6ACcJig_EAE/review" target="_blank"
+             style="display:inline-block;background:#4285F4;color:#fff;font-weight:800;font-size:15px;padding:14px 22px 14px 14px;border-radius:50px;text-decoration:none;font-family:Arial,sans-serif;letter-spacing:0.3px;animation:grvw 3.5s ease-in-out infinite;">
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%234285F4%22%20d%3D%22M22.56%2012.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26%201.37-1.04%202.53-2.21%203.31v2.77h3.57c2.08-1.92%203.28-4.74%203.28-8.09z%22%2F%3E%3Cpath%20fill%3D%22%2334A853%22%20d%3D%22M12%2023c2.97%200%205.46-.98%207.28-2.66l-3.57-2.77c-.98.66-2.23%201.06-3.71%201.06-2.86%200-5.29-1.93-6.16-4.53H2.18v2.84C3.99%2020.53%207.7%2023%2012%2023z%22%2F%3E%3Cpath%20fill%3D%22%23FBBC05%22%20d%3D%22M5.84%2014.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43%208.55%201%2010.22%201%2012s.43%203.45%201.18%204.93l2.85-2.22.81-.62z%22%2F%3E%3Cpath%20fill%3D%22%23EA4335%22%20d%3D%22M12%205.38c1.62%200%203.06.56%204.21%201.64l3.15-3.15C17.45%202.09%2014.97%201%2012%201%207.7%201%203.99%203.47%202.18%207.07l3.66%202.84c.87-2.6%203.3-4.53%206.16-4.53z%22%2F%3E%3C%2Fsvg%3E"
+                 width="20" height="20" alt="Google" style="display:inline;vertical-align:middle;background:#fff;border-radius:50%;padding:5px;margin-right:10px;border:0;"/>
+            Leave a <span style="color:#FCD34D;letter-spacing:1px;">&#9733;&#9733;&#9733;&#9733;&#9733;</span> Google Review
           </a>
-          <p style="margin:12px 0 0;font-size:11px;color:#aaa;">
-            or <a href="${SHOP_URL}/order/${order.orderNumber}/review" style="color:#555;text-decoration:underline;">rate individual items on our site</a>
+          <p style="margin:16px 0 0;font-size:12px;color:#92400e;font-weight:700;font-style:italic;">
+            Thank you for choosing Srivani Store. We look forward to serving you again! &#127800;
+          </p>
+          <p style="margin:10px 0 0;font-size:11px;color:#bbb;">
+            or <a href="${SHOP_URL}/order/${order.orderNumber}/review" style="color:#888;text-decoration:underline;">rate individual items on our site</a>
           </p>
         </div>` : ''}
     `);

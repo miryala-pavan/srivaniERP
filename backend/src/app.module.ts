@@ -25,11 +25,13 @@ import { ShopCacheModule } from './shop/shop-cache.module';
 import { BankModule } from './bank/bank.module';
 import { FinancialYearModule } from './financial-year/financial-year.module';
 import { OnlineOrdersModule } from './online-orders/online-orders.module';
+import { StockAlertsModule } from './stock-alerts/stock-alerts.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { StorefrontProfileModule } from './storefront-profile/storefront-profile.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { ListsModule } from './lists/lists.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { VolumePricingModule } from './volume-pricing/volume-pricing.module';
 
 @Module({
   controllers: [AppController],
@@ -59,11 +61,13 @@ import { ReviewsModule } from './reviews/reviews.module';
     BankModule,
     FinancialYearModule,
     OnlineOrdersModule,
+    StockAlertsModule,
     AddressesModule,
     StorefrontProfileModule,
     AuditLogModule,
     ListsModule,
     ReviewsModule,
+    VolumePricingModule,
   ],
 })
 export class AppModule {}

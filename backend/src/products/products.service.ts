@@ -1110,6 +1110,17 @@ export class ProductsService {
     return { message: 'Bundle removed' };
   }
 
+  async getAllBundles(businessId: string) {
+    return this.prisma.pluBundle.findMany({
+      where: { businessId },
+      include: {
+        bulkPlu:   { select: { id: true, pluCode: true, packLabel: true, stockOnHand: true, product: { select: { name: true } } } },
+        singlePlu: { select: { id: true, pluCode: true, packLabel: true, stockOnHand: true, product: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   async breakBulk(businessId: string, body: {
     bundleId: string; bulkQty: number; userId?: string; userName?: string; notes?: string;
   }) {

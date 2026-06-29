@@ -20,6 +20,11 @@ export interface ShopCategoryItem {
   }[];
 }
 
+export interface VolumeTier {
+  minQty: number;
+  price: number;
+}
+
 export interface ShopPack {
   pluBarcode: string;
   packLabel: string;
@@ -29,6 +34,7 @@ export interface ShopPack {
   inStock: boolean;
   availableQty: number;    // effective online quantity (capped if onlineStockCap is set)
   onlineStockCap: number | null; // null = no cap
+  volumeTiers: VolumeTier[];
 }
 
 export interface ShopGroupVariant {
@@ -147,6 +153,7 @@ function mapPacks(plusList: PluRow[], unit: string, allowNegativeStock: boolean,
       inStock:        availableQty > 0 || allowNegativeStock,
       availableQty,
       onlineStockCap: cap,
+      volumeTiers:    [],
     };
   });
   // Cheapest first
@@ -478,6 +485,24 @@ export class ShopService {
     }
 
     const packs = mapPacks(product.plusList, product.unitOfMeasure, product.allowNegativeStock, Number((product as any).totalStock ?? 0));
+
+    // Attach volume pricing tiers to each pack
+    const pluCodes = packs.map(pk => pk.pluBarcode);
+    const volTiers = await this.prisma.volumePricingTier.findMany({
+      where: { businessId, pluBarcode: { in: pluCodes } },
+      orderBy: { minQty: 'asc' },
+      select: { pluBarcode: true, minQty: true, price: true },
+    });
+    const tierMap = new Map<string, VolumeTier[]>();
+    for (const t of volTiers) {
+      const arr = tierMap.get(t.pluBarcode) ?? [];
+      arr.push({ minQty: t.minQty, price: Number(t.price) });
+      tierMap.set(t.pluBarcode, arr);
+    }
+    for (const pack of packs) {
+      pack.volumeTiers = tierMap.get(pack.pluBarcode) ?? [];
+    }
+
     const cat = product.category;
     const dept = cat?.parent?.department;
 
@@ -734,5 +759,84 @@ export class ShopService {
       });
     await this.cache.set('shop:nav-tree', result, CACHE_TTL.navTree);
     return result;
+  }
+
+  // ─── Frequently bought together ──────────────────────────────────────────────
+
+  async getFrequentlyBoughtWith(pluBarcode: string, limit = 4): Promise<ShopProduct[]> {
+    const businessId = await this.getBusinessId();
+
+    // Find orders that contained this PLU
+    const orderLinks = await this.prisma.onlineOrderItem.findMany({
+      where: { pluBarcode, order: { businessId } },
+      select: { orderId: true },
+      distinct: ['orderId'],
+      take: 200,
+    });
+    if (!orderLinks.length) return [];
+
+    const orderIds = orderLinks.map(o => o.orderId);
+
+    // Find other product codes frequently co-ordered
+    const coItems = await this.prisma.onlineOrderItem.groupBy({
+      by: ['productCode'],
+      where: { orderId: { in: orderIds }, pluBarcode: { not: pluBarcode } },
+      _count: { orderId: true },
+      orderBy: { _count: { orderId: 'desc' } },
+      take: limit * 3,
+    });
+
+    const codes = coItems.map(c => c.productCode).filter(Boolean) as string[];
+    if (!codes.length) return [];
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        businessId,
+        productCode: { in: codes },
+        isActive: true,
+        isManuallyDisabled: false,
+        plusList: { some: ONLINE_PLU_FILTER },
+      },
+      select: {
+        productCode: true,
+        name: true,
+        imageUrl: true,
+        unitOfMeasure: true,
+        allowNegativeStock: true,
+        totalStock: true,
+        plusList: {
+          where: ONLINE_PLU_FILTER,
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: PLU_SELECT,
+        },
+      },
+    });
+
+    const shopProducts: ShopProduct[] = products
+      .map((p): ShopProduct | null => {
+        const packs = mapPacks(p.plusList, p.unitOfMeasure, p.allowNegativeStock, Number((p as any).totalStock ?? 0));
+        if (!packs.length) return null;
+        return {
+          code: p.productCode ?? '',
+          name: p.name,
+          imageUrl: p.imageUrl ?? null,
+          categoryName: null,
+          subcategoryName: null,
+          categoryCode: null,
+          parentCategoryCode: null,
+          deptCode: null,
+          deptName: null,
+          fromPrice: Math.min(...packs.map(pk => pk.price)),
+          packs,
+        };
+      })
+      .filter((p): p is ShopProduct => p !== null);
+
+    // Return in co-occurrence order
+    const rankMap = new Map(codes.map((c, i) => [c, i]));
+    return shopProducts
+      .sort((a, b) => (rankMap.get(a.code) ?? 999) - (rankMap.get(b.code) ?? 999))
+      .slice(0, limit);
   }
 }

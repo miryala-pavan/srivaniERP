@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { getCategories, getProducts } from '@/lib/shop';
 import ProductCard from '@/components/ProductCard';
+import RecentlyViewedSection from '@/components/RecentlyViewedSection';
 
 export const metadata: Metadata = {
   title: 'Srivani Stores — Online Grocery in Sangareddy, Telangana',
@@ -327,6 +328,13 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ─── Recently viewed (client-side, localStorage) ──────────────── */}
+      <div className="wrap">
+        <section className="sec" style={{ paddingBottom: 0 }}>
+          <RecentlyViewedSection />
+        </section>
+      </div>
 
       {/* ─── Featured products — LIVE ─────────────────────────────────── */}
       {featured.data.length > 0 && (

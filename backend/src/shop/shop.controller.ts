@@ -57,4 +57,13 @@ export class ShopController {
   getProduct(@Param('code') code: string) {
     return this.shopService.getProductByCode(code);
   }
+
+  // GET /shop/frequently-bought-with/:pluBarcode?limit=4
+  @Get('frequently-bought-with/:pluBarcode')
+  getFrequentlyBoughtWith(
+    @Param('pluBarcode') pluBarcode: string,
+    @Query('limit', new DefaultValuePipe(4), ParseIntPipe) limit = 4,
+  ) {
+    return this.shopService.getFrequentlyBoughtWith(pluBarcode, limit);
+  }
 }

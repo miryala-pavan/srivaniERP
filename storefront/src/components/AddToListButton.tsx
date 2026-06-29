@@ -1,6 +1,7 @@
 'use client';
 
 import { useCart } from '@/context/CartContext';
+import type { VolumeTier } from '@/context/CartContext';
 
 interface Props {
   code: string;
@@ -9,6 +10,7 @@ interface Props {
   sellingPrice: number;
   imageUrl?: string | null;
   disabled?: boolean;
+  volumeTiers?: VolumeTier[];
 }
 
 const TrashIcon = () => (
@@ -23,7 +25,7 @@ const TrashIcon = () => (
 );
 
 export default function AddToListButton({
-  code, name, packLabel, sellingPrice, imageUrl, disabled,
+  code, name, packLabel, sellingPrice, imageUrl, disabled, volumeTiers,
 }: Props) {
   const { has, addItem, updateQty, items } = useCart();
   const inCart = has(code);
@@ -52,7 +54,7 @@ export default function AddToListButton({
     return (
       <button
         type="button"
-        onClick={() => addItem({ code, name, packLabel, sellingPrice, imageUrl })}
+        onClick={() => addItem({ code, name, packLabel, sellingPrice, imageUrl, volumeTiers })}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: '5px',
           padding: '6px 12px', borderRadius: '8px',

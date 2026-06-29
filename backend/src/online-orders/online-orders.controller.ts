@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { OnlineOrdersService } from './online-orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { WhatsAppCheckoutDto } from './dto/whatsapp-checkout.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -15,6 +16,11 @@ export class OnlineOrdersController {
   @Post()
   createOrder(@Body() dto: CreateOrderDto) {
     return this.service.createOrder(dto);
+  }
+
+  @Post('whatsapp-checkout')
+  whatsappCheckout(@Body() dto: WhatsAppCheckoutDto) {
+    return this.service.whatsappCheckout(dto);
   }
 
   @Post('verify-payment')
@@ -41,6 +47,11 @@ export class OnlineOrdersController {
     @Query('dateTo')   dateTo?: string,
   ) {
     return this.service.listAllOrders(status, date, search, dateFrom, dateTo);
+  }
+
+  @Post(':orderNumber/retry-payment')
+  retryPayment(@Param('orderNumber') orderNumber: string) {
+    return this.service.retryPayment(orderNumber);
   }
 
   @Post(':orderNumber/confirm-delivery')

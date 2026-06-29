@@ -148,6 +148,46 @@ export async function confirmDelivery(orderNumber: string): Promise<{ success: b
   return res.json();
 }
 
+export async function retryPayment(orderNumber: string): Promise<{
+  razorpayOrderId: string;
+  razorpayKeyId: string;
+  total: number;
+  orderNumber: string;
+}> {
+  const res = await fetch(`${API}/online-orders/${orderNumber}/retry-payment`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? 'Failed to initiate payment retry');
+  }
+  return res.json();
+}
+
+export interface WhatsAppCheckoutPayload {
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string;
+  items: OrderItem[];
+  customerNotes?: string;
+}
+
+export async function whatsappCheckout(
+  payload: WhatsAppCheckoutPayload,
+): Promise<{ orderNumber: string; total: number }> {
+  const res = await fetch(`${API}/online-orders/whatsapp-checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = Array.isArray(err.message) ? err.message.join(', ') : (err.message ?? 'Failed to place order');
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 export async function fetchMyOrders(phone: string, email?: string): Promise<OnlineOrder[]> {
   try {
     const params = new URLSearchParams();

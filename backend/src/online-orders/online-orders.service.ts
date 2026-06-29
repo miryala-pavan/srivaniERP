@@ -15,6 +15,7 @@ import {
   DeliveryType,
   PaymentMethod,
 } from './dto/create-order.dto';
+import { WhatsAppCheckoutDto } from './dto/whatsapp-checkout.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import {
   Prisma,
@@ -99,7 +100,30 @@ export class OnlineOrdersService {
     }
 
     const businessId = await this.getBusinessId();
-    const subtotal = dto.items.reduce(
+
+    // Apply volume pricing tiers server-side (override frontend prices if a tier matches)
+    const pluBarcodes = dto.items.map(i => i.pluBarcode);
+    const volTiers = await this.prisma.volumePricingTier.findMany({
+      where: { businessId, pluBarcode: { in: pluBarcodes } },
+      orderBy: { minQty: 'asc' },
+      select: { pluBarcode: true, minQty: true, price: true },
+    });
+    const tiersByPlu = new Map<string, { minQty: number; price: number }[]>();
+    for (const t of volTiers) {
+      const arr = tiersByPlu.get(t.pluBarcode) ?? [];
+      arr.push({ minQty: t.minQty, price: Number(t.price) });
+      tiersByPlu.set(t.pluBarcode, arr);
+    }
+    const resolvedItems = dto.items.map(item => {
+      const tiers = tiersByPlu.get(item.pluBarcode) ?? [];
+      let effectivePrice = item.unitPrice;
+      for (const t of tiers) {
+        if (item.quantity >= t.minQty) effectivePrice = t.price;
+      }
+      return { ...item, unitPrice: effectivePrice };
+    });
+
+    const subtotal = resolvedItems.reduce(
       (sum, item) => sum + item.unitPrice * item.quantity,
       0,
     );
@@ -146,7 +170,7 @@ export class OnlineOrdersService {
         total,
         customerNotes: dto.customerNotes ?? null,
         items: {
-          create: dto.items.map((item) => ({
+          create: resolvedItems.map((item) => ({
             pluBarcode: item.pluBarcode,
             productCode: item.productCode,
             productName: item.productName,
@@ -174,7 +198,7 @@ export class OnlineOrdersService {
       total,
       paymentMethod: dto.paymentMethod,
       deliveryType: dto.deliveryType,
-      itemCount: dto.items.length,
+      itemCount: resolvedItems.length,
     }).catch(() => {});
 
     // WhatsApp + email: confirm to customer (COD only — Razorpay sends after payment verified)
@@ -197,7 +221,7 @@ export class OnlineOrdersService {
           subtotal,
           deliveryFee,
           total,
-          items: dto.items.map(i => ({
+          items: resolvedItems.map(i => ({
             productName: i.productName,
             packLabel:   i.packLabel,
             quantity:    i.quantity,
@@ -287,6 +311,134 @@ export class OnlineOrdersService {
     }
 
     return { success: true, orderNumber: updated.orderNumber };
+  }
+
+  async retryPayment(orderNumber: string) {
+    const order = await this.prisma.onlineOrder.findUnique({
+      where: { orderNumber },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.status !== OnlineOrderStatus.PAYMENT_FAILED) {
+      throw new BadRequestException('Only orders with failed payment can be retried');
+    }
+    if (!this.rzp) throw new BadRequestException('Online payment is not configured');
+
+    const rzpOrder = await this.rzp.orders.create({
+      amount: Math.round(Number(order.total) * 100),
+      currency: 'INR',
+      receipt: orderNumber,
+      notes: { customerPhone: order.customerPhone, orderNumber },
+    });
+
+    await this.prisma.onlineOrder.update({
+      where: { id: order.id },
+      data: { razorpayOrderId: rzpOrder.id as string },
+    });
+
+    return {
+      orderNumber,
+      razorpayOrderId: rzpOrder.id as string,
+      razorpayKeyId: process.env.RAZORPAY_KEY_ID ?? '',
+      total: Number(order.total),
+    };
+  }
+
+  async whatsappCheckout(dto: WhatsAppCheckoutDto) {
+    if (!dto.items.length) {
+      throw new BadRequestException('Order must have at least one item');
+    }
+
+    const businessId = await this.getBusinessId();
+
+    // Apply volume pricing tiers server-side
+    const pluBarcodes = dto.items.map(i => i.pluBarcode);
+    const volTiers = await this.prisma.volumePricingTier.findMany({
+      where: { businessId, pluBarcode: { in: pluBarcodes } },
+      orderBy: { minQty: 'asc' },
+      select: { pluBarcode: true, minQty: true, price: true },
+    });
+    const tiersByPlu = new Map<string, { minQty: number; price: number }[]>();
+    for (const t of volTiers) {
+      const arr = tiersByPlu.get(t.pluBarcode) ?? [];
+      arr.push({ minQty: t.minQty, price: Number(t.price) });
+      tiersByPlu.set(t.pluBarcode, arr);
+    }
+    const resolvedItems = dto.items.map(item => {
+      const tiers = tiersByPlu.get(item.pluBarcode) ?? [];
+      let effectivePrice = item.unitPrice;
+      for (const t of tiers) {
+        if (item.quantity >= t.minQty) effectivePrice = t.price;
+      }
+      return { ...item, unitPrice: effectivePrice };
+    });
+
+    const subtotal = resolvedItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    const deliveryFee = subtotal >= 500 ? 0 : 40;
+    const total = subtotal + deliveryFee;
+    const orderNumber = await this.generateOrderNumber(businessId);
+
+    const notes = [
+      dto.customerNotes,
+      'Delivery details to be confirmed via WhatsApp',
+    ].filter(Boolean).join(' · ');
+
+    await this.prisma.onlineOrder.create({
+      data: {
+        orderNumber,
+        businessId,
+        customerName: dto.customerName,
+        customerPhone: dto.customerPhone,
+        customerEmail: dto.customerEmail ?? null,
+        deliveryType: DeliveryType.STORE_PICKUP,
+        paymentMethod: PaymentMethod.COD,
+        paymentStatus: OnlinePaymentStatus.PENDING,
+        status: OnlineOrderStatus.PENDING_COD,
+        source: 'WHATSAPP',
+        subtotal,
+        deliveryFee,
+        total,
+        customerNotes: notes,
+        items: {
+          create: resolvedItems.map(item => ({
+            pluBarcode: item.pluBarcode,
+            productCode: item.productCode,
+            productName: item.productName,
+            packLabel: item.packLabel,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            total: item.unitPrice * item.quantity,
+            mrp: item.mrp ?? null,
+          })),
+        },
+      },
+    });
+
+    this.auditLog.log(
+      { userName: dto.customerName, userRole: 'CUSTOMER', businessId },
+      { action: 'CREATE', entity: 'ONLINE_ORDER', entityRef: orderNumber, description: `WhatsApp order by ${dto.customerName} (${dto.customerPhone}) — ₹${total}` },
+    ).catch(() => {});
+
+    this.whatsapp.sendOrderAlert({
+      orderNumber,
+      customerName: dto.customerName,
+      customerPhone: dto.customerPhone,
+      total,
+      paymentMethod: PaymentMethod.COD,
+      deliveryType: DeliveryType.STORE_PICKUP,
+      itemCount: resolvedItems.length,
+    }).catch(() => {});
+
+    this.events.emitToBusiness(businessId, Events.ONLINE_ORDER_PLACED, {
+      orderNumber,
+      customerName: dto.customerName,
+      customerPhone: dto.customerPhone,
+      total,
+      paymentMethod: PaymentMethod.COD,
+      deliveryType: DeliveryType.STORE_PICKUP,
+      itemCount: resolvedItems.length,
+    });
+
+    return { orderNumber, total };
   }
 
   async getOrder(orderNumber: string) {

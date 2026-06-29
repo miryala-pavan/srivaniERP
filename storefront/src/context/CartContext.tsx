@@ -9,6 +9,11 @@ import {
   type ReactNode,
 } from 'react';
 
+export interface VolumeTier {
+  minQty: number;
+  price: number;
+}
+
 export interface CartItem {
   code: string;        // pluBarcode — unique key per pack
   name: string;
@@ -16,6 +21,17 @@ export interface CartItem {
   sellingPrice: number;
   qty: number;
   imageUrl?: string | null;
+  volumeTiers?: VolumeTier[];
+}
+
+/** Return the effective unit price for a cart item considering volume tiers. */
+export function effectiveUnitPrice(item: CartItem): number {
+  if (!item.volumeTiers?.length) return item.sellingPrice;
+  let price = item.sellingPrice;
+  for (const t of item.volumeTiers) {
+    if (item.qty >= t.minQty) price = t.price;
+  }
+  return price;
 }
 
 interface CartCtx {
@@ -23,10 +39,12 @@ interface CartCtx {
   addItem: (item: Omit<CartItem, 'qty'>) => void;
   removeItem: (code: string) => void;
   updateQty: (code: string, qty: number) => void;
+  bulkAdd: (items: CartItem[]) => void;
   clearAll: () => void;
   has: (code: string) => boolean;
   totalItems: number;   // sum of all qtys
-  subtotal: number;     // sum of price × qty
+  subtotal: number;     // effective total (applies volume tier prices)
+  baseCost: number;     // base total without tier discounts
 }
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -70,13 +88,29 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setItems(prev => prev.map(i => i.code === code ? { ...i, qty } : i));
   }, []);
 
+  const bulkAdd = useCallback((newItems: CartItem[]) => {
+    setItems(prev => {
+      const updated = [...prev];
+      for (const item of newItems) {
+        const idx = updated.findIndex(i => i.code === item.code);
+        if (idx >= 0) {
+          updated[idx] = { ...updated[idx], qty: item.qty };
+        } else {
+          updated.push(item);
+        }
+      }
+      return updated;
+    });
+  }, []);
+
   const clearAll = useCallback(() => setItems([]), []);
   const has = useCallback((code: string) => items.some(i => i.code === code), [items]);
   const totalItems = items.reduce((s, i) => s + i.qty, 0);
-  const subtotal   = items.reduce((s, i) => s + i.sellingPrice * i.qty, 0);
+  const subtotal   = items.reduce((s, i) => s + effectiveUnitPrice(i) * i.qty, 0);
+  const baseCost   = items.reduce((s, i) => s + i.sellingPrice * i.qty, 0);
 
   return (
-    <Ctx.Provider value={{ items, addItem, removeItem, updateQty, clearAll, has, totalItems, subtotal }}>
+    <Ctx.Provider value={{ items, addItem, removeItem, updateQty, bulkAdd, clearAll, has, totalItems, subtotal, baseCost }}>
       {children}
     </Ctx.Provider>
   );

@@ -1,11 +1,14 @@
 import { notFound } from 'next/navigation';
-import { getProduct, getProducts } from '@/lib/shop';
+import { getProduct, getProducts, getFrequentlyBoughtWith } from '@/lib/shop';
 import type { ShopProduct } from '@/lib/shop';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import ProductImage from '@/components/ProductImage';
 import ProductDetailListButton from '@/components/ProductDetailListButton';
 import RelatedProducts from '@/components/RelatedProducts';
 import WishlistButton from '@/components/WishlistButton';
+import NotifyMeButton from '@/components/NotifyMeButton';
+import RecentlyViewedTracker from '@/components/RecentlyViewedTracker';
+import FrequentlyBoughtWith from '@/components/FrequentlyBoughtWith';
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:4002').replace(/\/$/, '');
 
@@ -96,10 +99,14 @@ export default async function ProductPage({ params }: Props) {
   const product = await getProduct(params.code);
   if (!product) notFound();
 
-  // Related products — same subcategory, exclude self, max 6
-  const relatedResult = product.categoryCode
-    ? await getProducts({ subCategoryCode: product.categoryCode, limit: 7 })
-    : null;
+  // Related + FBT — parallel fetches
+  const firstPlu = product.packs[0]?.pluBarcode ?? '';
+  const [relatedResult, fbtProducts] = await Promise.all([
+    product.categoryCode
+      ? getProducts({ subCategoryCode: product.categoryCode, limit: 7 })
+      : Promise.resolve(null),
+    firstPlu ? getFrequentlyBoughtWith(firstPlu, 4) : Promise.resolve([]),
+  ]);
   const related = (relatedResult?.data ?? []).filter(p => p.code !== product.code).slice(0, 6);
 
   return (
@@ -107,6 +114,13 @@ export default async function ProductPage({ params }: Props) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(product)) }}
+      />
+      <RecentlyViewedTracker
+        code={product.code}
+        name={product.name}
+        imageUrl={product.imageUrl}
+        fromPrice={product.fromPrice}
+        categoryName={product.categoryName}
       />
     <div className="wrap">
       <section className="sec">
@@ -255,6 +269,35 @@ export default async function ProductPage({ params }: Props) {
                         <span className="pack-mrp">MRP ₹{formatPrice(pack.mrp)}</span>
                       )}
                     </div>
+
+                    {/* Volume discount tiers */}
+                    {pack.volumeTiers && pack.volumeTiers.length > 0 && (
+                      <div style={{ marginTop: '8px' }}>
+                        <p style={{ fontSize: '10px', fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '5px' }}>
+                          Bulk discounts
+                        </p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                          {pack.volumeTiers.map(t => {
+                            const save = Math.round((pack.price - t.price) * 100) / 100;
+                            return (
+                              <span
+                                key={t.minQty}
+                                style={{
+                                  fontSize: '11px', fontWeight: 600,
+                                  padding: '3px 8px', borderRadius: '6px',
+                                  background: 'rgba(5,150,105,0.10)',
+                                  color: '#065f46', border: '1px solid rgba(5,150,105,0.25)',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {t.minQty}+ → ₹{formatPrice(t.price)}
+                                {save > 0 && ` (save ₹${formatPrice(save)} each)`}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="pack-actions">
@@ -275,7 +318,11 @@ export default async function ProductPage({ params }: Props) {
                         Order on WhatsApp
                       </a>
                     ) : (
-                      <span className="pack-out-label">Out of stock</span>
+                      <NotifyMeButton
+                        pluBarcode={pack.pluBarcode}
+                        productName={product.name}
+                        packLabel={pack.packLabel}
+                      />
                     )}
                     <ProductDetailListButton
                       code={pack.pluBarcode}
@@ -284,6 +331,7 @@ export default async function ProductPage({ params }: Props) {
                       sellingPrice={pack.price}
                       imageUrl={product.imageUrl}
                       inStock={pack.inStock}
+                      volumeTiers={pack.volumeTiers}
                     />
                   </div>
                 </div>
@@ -308,6 +356,11 @@ export default async function ProductPage({ params }: Props) {
               {product.description}
             </p>
           </div>
+        )}
+
+        {/* ── Frequently bought together ──────────────────────────── */}
+        {fbtProducts.length > 0 && (
+          <FrequentlyBoughtWith products={fbtProducts} />
         )}
 
         {/* ── Related products ────────────────────────────────────────── */}

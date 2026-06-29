@@ -4,7 +4,28 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { OnlineOrder } from '@/lib/orders';
-import { cancelOrder } from '@/lib/orders';
+import { cancelOrder, retryPayment, verifyRazorpayPayment } from '@/lib/orders';
+import { useCart } from '@/context/CartContext';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare global { interface Window { Razorpay: new (options: any) => { open(): void }; } }
+
+function loadRazorpayScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof window.Razorpay === 'function') { resolve(); return; }
+    if (document.querySelector('script[src*="razorpay"]')) {
+      const wait = setInterval(() => {
+        if (typeof window.Razorpay === 'function') { clearInterval(wait); resolve(); }
+      }, 100);
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Failed to load payment gateway'));
+    document.head.appendChild(s);
+  });
+}
 
 const WA = '919382828484';
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CXZY6ACcJig_EAE/review';
@@ -53,11 +74,67 @@ export default function OrderStatusClient({
   orderNumber: string;
 }) {
   const router = useRouter();
+  const { bulkAdd } = useCart();
   const [isPending, startTransition] = useTransition();
   const [showCancel, setShowCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
   const [cancelError, setCancelError] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState('');
+
+  function handleReorder() {
+    if (!order) return;
+    bulkAdd(order.items.map(item => ({
+      code: item.id,
+      name: item.productName,
+      packLabel: item.packLabel,
+      sellingPrice: item.unitPrice,
+      qty: item.quantity,
+      imageUrl: null,
+    })));
+    router.push('/cart');
+  }
+
+  async function handleRetryPayment() {
+    if (!order) return;
+    setRetrying(true);
+    setRetryError('');
+    try {
+      const data = await retryPayment(order.orderNumber);
+      await loadRazorpayScript();
+      const rzp = new window.Razorpay({
+        key: data.razorpayKeyId,
+        amount: Math.round(data.total * 100),
+        currency: 'INR',
+        name: 'Srivani Stores',
+        description: `Order ${data.orderNumber}`,
+        order_id: data.razorpayOrderId,
+        prefill: { name: order.customerName, contact: order.customerPhone, email: order.customerEmail ?? '' },
+        theme: { color: '#D98324' },
+        handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+          try {
+            setRetrying(true);
+            await verifyRazorpayPayment({
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            });
+            startTransition(() => router.refresh());
+          } catch {
+            setRetryError('Payment verification failed. Please contact us with your order number.');
+          } finally {
+            setRetrying(false);
+          }
+        },
+        modal: { ondismiss: () => { setRetrying(false); } },
+      });
+      rzp.open();
+    } catch (e: unknown) {
+      setRetryError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
+      setRetrying(false);
+    }
+  }
 
   if (!order) {
     return (
@@ -320,6 +397,65 @@ export default function OrderStatusClient({
           >
             Continue Shopping
           </Link>
+
+          {/* Reorder */}
+          {isSuccess && (
+            <button
+              onClick={handleReorder}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                padding: '13px 0', borderRadius: '12px',
+                background: '#059669', color: '#fff',
+                fontSize: '14px', fontWeight: 700, border: 'none', cursor: 'pointer',
+              }}
+            >
+              🔄 Order Again
+            </button>
+          )}
+
+          {/* Invoice download */}
+          {isSuccess && (
+            <Link
+              href={`/order/${order.orderNumber}/invoice`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                padding: '13px 0', borderRadius: '12px',
+                border: '1.5px solid var(--line)',
+                background: 'transparent', color: 'var(--ink)',
+                fontSize: '14px', fontWeight: 700, textDecoration: 'none',
+              }}
+            >
+              🧾 Download Invoice
+            </Link>
+          )}
+
+          {/* Payment retry */}
+          {order.status === 'PAYMENT_FAILED' && (
+            <div>
+              <button
+                onClick={handleRetryPayment}
+                disabled={retrying}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                  width: '100%',
+                  padding: '13px 0', borderRadius: '12px',
+                  background: '#4285F4', color: '#fff',
+                  fontSize: '14px', fontWeight: 700, border: 'none',
+                  cursor: retrying ? 'not-allowed' : 'pointer',
+                  opacity: retrying ? 0.7 : 1,
+                }}
+              >
+                {retrying ? 'Processing…' : '💳 Retry Payment'}
+              </button>
+              {retryError && (
+                <p style={{ fontSize: '13px', color: '#ef4444', marginTop: '8px', textAlign: 'center' }}>
+                  {retryError}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Cancel Order */}
           {canCancel && !showCancel && (

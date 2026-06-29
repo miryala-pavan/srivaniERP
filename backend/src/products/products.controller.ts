@@ -320,6 +320,16 @@ export class ProductsController {
   }
 
   // ─── PLU BUNDLE (Bulk ↔ Single) ──────────────────────
+  @Get('plu-bundles/all')
+  getAllBundles(@Request() req: any) {
+    return this.productsService.getAllBundles(req.user.businessId);
+  }
+
+  @Get('plu-bundles/history')
+  getAllBreakBulkHistory(@Request() req: any) {
+    return this.productsService.getBreakBulkHistory(req.user.businessId);
+  }
+
   @Get('plu-bundles/:pluId')
   getPluBundle(@Request() req: any, @Param('pluId') pluId: string) {
     return this.productsService.getPluBundle(req.user.businessId, pluId);

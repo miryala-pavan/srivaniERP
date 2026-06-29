@@ -1,6 +1,7 @@
 'use client';
 
 import AddToListButton from './AddToListButton';
+import type { VolumeTier } from '@/context/CartContext';
 
 interface Props {
   code: string;
@@ -9,6 +10,7 @@ interface Props {
   sellingPrice: number;
   imageUrl?: string | null;
   inStock: boolean;
+  volumeTiers?: VolumeTier[];
 }
 
 export default function ProductDetailListButton(props: Props) {
@@ -20,6 +22,7 @@ export default function ProductDetailListButton(props: Props) {
       sellingPrice={props.sellingPrice}
       imageUrl={props.imageUrl}
       disabled={!props.inStock}
+      volumeTiers={props.volumeTiers}
     />
   );
 }

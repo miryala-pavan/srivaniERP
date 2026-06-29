@@ -45,6 +45,7 @@ import {
   Globe,
   Scale,
   ShieldCheck,
+  SplitSquareHorizontal,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -100,6 +101,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/grn',                       label: 'GRN',           icon: PackageCheck, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
       { href: '/dashboard/products/labels',            label: 'Print Labels',  icon: Printer,      roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'PACKING_STAFF', 'FLOOR_SUPERVISOR'] },
       { href: '/dashboard/reorder',                    label: 'Reorder Guide', icon: PackageSearch, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
+      { href: '/dashboard/inventory/break-bulk',        label: 'Break Bulk',    icon: SplitSquareHorizontal, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'PURCHASE_CHECKER'] },
     ],
   },
   {

@@ -25,6 +25,11 @@ export interface ShopDepartment {
   productCount: number;
 }
 
+export interface VolumeTier {
+  minQty: number;
+  price: number;
+}
+
 export interface ShopPack {
   pluBarcode: string;
   packLabel: string;
@@ -34,6 +39,7 @@ export interface ShopPack {
   inStock: boolean;
   availableQty: number;
   onlineStockCap: number | null;
+  volumeTiers: VolumeTier[];
 }
 
 export interface ShopGroupVariant {
@@ -189,5 +195,17 @@ export async function getProductSuggestions(q: string, limit = 6): Promise<Sugge
     return res.json();
   } catch {
     return empty;
+  }
+}
+
+export async function getFrequentlyBoughtWith(pluBarcode: string, limit = 4): Promise<ShopProduct[]> {
+  try {
+    const url = new URL(`${API_BASE}/shop/frequently-bought-with/${encodeURIComponent(pluBarcode)}`);
+    url.searchParams.set('limit', String(limit));
+    const res = await fetch(url.toString(), { next: { revalidate: 300 }, signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
   }
 }

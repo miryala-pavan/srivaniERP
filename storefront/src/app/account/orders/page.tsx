@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useVerifiedPhone } from '@/hooks/useVerifiedPhone';
 import { fetchMyOrders, type OnlineOrder } from '@/lib/orders';
+import { useCart } from '@/context/CartContext';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING_PAYMENT: 'Awaiting Payment',
@@ -44,8 +45,23 @@ export default function OrdersPage() {
   const { user, isLoggedIn, isLoading } = useAuth();
   const { verifiedPhone, phoneReady } = useVerifiedPhone();
   const router = useRouter();
+  const { bulkAdd } = useCart();
   const [orders, setOrders] = useState<OnlineOrder[]>([]);
   const [fetching, setFetching] = useState(true);
+
+  function handleReorder(order: OnlineOrder, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    bulkAdd(order.items.map(item => ({
+      code: item.id,
+      name: item.productName,
+      packLabel: item.packLabel,
+      sellingPrice: item.unitPrice,
+      qty: item.quantity,
+      imageUrl: null,
+    })));
+    router.push('/cart');
+  }
 
   useEffect(() => {
     if (!isLoading && !isLoggedIn) router.replace('/login?redirect=/account/orders');
@@ -183,9 +199,24 @@ export default function OrdersPage() {
                     {' · '}
                     {order.paymentMethod === 'COD' ? 'Cash on Delivery' : 'Paid Online'}
                   </span>
-                  <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--ink)' }}>
-                    ₹{fmt(order.total)}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {['DELIVERED', 'CONFIRMED', 'PROCESSING', 'READY', 'PENDING_COD'].includes(order.status) && (
+                      <button
+                        onClick={(e) => handleReorder(order, e)}
+                        style={{
+                          padding: '5px 12px', borderRadius: '8px',
+                          background: '#059669', color: '#fff',
+                          fontSize: '11px', fontWeight: 700,
+                          border: 'none', cursor: 'pointer',
+                        }}
+                      >
+                        🔄 Reorder
+                      </button>
+                    )}
+                    <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--ink)' }}>
+                      ₹{fmt(order.total)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </Link>
