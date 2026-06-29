@@ -1114,8 +1114,8 @@ export class ProductsService {
     return this.prisma.pluBundle.findMany({
       where: { businessId },
       include: {
-        bulkPlu:   { select: { id: true, pluCode: true, packLabel: true, stockOnHand: true, product: { select: { name: true } } } },
-        singlePlu: { select: { id: true, pluCode: true, packLabel: true, stockOnHand: true, product: { select: { name: true } } } },
+        bulkPlu:   { select: { id: true, pluCode: true, displayName: true, stockOnHand: true, product: { select: { name: true } } } },
+        singlePlu: { select: { id: true, pluCode: true, displayName: true, stockOnHand: true, product: { select: { name: true } } } },
       },
       orderBy: { createdAt: 'asc' },
     });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
@@ -12,14 +12,22 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface Plu {
+  id: string;
+  pluCode: string;
+  displayName: string | null;
+  stockOnHand: number;
+  product: { name: string };
+}
+
 interface PluBundle {
   id: string;
   bulkPluId: string;
   singlePluId: string;
   conversionQty: number;
   notes: string | null;
-  bulkPlu: { id: string; pluCode: string; packLabel: string; stockOnHand: number; product: { name: string } };
-  singlePlu: { id: string; pluCode: string; packLabel: string; stockOnHand: number; product: { name: string } };
+  bulkPlu: Plu;
+  singlePlu: Plu;
 }
 
 interface BreakBulkLog {
@@ -29,8 +37,6 @@ interface BreakBulkLog {
   notes: string | null;
   createdByName: string | null;
   createdAt: string;
-  bulkPluId: string;
-  singlePluId: string;
 }
 
 interface SuggestedBreak {
@@ -38,6 +44,10 @@ interface SuggestedBreak {
   singlesStock: number;
   bulkStock: number;
   urgency: 'critical' | 'low';
+}
+
+function label(plu: Plu) {
+  return plu.displayName ?? plu.pluCode;
 }
 
 // ─── API helpers ───────────────────────────────────────────────────────────────
@@ -56,7 +66,8 @@ async function fetchHistory(pluId?: string): Promise<BreakBulkLog[]> {
 }
 
 async function doBreakBulk(payload: {
-  bulkPluId: string; bulkQty: number;
+  bulkPluId: string;
+  bulkQty: number;
   targets: { bundleId: string; singlesQty: number }[];
   notes?: string;
 }) {
@@ -85,11 +96,11 @@ export default function BreakBulkPage() {
   const qc = useQueryClient();
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const [search, setSearch]       = useState('');
-  const [selected, setSelected]   = useState<PluBundle | null>(null);
-  const [qty, setQty]             = useState('1');
-  const [notes, setNotes]         = useState('');
-  const [tab, setTab]             = useState<'break' | 'history' | 'suggestions'>('break');
+  const [search, setSearch]           = useState('');
+  const [selected, setSelected]       = useState<PluBundle | null>(null);
+  const [qty, setQty]                 = useState('1');
+  const [notes, setNotes]             = useState('');
+  const [tab, setTab]                 = useState<'break' | 'history' | 'suggestions'>('break');
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const { data: bundles = [], isLoading: loadingBundles } = useQuery({
@@ -118,14 +129,13 @@ export default function BreakBulkPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to break bulk'),
   });
 
-  // Filter bundles by search
   const filtered = bundles.filter(b => {
     const q = search.toLowerCase();
     return (
       b.bulkPlu.product.name.toLowerCase().includes(q) ||
-      b.bulkPlu.pluCode.includes(q) ||
-      b.bulkPlu.packLabel.toLowerCase().includes(q) ||
-      b.singlePlu.pluCode.includes(q)
+      b.bulkPlu.pluCode.toLowerCase().includes(q) ||
+      (b.bulkPlu.displayName ?? '').toLowerCase().includes(q) ||
+      b.singlePlu.pluCode.toLowerCase().includes(q)
     );
   });
 
@@ -152,12 +162,9 @@ export default function BreakBulkPage() {
     });
   }
 
-  const singlesAfter = selected
-    ? selected.singlePlu.stockOnHand + (parseInt(qty) || 0) * selected.conversionQty
-    : 0;
-  const bulkAfter = selected
-    ? selected.bulkPlu.stockOnHand - (parseInt(qty) || 0)
-    : 0;
+  const qtyNum    = parseInt(qty) || 0;
+  const singlesAfter = selected ? selected.singlePlu.stockOnHand + qtyNum * selected.conversionQty : 0;
+  const bulkAfter    = selected ? selected.bulkPlu.stockOnHand - qtyNum : 0;
 
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
@@ -186,11 +193,13 @@ export default function BreakBulkPage() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize ${
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
               tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t === 'suggestions' ? `Suggestions${suggestions.length ? ` (${suggestions.length})` : ''}` : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'suggestions'
+              ? `Suggestions${suggestions.length ? ` (${suggestions.length})` : ''}`
+              : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
@@ -210,7 +219,7 @@ export default function BreakBulkPage() {
                 <div className="flex items-start justify-between bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <div>
                     <p className="font-semibold text-blue-900">{selected.bulkPlu.product.name}</p>
-                    <p className="text-sm text-blue-600">{selected.bulkPlu.packLabel} · {selected.bulkPlu.pluCode}</p>
+                    <p className="text-sm text-blue-600">{label(selected.bulkPlu)} · {selected.bulkPlu.pluCode}</p>
                     <p className="text-xs text-blue-500 mt-0.5">Stock: <strong>{selected.bulkPlu.stockOnHand}</strong> bulk units</p>
                   </div>
                   <button onClick={() => setSelected(null)} className="p-1 text-blue-400 hover:text-blue-600">
@@ -233,9 +242,7 @@ export default function BreakBulkPage() {
 
               {!selected && search.length > 0 && (
                 <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
-                  {loadingBundles && (
-                    <p className="text-sm text-gray-400 p-3">Loading…</p>
-                  )}
+                  {loadingBundles && <p className="text-sm text-gray-400 p-3">Loading…</p>}
                   {!loadingBundles && filtered.length === 0 && (
                     <p className="text-sm text-gray-400 p-3">No bulk items found</p>
                   )}
@@ -248,7 +255,7 @@ export default function BreakBulkPage() {
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="text-sm font-medium text-gray-900">{b.bulkPlu.product.name}</p>
-                          <p className="text-xs text-gray-500">{b.bulkPlu.packLabel} → {b.singlePlu.packLabel}</p>
+                          <p className="text-xs text-gray-500">{label(b.bulkPlu)} → {label(b.singlePlu)}</p>
                         </div>
                         <div className="text-right">
                           <p className="text-xs font-semibold text-gray-700">{b.bulkPlu.stockOnHand} bulk</p>
@@ -282,7 +289,9 @@ export default function BreakBulkPage() {
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="text-sm font-medium text-gray-900">{b.bulkPlu.product.name}</p>
-                          <p className="text-xs text-gray-500">{b.bulkPlu.packLabel} → {b.singlePlu.packLabel} · 1 = {b.conversionQty} pcs</p>
+                          <p className="text-xs text-gray-500">
+                            {label(b.bulkPlu)} → {label(b.singlePlu)} · 1 = {b.conversionQty} pcs
+                          </p>
                         </div>
                         <div className="text-right shrink-0 ml-2">
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -313,7 +322,7 @@ export default function BreakBulkPage() {
                   <div className="flex items-center gap-3">
                     <div className="flex-1 bg-orange-50 border border-orange-200 rounded-lg p-3 text-center">
                       <p className="text-xs text-orange-600 font-medium mb-1">Bulk (source)</p>
-                      <p className="font-bold text-orange-900">{selected.bulkPlu.packLabel}</p>
+                      <p className="font-bold text-orange-900">{label(selected.bulkPlu)}</p>
                       <p className="text-xs text-orange-500">{selected.bulkPlu.pluCode}</p>
                       <p className="text-lg font-bold text-orange-700 mt-1">{selected.bulkPlu.stockOnHand}</p>
                       <p className="text-xs text-orange-500">in stock</p>
@@ -326,7 +335,7 @@ export default function BreakBulkPage() {
 
                     <div className="flex-1 bg-green-50 border border-green-200 rounded-lg p-3 text-center">
                       <p className="text-xs text-green-600 font-medium mb-1">Singles (result)</p>
-                      <p className="font-bold text-green-900">{selected.singlePlu.packLabel}</p>
+                      <p className="font-bold text-green-900">{label(selected.singlePlu)}</p>
                       <p className="text-xs text-green-500">{selected.singlePlu.pluCode}</p>
                       <p className="text-lg font-bold text-green-700 mt-1">{selected.singlePlu.stockOnHand}</p>
                       <p className="text-xs text-green-500">in stock</p>
@@ -381,10 +390,9 @@ export default function BreakBulkPage() {
                     </div>
                   </div>
 
-                  {/* Preview */}
-                  {parseInt(qty) > 0 && parseInt(qty) <= selected.bulkPlu.stockOnHand && (
+                  {qtyNum > 0 && qtyNum <= selected.bulkPlu.stockOnHand && (
                     <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 space-y-2">
-                      <p className="text-xs font-semibold text-blue-700">After breaking {qty} unit{parseInt(qty) > 1 ? 's' : ''}:</p>
+                      <p className="text-xs font-semibold text-blue-700">After breaking {qty} unit{qtyNum > 1 ? 's' : ''}:</p>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="text-center">
                           <p className="text-xs text-gray-500">Bulk stock</p>
@@ -400,12 +408,12 @@ export default function BreakBulkPage() {
                         </div>
                       </div>
                       <p className="text-xs text-blue-600 text-center">
-                        +{(parseInt(qty) || 0) * selected.conversionQty} singles will be added
+                        +{qtyNum * selected.conversionQty} singles will be added
                       </p>
                     </div>
                   )}
 
-                  {parseInt(qty) > selected.bulkPlu.stockOnHand && (
+                  {qtyNum > selected.bulkPlu.stockOnHand && (
                     <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-100 rounded-lg p-3">
                       <AlertTriangle className="w-4 h-4 shrink-0" />
                       <p className="text-xs">Only {selected.bulkPlu.stockOnHand} bulk units available</p>
@@ -424,11 +432,11 @@ export default function BreakBulkPage() {
 
                   <button
                     onClick={handleBreak}
-                    disabled={mutation.isPending || !parseInt(qty) || parseInt(qty) > selected.bulkPlu.stockOnHand}
+                    disabled={mutation.isPending || !qtyNum || qtyNum > selected.bulkPlu.stockOnHand}
                     className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                   >
                     <SplitSquareHorizontal className="w-4 h-4" />
-                    {mutation.isPending ? 'Breaking…' : `Break ${qty || '0'} × ${selected.bulkPlu.packLabel}`}
+                    {mutation.isPending ? 'Breaking…' : `Break ${qty || '0'} × ${label(selected.bulkPlu)}`}
                   </button>
                 </div>
 
@@ -553,7 +561,7 @@ export default function BreakBulkPage() {
                     </div>
                     <p className="font-semibold text-gray-900 truncate">{s.bundle.bulkPlu.product.name}</p>
                     <p className="text-xs text-gray-500">
-                      {s.bundle.bulkPlu.packLabel} → {s.bundle.singlePlu.packLabel} · 1 = {s.bundle.conversionQty} pcs
+                      {label(s.bundle.bulkPlu)} → {label(s.bundle.singlePlu)} · 1 = {s.bundle.conversionQty} pcs
                     </p>
                     <div className="flex gap-4 mt-2 text-xs">
                       <span className="text-gray-600">Bulk stock: <strong>{s.bulkStock}</strong></span>
