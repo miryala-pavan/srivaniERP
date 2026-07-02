@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Srivani ERP — Business Calculator</title>
+<meta name="theme-color" content="#0d1a0d">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏪</text></svg>">
+<style>
+  :root{
+    --body:#1b1b1b; --bezel:#d9d9d9; --screen:#b9c4ad; --screentext:#1c241a;
+    --keytext:#f2f2f2; --keyedge:#222; --blue:#2f7fd6;
+    --paper:#fffef7; --papertext:#222; --papline:#e5e1d2;
+    --erp:#1e2a1e; --erpborder:#2a3d2a; --erpaccent:#3a7d3a;
+    --result:#0d1f0d; --resulttext:#6fcf6f;
+    /* All sizes scale automatically with viewport */
+    --fs-display: clamp(22px, 3.4vw, 64px);
+    --fs-digit:   clamp(14px, 1.85vw, 32px);
+    --fs-op:      clamp(16px, 2.1vw, 38px);
+    --fs-func:    clamp(10px, 1.0vw, 18px);
+    --fs-small:   clamp(8px,  0.7vw, 13px);
+    --fs-brand:   clamp(16px, 1.75vw, 32px);
+    --fs-model:   clamp(10px, 0.9vw,  16px);
+    --fs-status:  clamp(9px,  0.8vw,  14px);
+    --fs-tape:    clamp(12px, 1.05vw, 18px);
+    --fs-total:   clamp(15px, 1.6vw,  28px);
+    --fs-erp-t:   clamp(12px, 1.05vw, 18px);
+    --fs-tab:     clamp(10px, 0.82vw, 14px);
+    --fs-label:   clamp(10px, 0.82vw, 14px);
+    --fs-input:   clamp(12px, 0.95vw, 17px);
+    --fs-result:  clamp(12px, 1.0vw,  17px);
+    --fs-result-hi: clamp(14px, 1.35vw, 22px);
+    --fs-chip:    clamp(10px, 0.82vw, 14px);
+    --disp-h:     clamp(60px, 8.5vh, 120px);
+    --row-h:      clamp(26px, 2.8vh,  42px);
+  }
+  *{box-sizing:border-box;-webkit-user-select:none;user-select:none;}
+  html,body{width:100vw;height:100vh;margin:0;background:#111;display:flex;flex-direction:column;
+    font-family:Arial,Helvetica,sans-serif;overflow:hidden;}
+
+  /* ---------- Nav Bar ---------- */
+  .nav-bar{height:clamp(32px,4vh,46px);flex-shrink:0;background:#0a140a;
+    border-bottom:2px solid #1a4a1a;display:flex;align-items:center;padding:0 clamp(8px,1vw,16px);gap:8px;}
+  .nav-btns{display:flex;gap:4px;}
+  .nav-btn{background:#1a2a1a;border:1px solid #2a4a2a;color:#6a9a6a;border-radius:5px;
+    padding:clamp(2px,0.3vh,5px) clamp(8px,0.8vw,14px);font-size:clamp(13px,1.3vw,20px);
+    cursor:pointer;font-weight:bold;line-height:1;transition:all .12s;}
+  .nav-btn:hover{background:#2a4a2a;color:#6fcf6f;border-color:#4a8a4a;}
+  .nav-logo{flex:1;text-align:center;font-size:clamp(11px,1vw,17px);font-weight:900;
+    letter-spacing:clamp(1px,0.3vw,4px);color:#6fcf6f;text-transform:uppercase;}
+  .nav-logo .sub{color:#3a6a3a;font-weight:400;font-size:.8em;letter-spacing:.5px;margin-left:6px;}
+  .nav-right{display:flex;align-items:center;gap:clamp(8px,0.8vw,16px);}
+  .nav-clock{font-family:"Consolas",monospace;font-size:clamp(11px,0.9vw,15px);color:#4a8a4a;
+    min-width:6em;text-align:right;}
+  .nav-date{font-size:clamp(9px,0.75vw,12px);color:#2a5a2a;}
+
+  /* ---------- Panels row ---------- */
+  .panels{flex:1;display:flex;align-items:stretch;gap:6px;padding:6px;overflow:hidden;background:#2f2f2f;}
+
+  /* ---------- Calculator — 29% of viewport width ---------- */
+  .calc{flex:0 0 29%;background:var(--body);border-radius:14px;padding:1.4% 1.4% 1.6%;
+    box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06);
+    display:flex;flex-direction:column;}
+  .brand{display:flex;justify-content:space-between;align-items:baseline;color:#eee;margin:0 2px 1%;}
+  .brand b{font-size:var(--fs-brand);letter-spacing:1px;}
+  .brand .model{font-size:var(--fs-model);color:#bbb;}
+  .brand .digit{font-size:var(--fs-model);border:1px solid #777;border-radius:4px;padding:1px 5px;color:#ccc;}
+  .display-wrap{background:var(--bezel);border-radius:8px;padding:0.7%;margin-bottom:1%;box-shadow:inset 0 2px 5px rgba(0,0,0,.3);}
+  .display{background:var(--screen);border-radius:4px;height:var(--disp-h);display:flex;flex-direction:column;
+    justify-content:center;align-items:flex-end;padding:1% 2%;overflow:hidden;}
+  .status{width:100%;display:flex;justify-content:flex-start;gap:10px;font-size:var(--fs-status);color:#3c4a33;height:var(--fs-status);line-height:1;font-weight:bold;margin-bottom:2px;}
+  .status span{opacity:.22;} .status span.on{opacity:1;}
+  .value{font-size:var(--fs-display);font-weight:bold;color:var(--screentext);font-family:"Consolas","Courier New",monospace;line-height:1;letter-spacing:1px;white-space:nowrap;}
+  .op-ind{margin-left:auto;font-size:calc(var(--fs-status)*1.6);font-weight:bold;color:var(--accent);opacity:0;transition:opacity .15s;line-height:1;}
+  .op-ind.on{opacity:1;}
+  @keyframes numBlink{0%{opacity:1}40%{opacity:.05}100%{opacity:1}}
+  .num-blink{animation:numBlink .13s ease-out;}
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:clamp(5px,0.6vw,12px);flex:1;}
+  button{border:none;border-radius:clamp(6px,0.6vw,10px);padding:0;font-size:var(--fs-func);font-weight:bold;color:var(--keytext);
+    background:linear-gradient(#4f4f4f,#363636);box-shadow:0 3px 0 var(--keyedge),0 4px 6px rgba(0,0,0,.4);
+    cursor:pointer;transition:transform .04s,box-shadow .04s;}
+  button:active{transform:translateY(3px);box-shadow:0 0 0 var(--keyedge);}
+  button.num{background:linear-gradient(#2c2c2c,#1f1f1f);font-size:var(--fs-digit);}
+  button.func{background:linear-gradient(#5a5a5a,#444);font-size:var(--fs-func);}
+  button.op{background:linear-gradient(#454545,#303030);font-size:var(--fs-op);}
+  button.plus{background:linear-gradient(#2e7d32,#1f5e23);}
+  button.minus{background:linear-gradient(#b3402e,#8c2c1f);}
+  button.blue{background:linear-gradient(#3f95ee,#2671c2);}
+  button.tall{grid-row:span 2;}
+  button small{display:block;font-size:var(--fs-small);font-weight:normal;opacity:.8;}
+
+  /* ---------- Tape — 21% of viewport width ---------- */
+  .tape{flex:0 0 21%;background:#262626;border-radius:14px;padding:1.2%;display:flex;flex-direction:column;
+    box-shadow:0 18px 50px rgba(0,0,0,.55);}
+  .tape h3{margin:0 0 1%;color:#ddd;font-size:var(--fs-tape);display:flex;justify-content:space-between;align-items:center;}
+  .tape h3 .chk{display:flex;gap:5px;}
+  .tape h3 .chk button{padding:clamp(3px,0.4vh,6px) clamp(5px,0.5vw,10px);font-size:var(--fs-chip);}
+  .roll{background:var(--paper);color:var(--papertext);border-radius:6px;padding:1% 1.2%;overflow-y:auto;
+    flex:1 1 auto;font-family:"Consolas","Courier New",monospace;
+    box-shadow:inset 0 2px 6px rgba(0,0,0,.25);
+    background-image:repeating-linear-gradient(transparent,transparent calc(var(--row-h) - 1px),var(--papline) var(--row-h));}
+  .empty{color:#aaa;text-align:center;margin-top:20px;font-family:Arial;font-size:var(--fs-chip);}
+  .ln{display:flex;align-items:center;justify-content:space-between;height:var(--row-h);line-height:var(--row-h);cursor:pointer;
+    padding:0 4px;border-radius:4px;position:relative;}
+  .ln:hover{background:#f0ecda;} .ln.sel{background:#fff3b0;outline:1px solid #d8b400;}
+  .ln .op{width:1.5em;font-weight:bold;color:#1f6b27;font-size:var(--fs-tape);text-align:center;}
+  .ln .op.neg{color:#b3402e;}
+  .ln .val{flex:1;text-align:left;padding-left:4px;font-size:var(--fs-tape);}
+  .ln .tot{color:#555;text-align:right;padding-right:1em;min-width:5em;font-size:var(--fs-tape);}
+  .ln .del{position:absolute;right:-2px;top:20%;opacity:0;width:1.4em;height:1.4em;line-height:1.4;
+    padding:0;font-size:var(--fs-chip);border-radius:50%;background:#b3402e;box-shadow:none;}
+  .ln:hover .del{opacity:1;}
+  .ln input{width:5.5em;font-family:inherit;font-size:var(--fs-tape);border:1px solid #999;border-radius:3px;padding:1px 4px;text-align:right;-webkit-user-select:text;user-select:text;}
+  .ln .op.star{color:#1c4e80;}
+  .ln.result{border-top:1px solid #cdc8b4;}
+  .ln.result .val{font-weight:bold;}
+  .ln.pending{opacity:.5;cursor:default;}
+  .ln.pending:hover{background:transparent;}
+  .total-line{display:flex;justify-content:space-between;align-items:center;border-top:2px double #999;
+    margin-top:0.5%;padding:1% 4px 0.5%;font-family:"Consolas","Courier New",monospace;font-weight:bold;font-size:var(--fs-total);}
+  .total-line span:first-child{color:#666;font-size:var(--fs-tape);}
+  .tbtns{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(5px,0.5vw,10px);margin-top:1%;}
+  .tbtns button{padding:clamp(6px,0.8vh,14px) 0;font-size:var(--fs-chip);}
+  .save{background:linear-gradient(#2e7d32,#1f5e23);} .clr{background:linear-gradient(#b3402e,#8c2c1f);}
+  .history{margin-top:1%;background:#1d1d1d;border-radius:6px;padding:0.6%;max-height:14vh;overflow-y:auto;}
+  .history .hh{color:#999;font-size:var(--fs-chip);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;}
+  .hitem{display:flex;justify-content:space-between;align-items:center;color:#ddd;font-size:var(--fs-chip);padding:clamp(3px,0.4vh,6px) 5px;border-radius:4px;cursor:pointer;}
+  .hitem:hover{background:#333;} .hitem .ht{color:#7fb1e0;} .hitem .hx{color:#b3402e;padding:0 4px;font-weight:bold;}
+
+  /* ---------- ERP Panel — flex:1 takes all remaining width ---------- */
+  .erp{flex:1;min-width:280px;background:#1a1a1a;border-radius:14px;padding:1.2%;
+    box-shadow:0 18px 50px rgba(0,0,0,.55);display:flex;flex-direction:column;}
+  .erp-title{color:#6fcf6f;font-size:var(--fs-erp-t);font-weight:700;letter-spacing:.5px;margin-bottom:1%;
+    display:flex;justify-content:space-between;align-items:center;}
+  .erp-title .badge{font-size:var(--fs-chip);background:#2a3d2a;color:#6fcf6f;padding:2px 6px;border-radius:8px;border:1px solid #3a5a3a;}
+  .tabs{display:flex;gap:clamp(3px,0.4vw,6px);margin-bottom:1%;flex-wrap:wrap;}
+  .tab{padding:clamp(5px,0.6vh,9px) clamp(8px,0.7vw,14px);border-radius:6px;font-size:var(--fs-tab);font-weight:700;cursor:pointer;
+    background:#2a2a2a;color:#888;border:1px solid #333;transition:all .15s;}
+  .tab.active,.tab:hover{background:#2a3d2a;color:#6fcf6f;border-color:#3a5a3a;}
+  .tab-panel{display:none;flex:1;overflow-y:auto;}
+  .tab-panel.active{display:block;}
+
+  /* ERP form elements */
+  .erp-section{background:#111;border-radius:8px;padding:clamp(8px,0.7vw,14px);margin-bottom:clamp(6px,0.5vw,10px);border:1px solid #2a2a2a;}
+  .erp-section-title{font-size:var(--fs-chip);font-weight:700;color:#5a9a5a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:clamp(6px,0.6vh,12px);}
+  .erp-row{display:flex;align-items:center;gap:clamp(5px,0.5vw,10px);margin-bottom:clamp(5px,0.5vh,9px);}
+  .erp-label{font-size:var(--fs-label);color:#888;min-width:clamp(90px,9vw,150px);flex-shrink:0;}
+  .erp-input{flex:1;background:#1a1a1a;border:1px solid #333;border-radius:5px;
+    color:#e0e0e0;font-family:"Consolas","Courier New",monospace;font-size:var(--fs-input);
+    padding:clamp(4px,0.5vh,8px) clamp(6px,0.6vw,12px);-webkit-user-select:text;user-select:text;outline:none;width:100%;}
+  .erp-input:focus{border-color:#4a7a4a;}
+  .gst-chips{display:flex;gap:clamp(3px,0.3vw,6px);flex-wrap:wrap;}
+  .chip{padding:clamp(4px,0.4vh,7px) clamp(7px,0.6vw,13px);border-radius:12px;font-size:var(--fs-chip);font-weight:700;cursor:pointer;
+    background:#222;color:#888;border:1px solid #333;transition:all .12s;}
+  .chip.active{background:#2a3d2a;color:#6fcf6f;border-color:#4a7a4a;}
+  .chip:hover:not(.active){background:#2a2a2a;color:#aaa;}
+  .use-screen{padding:clamp(4px,0.4vh,8px) clamp(6px,0.5vw,11px);font-size:var(--fs-chip);background:linear-gradient(#2671c2,#1a5498);color:#fff;
+    border-radius:5px;cursor:pointer;white-space:nowrap;border:none;box-shadow:none;}
+  .use-screen:active{transform:translateY(1px);}
+
+  /* Results */
+  .result-box{background:#0d1a0d;border:1px solid #2a4a2a;border-radius:8px;padding:clamp(7px,0.6vw,12px);margin-top:clamp(5px,0.5vh,10px);}
+  .r-row{display:flex;justify-content:space-between;align-items:center;padding:clamp(2px,0.3vh,5px) 0;border-bottom:1px solid #1a2a1a;}
+  .r-row:last-child{border-bottom:none;}
+  .r-label{font-size:var(--fs-label);color:#6a8a6a;}
+  .r-val{font-size:var(--fs-result);font-weight:700;color:#6fcf6f;font-family:"Consolas","Courier New",monospace;}
+  .r-val.highlight{color:#fff;font-size:var(--fs-result-hi);}
+  .r-val.warn{color:#f0a060;}
+  .r-val.neg{color:#e06060;}
+  .r-sub{font-size:var(--fs-chip);color:#4a6a4a;padding-left:10px;}
+  .send-btn{width:100%;margin-top:clamp(6px,0.6vh,12px);padding:clamp(7px,0.7vh,13px);font-size:var(--fs-label);
+    background:linear-gradient(#2e7d32,#1f5e23);color:#fff;border-radius:6px;
+    cursor:pointer;border:none;font-weight:700;transition:opacity .15s;}
+  .send-btn:hover{opacity:.9;} .send-btn.amber{background:linear-gradient(#b87a20,#8a5a10);}
+  .send-btn.blue2{background:linear-gradient(#2671c2,#1a5498);}
+  .divider{border:none;border-top:1px solid #222;margin:clamp(5px,0.5vh,9px) 0;}
+  .mode-row{display:flex;gap:4px;margin-bottom:clamp(5px,0.5vh,8px);}
+  .mode-btn{flex:1;padding:clamp(5px,0.6vh,9px) 0;font-size:var(--fs-chip);background:#222;color:#888;border:1px solid #333;
+    border-radius:5px;cursor:pointer;font-weight:600;transition:all .12s;}
+  .mode-btn.active{background:#2a3d2a;color:#6fcf6f;border-color:#4a7a4a;}
+  .hint-text{font-size:var(--fs-chip);color:#555;line-height:1.5;margin-top:4px;}
+  .margin-bar-wrap{height:5px;background:#1a2a1a;border-radius:3px;margin-top:4px;overflow:hidden;}
+  .margin-bar{height:100%;border-radius:3px;transition:width .3s;}
+  .ref-table{width:100%;border-collapse:collapse;font-size:var(--fs-label);}
+  .ref-table td{padding:clamp(3px,0.35vh,6px) clamp(4px,0.4vw,9px);color:#888;border-bottom:1px solid #1a1a1a;}
+  .ref-table td:last-child{text-align:right;color:#6fcf6f;font-family:monospace;}
+  .ref-table tr:hover td{background:#111;color:#aaa;}
+</style>
+</head>
+<body>
+
+<nav class="nav-bar">
+  <div class="nav-btns">
+    <button class="nav-btn" onclick="history.back()" title="Back">&#8592;</button>
+    <button class="nav-btn" onclick="history.forward()" title="Forward">&#8594;</button>
+    <button class="nav-btn" onclick="location.reload()" title="Refresh">&#8635;</button>
+  </div>
+  <div class="nav-logo"><img src="https://shop.srivani.com/logo.png" alt="Srivani Stores" style="height:28px;width:28px;object-fit:contain;vertical-align:middle;border-radius:5px;margin-right:6px;">Srivani Stores <span class="sub">ERP Business Calculator</span></div>
+  <div class="nav-right">
+    <div class="nav-date" id="nav-date"></div>
+    <div class="nav-clock" id="nav-clock"></div>
+  </div>
+</nav>
+
+<div class="panels">
+
+<!-- ===== Calculator ===== -->
+<div class="calc">
+  <div class="display-wrap">
+    <div class="display">
+      <div class="status"><span id="st-m">M</span><span id="st-gt">GT</span><span class="op-ind" id="op-ind"></span></div>
+      <div class="value" id="screen">0</div>
+    </div>
+  </div>
+  <div class="grid">
+    <button class="func" data-act="gt">GT</button>
+    <button class="func" data-act="mrc">MRC</button>
+    <button class="func" data-act="mminus">M&minus;</button>
+    <button class="func" data-act="mplus">M+</button>
+    <button class="func" data-act="back">CORRECT<small>&#9003;</small></button>
+
+    <button class="func" data-act="mu">MU</button>
+    <button class="func" data-act="sqrt">&radic;</button>
+    <button class="func" data-act="percent">%</button>
+    <button class="func" data-act="sign">+/&minus;</button>
+    <button class="op" data-act="div">&divide;</button>
+
+    <button class="num" data-num="7">7</button>
+    <button class="num" data-num="8">8</button>
+    <button class="num" data-num="9">9</button>
+    <button class="op" data-act="mul">&times;</button>
+    <button class="func" data-act="ce">CE</button>
+
+    <button class="num" data-num="4">4</button>
+    <button class="num" data-num="5">5</button>
+    <button class="num" data-num="6">6</button>
+    <button class="minus" data-act="sub">&minus;</button>
+    <button class="blue" data-act="clear">C</button>
+
+    <button class="num" data-num="1">1</button>
+    <button class="num" data-num="2">2</button>
+    <button class="num" data-num="3">3</button>
+    <button class="plus tall" data-act="add">+</button>
+    <button class="op tall" data-act="equals">=</button>
+
+    <button class="num" data-num="0">0</button>
+    <button class="num" data-num="000">000</button>
+    <button class="num" data-num=".">&middot;</button>
+  </div>
+</div>
+
+<!-- ===== Tape ===== -->
+<div class="tape">
+  <h3>
+    <span>&#128220; TAPE</span>
+    <span class="chk">
+      <button data-act="checkup" title="Check up">&#9650;</button>
+      <button data-act="checkdn" title="Check down">&#9660;</button>
+    </span>
+  </h3>
+  <div class="roll" id="roll"></div>
+  <div class="total-line"><span>TOTAL</span><span id="grand">0</span></div>
+  <div class="tbtns">
+    <button class="save" data-act="savehist">&#128190; Save</button>
+    <button data-act="copytape">&#128203; Copy</button>
+    <button class="clr" data-act="cleartape">&#128465; Clear</button>
+  </div>
+  <div class="history" id="history"></div>
+</div>
+
+<!-- ===== ERP Tools Panel ===== -->
+<div class="erp">
+  <div class="erp-title">
+    &#127981; ERP TOOLS
+    <span class="badge">Srivani Stores</span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="erpTab('gst',this)">GST</div>
+    <div class="tab" onclick="erpTab('margin',this)">Margin</div>
+    <div class="tab" onclick="erpTab('case',this)">Case Split</div>
+    <div class="tab" onclick="erpTab('discount',this)">Discount</div>
+    <div class="tab" onclick="erpTab('invoice',this)">Invoice</div>
+    <div class="tab" onclick="erpTab('ref',this)">Ref</div>
+    <div class="tab" onclick="erpTab('cash',this)">Cash</div>
+    <div class="tab" onclick="erpTab('compare',this)">Compare</div>
+    <div class="tab" onclick="erpTab('offers',this)">Offers</div>
+    <div class="tab" onclick="erpTab('emi',this)">EMI</div>
+  </div>
+
+  <!-- ── GST TAB ── -->
+  <div class="tab-panel active" id="tab-gst">
+    <div class="erp-section">
+      <div class="erp-section-title">GST Calculator</div>
+      <div class="erp-row">
+        <span class="erp-label">Price (₹)</span>
+        <input class="erp-input" id="gst-price" type="number" placeholder="0.00" oninput="calcGST()">
+        <button class="use-screen" onclick="useScreen('gst-price',calcGST)">&#8593; Screen</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">GST Rate</span>
+        <div class="gst-chips" id="gst-rate-chips">
+          <span class="chip" onclick="setGSTRate(0,this)">0%</span>
+          <span class="chip active" onclick="setGSTRate(5,this)">5%</span>
+          <span class="chip" onclick="setGSTRate(12,this)">12%</span>
+          <span class="chip" onclick="setGSTRate(18,this)">18%</span>
+          <span class="chip" onclick="setGSTRate(28,this)">28%</span>
+        </div>
+      </div>
+      <div class="mode-row">
+        <button class="mode-btn active" id="gst-add" onclick="setGSTMode('add')">+ Add GST</button>
+        <button class="mode-btn" id="gst-remove" onclick="setGSTMode('remove')">− Extract GST</button>
+      </div>
+      <div class="result-box" id="gst-result">
+        <div class="r-row"><span class="r-label">Base Price</span><span class="r-val" id="g-base">—</span></div>
+        <div class="r-row"><span class="r-label">CGST</span><span class="r-val" id="g-cgst">—</span></div>
+        <div class="r-row"><span class="r-label">SGST</span><span class="r-val" id="g-sgst">—</span></div>
+        <div class="r-row"><span class="r-label">Total GST</span><span class="r-val" id="g-gst">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Final Price</span><span class="r-val highlight" id="g-final">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('g-final','GST Final')">&#8595; Send Final to Tape</button>
+      <button class="send-btn blue2" style="margin-top:4px" onclick="sendToTape('g-base','Base Price')">&#8595; Send Base to Tape</button>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">GST on Discounted Price</div>
+      <div class="erp-row">
+        <span class="erp-label">MRP (₹)</span>
+        <input class="erp-input" id="gd-mrp" type="number" placeholder="0.00" oninput="calcGSTDisc()">
+        <button class="use-screen" onclick="useScreen('gd-mrp',calcGSTDisc)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Discount %</span>
+        <input class="erp-input" id="gd-disc" type="number" placeholder="0" oninput="calcGSTDisc()" style="max-width:80px">
+        <span class="erp-label" style="min-width:50px;margin-left:6px">GST %</span>
+        <input class="erp-input" id="gd-rate" type="number" placeholder="18" oninput="calcGSTDisc()" style="max-width:60px">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Discount Amount</span><span class="r-val" id="gd-damount">—</span></div>
+        <div class="r-row"><span class="r-label">Price after Disc</span><span class="r-val" id="gd-after">—</span></div>
+        <div class="r-row"><span class="r-label">GST on disc price</span><span class="r-val" id="gd-gst">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Final (incl GST)</span><span class="r-val highlight" id="gd-final">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('gd-final','GST+Disc Final')">&#8595; Send to Tape</button>
+    </div>
+  </div>
+
+  <!-- ── MARGIN TAB ── -->
+  <div class="tab-panel" id="tab-margin">
+    <div class="erp-section">
+      <div class="erp-section-title">Margin & Profit Calculator</div>
+      <div class="erp-row">
+        <span class="erp-label">Cost Price (₹)</span>
+        <input class="erp-input" id="m-cost" type="number" placeholder="0.00" oninput="calcMargin()">
+        <button class="use-screen" onclick="useScreen('m-cost',calcMargin)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Selling Price (₹)</span>
+        <input class="erp-input" id="m-sell" type="number" placeholder="0.00" oninput="calcMargin()">
+        <button class="use-screen" onclick="useScreen('m-sell',calcMargin)">&#8593;</button>
+      </div>
+      <div class="result-box" id="margin-result">
+        <div class="r-row"><span class="r-label">Gross Margin %</span><span class="r-val" id="m-margin">—</span></div>
+        <div class="r-row"><span class="r-label">Markup %</span><span class="r-val" id="m-markup">—</span></div>
+        <div class="r-row"><span class="r-label">Profit Amount</span><span class="r-val highlight" id="m-profit">—</span></div>
+        <div class="margin-bar-wrap"><div class="margin-bar" id="m-bar" style="width:0%;background:#6fcf6f"></div></div>
+      </div>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Find Selling Price</div>
+      <div class="erp-row">
+        <span class="erp-label">Cost Price (₹)</span>
+        <input class="erp-input" id="ms-cost" type="number" placeholder="0.00" oninput="calcTargetMargin()">
+        <button class="use-screen" onclick="useScreen('ms-cost',calcTargetMargin)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Target Margin %</span>
+        <input class="erp-input" id="ms-margin" type="number" placeholder="20" oninput="calcTargetMargin()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Selling Price</span><span class="r-val highlight" id="ms-sell">—</span></div>
+        <div class="r-row"><span class="r-label">Profit</span><span class="r-val" id="ms-profit">—</span></div>
+        <div class="r-row"><span class="r-label">Markup %</span><span class="r-val" id="ms-markup">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('ms-sell','Selling Price')">&#8595; Send Selling Price to Tape</button>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Quick Margin Table</div>
+      <div class="erp-row">
+        <span class="erp-label">Cost Price (₹)</span>
+        <input class="erp-input" id="mt-cost" type="number" placeholder="0.00" oninput="calcMarginTable()">
+        <button class="use-screen" onclick="useScreen('mt-cost',calcMarginTable)">&#8593;</button>
+      </div>
+      <table class="ref-table" id="margin-table">
+        <tr><td>5% margin</td><td>—</td></tr>
+        <tr><td>10% margin</td><td>—</td></tr>
+        <tr><td>15% margin</td><td>—</td></tr>
+        <tr><td>20% margin</td><td>—</td></tr>
+        <tr><td>25% margin</td><td>—</td></tr>
+        <tr><td>30% margin</td><td>—</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── CASE SPLIT TAB ── -->
+  <div class="tab-panel" id="tab-case">
+    <div class="erp-section">
+      <div class="erp-section-title">Case / Carton Split</div>
+      <div class="erp-row">
+        <span class="erp-label">Case Price (₹)</span>
+        <input class="erp-input" id="cs-price" type="number" placeholder="0.00" oninput="calcCase()">
+        <button class="use-screen" onclick="useScreen('cs-price',calcCase)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Pieces per Case</span>
+        <input class="erp-input" id="cs-pcs" type="number" placeholder="12" oninput="calcCase()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Freight per Case</span>
+        <input class="erp-input" id="cs-freight" type="number" placeholder="0" oninput="calcCase()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Total Cost (incl freight)</span><span class="r-val" id="cs-total">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Cost per Piece</span><span class="r-val highlight" id="cs-unit">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('cs-unit','Cost/Piece')">&#8595; Send Cost/Piece to Tape</button>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Selling Price per Piece at Margins</div>
+      <table class="ref-table" id="case-margin-table">
+        <tr><td>5% margin</td><td>—</td></tr>
+        <tr><td>10% margin</td><td>—</td></tr>
+        <tr><td>15% margin</td><td>—</td></tr>
+        <tr><td>20% margin</td><td>—</td></tr>
+        <tr><td>25% margin</td><td>—</td></tr>
+        <tr><td>30% margin</td><td>—</td></tr>
+      </table>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Quantity × Rate</div>
+      <div class="erp-row">
+        <span class="erp-label">Quantity</span>
+        <input class="erp-input" id="qr-qty" type="number" placeholder="0" oninput="calcQR()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Rate per Unit (₹)</span>
+        <input class="erp-input" id="qr-rate" type="number" placeholder="0.00" oninput="calcQR()">
+        <button class="use-screen" onclick="useScreen('qr-rate',calcQR)">&#8593;</button>
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">&#9654; Total Amount</span><span class="r-val highlight" id="qr-total">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('qr-total','Qty×Rate')">&#8595; Send to Tape</button>
+    </div>
+  </div>
+
+  <!-- ── DISCOUNT TAB ── -->
+  <div class="tab-panel" id="tab-discount">
+    <div class="erp-section">
+      <div class="erp-section-title">MRP Discount Calculator</div>
+      <div class="erp-row">
+        <span class="erp-label">MRP (₹)</span>
+        <input class="erp-input" id="d-mrp" type="number" placeholder="0.00" oninput="calcDisc()">
+        <button class="use-screen" onclick="useScreen('d-mrp',calcDisc)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Discount %</span>
+        <input class="erp-input" id="d-disc" type="number" placeholder="0" oninput="calcDisc()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Discount Amount</span><span class="r-val" id="d-amount">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Selling Price</span><span class="r-val highlight" id="d-sell">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('d-sell','After Disc')">&#8595; Send to Tape</button>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Discount Table from MRP</div>
+      <div class="erp-row">
+        <span class="erp-label">MRP (₹)</span>
+        <input class="erp-input" id="dt-mrp" type="number" placeholder="0.00" oninput="calcDiscTable()">
+        <button class="use-screen" onclick="useScreen('dt-mrp',calcDiscTable)">&#8593;</button>
+      </div>
+      <table class="ref-table" id="disc-table">
+        <tr><td>2% off</td><td>—</td></tr>
+        <tr><td>5% off</td><td>—</td></tr>
+        <tr><td>10% off</td><td>—</td></tr>
+        <tr><td>15% off</td><td>—</td></tr>
+        <tr><td>20% off</td><td>—</td></tr>
+        <tr><td>25% off</td><td>—</td></tr>
+        <tr><td>30% off</td><td>—</td></tr>
+      </table>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Find Effective Discount</div>
+      <div class="erp-row">
+        <span class="erp-label">MRP (₹)</span>
+        <input class="erp-input" id="fd-mrp" type="number" placeholder="0.00" oninput="calcFindDisc()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Selling Price (₹)</span>
+        <input class="erp-input" id="fd-sell" type="number" placeholder="0.00" oninput="calcFindDisc()">
+        <button class="use-screen" onclick="useScreen('fd-sell',calcFindDisc)">&#8593;</button>
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Discount %</span><span class="r-val highlight" id="fd-disc">—</span></div>
+        <div class="r-row"><span class="r-label">Saved Amount</span><span class="r-val" id="fd-saved">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── INVOICE TAB ── -->
+  <div class="tab-panel" id="tab-invoice">
+    <div class="erp-section">
+      <div class="erp-section-title">Purchase Invoice Breakdown</div>
+      <div class="hint-text" style="margin-bottom:8px">Got a supplier invoice? Break it down to per-piece cost for pricing.</div>
+      <div class="erp-row">
+        <span class="erp-label">Invoice Total (₹)</span>
+        <input class="erp-input" id="inv-total" type="number" placeholder="0.00" oninput="calcInvoice()">
+        <button class="use-screen" onclick="useScreen('inv-total',calcInvoice)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">GST Rate %</span>
+        <input class="erp-input" id="inv-gst" type="number" placeholder="18" oninput="calcInvoice()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Qty / Units</span>
+        <input class="erp-input" id="inv-qty" type="number" placeholder="1" oninput="calcInvoice()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Freight (₹)</span>
+        <input class="erp-input" id="inv-freight" type="number" placeholder="0" oninput="calcInvoice()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Base Amount (ex-GST)</span><span class="r-val" id="inv-base">—</span></div>
+        <div class="r-row"><span class="r-label">GST Amount</span><span class="r-val" id="inv-gstamt">—</span></div>
+        <div class="r-row"><span class="r-label">CGST / SGST</span><span class="r-val" id="inv-cgst">—</span></div>
+        <div class="r-row"><span class="r-label">Total with Freight</span><span class="r-val" id="inv-withfreight">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Cost per Unit</span><span class="r-val highlight" id="inv-unit">—</span></div>
+        <div class="r-row"><span class="r-label">Base per Unit (ITC)</span><span class="r-val" id="inv-unitbase">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('inv-unit','Cost/Unit')">&#8595; Send Cost/Unit to Tape</button>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Sell at Margins (per unit)</div>
+      <table class="ref-table" id="inv-margin-table">
+        <tr><td>5% margin</td><td>—</td></tr>
+        <tr><td>10% margin</td><td>—</td></tr>
+        <tr><td>15% margin</td><td>—</td></tr>
+        <tr><td>20% margin</td><td>—</td></tr>
+        <tr><td>25% margin</td><td>—</td></tr>
+        <tr><td>30% margin</td><td>—</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── REF TAB ── -->
+  <div class="tab-panel" id="tab-ref">
+    <div class="erp-section">
+      <div class="erp-section-title">GST Rates — FMCG Quick Reference</div>
+      <table class="ref-table">
+        <tr><td>0%</td><td>Fresh veg, eggs, milk, loose cereals, salt</td></tr>
+        <tr><td>5%</td><td>Packed food, branded cereals, tea, coffee, edible oil</td></tr>
+        <tr><td>5%</td><td>Sugar, spices, milk powder, frozen veg</td></tr>
+        <tr><td>12%</td><td>Butter, ghee, cheese, frozen meat, fruit juices</td></tr>
+        <tr><td>18%</td><td>Soap, shampoo, toothpaste, detergent, biscuits</td></tr>
+        <tr><td>18%</td><td>Ice cream, pasta, cornflakes, ketchup</td></tr>
+        <tr><td>28%</td><td>Aerated drinks, chocolate, tobacco, chewing gum</td></tr>
+      </table>
+    </div>
+    <div class="erp-section">
+      <div class="erp-section-title">Margin vs Markup — Difference</div>
+      <div class="hint-text">
+        <b style="color:#6fcf6f">Margin</b> = (Sell − Cost) / Sell × 100<br>
+        <b style="color:#6fcf6f">Markup</b> = (Sell − Cost) / Cost × 100<br><br>
+        Cost ₹80, Sell ₹100 → Margin 20%, Markup 25%<br>
+        20% margin ≠ 20% markup. Always use margin for pricing.
+      </div>
+    </div>
+    <div class="erp-section">
+      <div class="erp-section-title">Common Selling Margins</div>
+      <table class="ref-table">
+        <tr><td>Staples (rice, dal, oil)</td><td>3 – 8%</td></tr>
+        <tr><td>Packaged FMCG</td><td>8 – 15%</td></tr>
+        <tr><td>Snacks & biscuits</td><td>10 – 18%</td></tr>
+        <tr><td>Personal care (soap, shampoo)</td><td>12 – 20%</td></tr>
+        <tr><td>Beverages</td><td>10 – 22%</td></tr>
+        <tr><td>House cleaning</td><td>15 – 25%</td></tr>
+        <tr><td>Confectionery</td><td>20 – 30%</td></tr>
+      </table>
+    </div>
+    <div class="erp-section">
+      <div class="erp-section-title">ITC (Input Tax Credit) Note</div>
+      <div class="hint-text">
+        If GST registered: your actual cost = base price only (not incl GST) because you claim GST back as ITC.<br><br>
+        If composition scheme: your cost = full invoice amount (incl GST) — no ITC claim.<br><br>
+        Always calculate margin on the <b style="color:#6fcf6f">net cost to you</b>.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CASH TAB ── -->
+  <div class="tab-panel" id="tab-cash">
+    <div class="erp-section">
+      <div class="erp-section-title">Change Calculator</div>
+      <div class="erp-row">
+        <span class="erp-label">Bill Amount (₹)</span>
+        <input class="erp-input" id="ch-bill" type="number" placeholder="0.00" oninput="calcChange()">
+        <button class="use-screen" onclick="useScreen('ch-bill',calcChange)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Cash Received (₹)</span>
+        <input class="erp-input" id="ch-cash" type="number" placeholder="0.00" oninput="calcChange()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">&#9654; Change to Return</span><span class="r-val highlight" id="ch-change">—</span></div>
+        <div class="r-row"><span class="r-label">Denomination Breakdown</span><span class="r-val" style="font-size:var(--fs-chip)" id="ch-denoms">—</span></div>
+      </div>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Cash Denomination Counter</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:clamp(4px,0.4vw,8px)">
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹ 500 ×</span><input class="erp-input" id="dn-500" type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹ 200 ×</span><input class="erp-input" id="dn-200" type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹ 100 ×</span><input class="erp-input" id="dn-100" type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹  50 ×</span><input class="erp-input" id="dn-50"  type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹  20 ×</span><input class="erp-input" id="dn-20"  type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹  10 ×</span><input class="erp-input" id="dn-10"  type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹   5 ×</span><input class="erp-input" id="dn-5"   type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹   2 ×</span><input class="erp-input" id="dn-2"   type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+        <div class="erp-row" style="margin-bottom:0"><span class="erp-label">₹   1 ×</span><input class="erp-input" id="dn-1"   type="number" placeholder="0" min="0" oninput="calcDenom()"></div>
+      </div>
+      <div class="result-box" style="margin-top:8px">
+        <div class="r-row"><span class="r-label">&#9654; Total Cash in Hand</span><span class="r-val highlight" id="dn-total">₹ 0.00</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('dn-total','Cash Total')">&#8595; Send to Tape</button>
+      <button class="send-btn blue2" style="margin-top:4px" onclick="clearDenoms()">Clear Counts</button>
+    </div>
+  </div>
+
+  <!-- ── COMPARE TAB ── -->
+  <div class="tab-panel" id="tab-compare">
+    <div class="erp-section">
+      <div class="erp-section-title">Unit Price Comparison</div>
+      <div class="hint-text" style="margin-bottom:8px">Compare two products — which gives better value per unit?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <div style="color:#6fcf6f;font-size:var(--fs-chip);font-weight:700;margin-bottom:6px">PRODUCT A</div>
+          <div class="erp-row" style="margin-bottom:5px"><span class="erp-label">Price (₹)</span><input class="erp-input" id="cp-a-price" type="number" placeholder="0" oninput="calcCompare()"></div>
+          <div class="erp-row" style="margin-bottom:5px"><span class="erp-label">Quantity</span><input class="erp-input" id="cp-a-qty" type="number" placeholder="0" oninput="calcCompare()"></div>
+          <div class="erp-row" style="margin-bottom:0"><span class="erp-label">Unit</span>
+            <select class="erp-input" id="cp-a-unit" onchange="calcCompare()">
+              <option>g</option><option>kg</option><option>ml</option><option>L</option><option>pcs</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <div style="color:#f0a060;font-size:var(--fs-chip);font-weight:700;margin-bottom:6px">PRODUCT B</div>
+          <div class="erp-row" style="margin-bottom:5px"><span class="erp-label">Price (₹)</span><input class="erp-input" id="cp-b-price" type="number" placeholder="0" oninput="calcCompare()"></div>
+          <div class="erp-row" style="margin-bottom:5px"><span class="erp-label">Quantity</span><input class="erp-input" id="cp-b-qty" type="number" placeholder="0" oninput="calcCompare()"></div>
+          <div class="erp-row" style="margin-bottom:0"><span class="erp-label">Unit</span>
+            <select class="erp-input" id="cp-b-unit" onchange="calcCompare()">
+              <option>g</option><option>kg</option><option>ml</option><option>L</option><option>pcs</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="result-box" style="margin-top:8px">
+        <div class="r-row"><span class="r-label">A — price per 100 units</span><span class="r-val" id="cp-a-unit-price">—</span></div>
+        <div class="r-row"><span class="r-label">B — price per 100 units</span><span class="r-val" id="cp-b-unit-price">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Better Value</span><span class="r-val highlight" id="cp-winner">—</span></div>
+        <div class="r-row"><span class="r-label">Cheaper by</span><span class="r-val" id="cp-saving">—</span></div>
+      </div>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Compound / Trade Discount</div>
+      <div class="hint-text" style="margin-bottom:8px">Supplier gives 20% + 5% + 2% — what is the net effective discount?</div>
+      <div class="erp-row">
+        <span class="erp-label">List Price (₹)</span>
+        <input class="erp-input" id="cd-price" type="number" placeholder="0.00" oninput="calcCompoundDisc()">
+        <button class="use-screen" onclick="useScreen('cd-price',calcCompoundDisc)">&#8593;</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <input class="erp-input" id="cd-d1" type="number" placeholder="D1 %" oninput="calcCompoundDisc()">
+        <input class="erp-input" id="cd-d2" type="number" placeholder="D2 %" oninput="calcCompoundDisc()">
+        <input class="erp-input" id="cd-d3" type="number" placeholder="D3 %" oninput="calcCompoundDisc()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Net Effective Discount</span><span class="r-val" id="cd-net-disc">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Final Price</span><span class="r-val highlight" id="cd-final">—</span></div>
+        <div class="r-row"><span class="r-label">Total Saved</span><span class="r-val" id="cd-saved">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('cd-final','Net Price')">&#8595; Send to Tape</button>
+    </div>
+  </div>
+
+  <!-- ── OFFERS TAB ── -->
+  <div class="tab-panel" id="tab-offers">
+    <div class="erp-section">
+      <div class="erp-section-title">Buy X Get Y Free</div>
+      <div class="erp-row">
+        <span class="erp-label">Buy (pcs)</span>
+        <input class="erp-input" id="bx-buy" type="number" placeholder="2" oninput="calcBuyXGetY()">
+        <span class="erp-label" style="min-width:60px;text-align:center">Get Free</span>
+        <input class="erp-input" id="bx-free" type="number" placeholder="1" oninput="calcBuyXGetY()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">MRP per piece (₹)</span>
+        <input class="erp-input" id="bx-mrp" type="number" placeholder="0.00" oninput="calcBuyXGetY()">
+        <button class="use-screen" onclick="useScreen('bx-mrp',calcBuyXGetY)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Cost per piece (₹)</span>
+        <input class="erp-input" id="bx-cost" type="number" placeholder="0.00" oninput="calcBuyXGetY()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Customer pays for</span><span class="r-val" id="bx-pays">—</span></div>
+        <div class="r-row"><span class="r-label">Effective price/piece</span><span class="r-val" id="bx-eff-price">—</span></div>
+        <div class="r-row"><span class="r-label">Effective discount %</span><span class="r-val" id="bx-eff-disc">—</span></div>
+        <div class="r-row"><span class="r-label">Your cost for bundle</span><span class="r-val" id="bx-bundle-cost">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Your margin on deal</span><span class="r-val highlight" id="bx-margin">—</span></div>
+      </div>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Shrinkage / Wastage Pricing</div>
+      <div class="hint-text" style="margin-bottom:8px">For perishables — price in the wastage so you don't lose money.</div>
+      <div class="erp-row">
+        <span class="erp-label">Purchase Qty</span>
+        <input class="erp-input" id="sw-qty" type="number" placeholder="10" oninput="calcShrinkage()">
+        <span class="erp-label" style="min-width:50px;text-align:center">kg / pcs</span>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Cost per unit (₹)</span>
+        <input class="erp-input" id="sw-cost" type="number" placeholder="0.00" oninput="calcShrinkage()">
+        <button class="use-screen" onclick="useScreen('sw-cost',calcShrinkage)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Expected Wastage %</span>
+        <input class="erp-input" id="sw-waste" type="number" placeholder="5" oninput="calcShrinkage()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Target Margin %</span>
+        <input class="erp-input" id="sw-margin" type="number" placeholder="20" oninput="calcShrinkage()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Saleable Qty</span><span class="r-val" id="sw-saleable">—</span></div>
+        <div class="r-row"><span class="r-label">Total Cost</span><span class="r-val" id="sw-total-cost">—</span></div>
+        <div class="r-row"><span class="r-label">Adjusted Cost/unit</span><span class="r-val" id="sw-adj-cost">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Min Selling Price</span><span class="r-val highlight" id="sw-sell">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('sw-sell','Min Sell Price')">&#8595; Send to Tape</button>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Flat Off / Cashback Scheme</div>
+      <div class="erp-row">
+        <span class="erp-label">Sale Amount (₹)</span>
+        <input class="erp-input" id="cb-sale" type="number" placeholder="0.00" oninput="calcCashback()">
+        <button class="use-screen" onclick="useScreen('cb-sale',calcCashback)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Cashback / Off (₹)</span>
+        <input class="erp-input" id="cb-amount" type="number" placeholder="0" oninput="calcCashback()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Net Received</span><span class="r-val highlight" id="cb-net">—</span></div>
+        <div class="r-row"><span class="r-label">Effective Discount %</span><span class="r-val" id="cb-pct">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── EMI TAB ── -->
+  <div class="tab-panel" id="tab-emi">
+    <div class="erp-section">
+      <div class="erp-section-title">Loan / EMI Calculator</div>
+      <div class="erp-row">
+        <span class="erp-label">Loan Amount (₹)</span>
+        <input class="erp-input" id="em-principal" type="number" placeholder="0" oninput="calcEMI()">
+        <button class="use-screen" onclick="useScreen('em-principal',calcEMI)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Annual Interest %</span>
+        <input class="erp-input" id="em-rate" type="number" placeholder="12" oninput="calcEMI()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Tenure (months)</span>
+        <input class="erp-input" id="em-months" type="number" placeholder="12" oninput="calcEMI()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">&#9654; Monthly EMI</span><span class="r-val highlight" id="em-emi">—</span></div>
+        <div class="r-row"><span class="r-label">Total Payment</span><span class="r-val" id="em-total">—</span></div>
+        <div class="r-row"><span class="r-label">Total Interest</span><span class="r-val warn" id="em-interest">—</span></div>
+        <div class="r-row"><span class="r-label">Interest as % of loan</span><span class="r-val" id="em-int-pct">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('em-emi','Monthly EMI')">&#8595; Send EMI to Tape</button>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Simple Interest (Credit to Customer)</div>
+      <div class="hint-text" style="margin-bottom:8px">Customer owes ₹X — how much interest after N days?</div>
+      <div class="erp-row">
+        <span class="erp-label">Principal (₹)</span>
+        <input class="erp-input" id="si-p" type="number" placeholder="0" oninput="calcSI()">
+        <button class="use-screen" onclick="useScreen('si-p',calcSI)">&#8593;</button>
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Rate % p.a.</span>
+        <input class="erp-input" id="si-r" type="number" placeholder="18" oninput="calcSI()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Days</span>
+        <input class="erp-input" id="si-d" type="number" placeholder="30" oninput="calcSI()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Interest Amount</span><span class="r-val warn" id="si-interest">—</span></div>
+        <div class="r-row"><span class="r-label">&#9654; Total to Recover</span><span class="r-val highlight" id="si-total">—</span></div>
+      </div>
+      <button class="send-btn" onclick="sendToTape('si-total','Dues+Interest')">&#8595; Send to Tape</button>
+    </div>
+
+    <div class="erp-section">
+      <div class="erp-section-title">Daily / Monthly Sales Target</div>
+      <div class="erp-row">
+        <span class="erp-label">Monthly Target (₹)</span>
+        <input class="erp-input" id="tg-monthly" type="number" placeholder="0" oninput="calcTarget()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Working Days/Month</span>
+        <input class="erp-input" id="tg-days" type="number" placeholder="26" oninput="calcTarget()">
+      </div>
+      <div class="erp-row">
+        <span class="erp-label">Store Hours/Day</span>
+        <input class="erp-input" id="tg-hours" type="number" placeholder="12" oninput="calcTarget()">
+      </div>
+      <div class="result-box">
+        <div class="r-row"><span class="r-label">Daily Target</span><span class="r-val highlight" id="tg-daily">—</span></div>
+        <div class="r-row"><span class="r-label">Per Hour Target</span><span class="r-val" id="tg-hourly">—</span></div>
+        <div class="r-row"><span class="r-label">Per Minute Target</span><span class="r-val" id="tg-per-min">—</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div><!-- /panels -->
+
+<script>
+/* ============================================================
+   ORIGINAL CALCULATOR (unchanged logic, API exposed)
+   ============================================================ */
+(function(){
+  const screenEl=document.getElementById('screen');
+  const stM=document.getElementById('st-m'), stGT=document.getElementById('st-gt');
+  const opIndEl=document.getElementById('op-ind');
+  const rollEl=document.getElementById('roll'), grandEl=document.getElementById('grand');
+  const histEl=document.getElementById('history');
+  const MAX=14;
+
+  let entries=[], current="0", freshEntry=true;
+  let chain=null, chainCur=null, memory=0, cursor=-1, mrcT=0, didPost=false, pendingOp='+';
+
+  function grp(n){
+    if(!isFinite(n)) return "Error";
+    const neg=n<0; n=Math.abs(n);
+    let s=Number(n.toPrecision(13)).toString();
+    let [i,d]=s.split('.');
+    let last3=i.slice(-3), rest=i.slice(0,-3);
+    if(rest) last3=','+last3;
+    rest=rest.replace(/\B(?=(\d{2})+(?!\d))/g,',');
+    let out=rest+last3; if(d) out+='.'+d;
+    return (neg?'-':'')+out;
+  }
+  function show(){
+    screenEl.textContent=current;
+    screenEl.classList.remove('num-blink');
+    void screenEl.offsetWidth;
+    screenEl.classList.add('num-blink');
+  }
+  function showOp(sym){ opIndEl.textContent=sym; opIndEl.classList.toggle('on', sym!==''); }
+  function setNum(n){ current=clean(n); show(); }
+  function clean(n){
+    if(!isFinite(n)) return "Error";
+    let s=Number(n.toPrecision(13)).toString();
+    if(s.replace(/[-.]/g,'').length>MAX) s=n.toExponential(8);
+    return s;
+  }
+  function val(){ return parseFloat(current)||0; }
+
+  function inputDigit(d){
+    mrcT=0; didPost=false;
+    if(current==="Error") current="0";
+    if(freshEntry){ current=(d===".")?"0.":(d==="000"?"0":d); freshEntry=false; }
+    else if(d==="."){ if(!current.includes(".")) current+="."; }
+    else if(d==="000"){ if(current!=="0") current+="000"; }
+    else current=(current==="0")?d:current+d;
+    if(current.replace(/[-.]/g,'').length>MAX) current=current.slice(0,-1);
+    show(); if(chain!==null) renderTape();
+  }
+  function foldChain(ch){
+    let acc=ch[0].v;
+    for(let k=1;k<ch.length;k++){
+      const s=ch[k], v=s.v;
+      if(s.op==='mul') acc*=v;
+      else if(s.op==='div') acc=(v===0)?Infinity:acc/v;
+      else if(s.op==='mu') acc=acc+acc*(v/100);
+      else if(s.op==='pct') acc=acc*(v/100);
+      else if(s.op==='pctdiv') acc=(v===0)?Infinity:acc/(v/100);
+      else acc=v;
+    }
+    return acc;
+  }
+  function entryVal(e){ return e.steps ? foldChain(e.steps) : e.value; }
+  function opSym(op){ return op==='mul'?'×':op==='div'?'÷':op==='mu'?'MU':(op==='pct'||op==='pctdiv')?'%':''; }
+
+  // build / continue a × ÷ chain — its operands show live on the tape
+  function chainOp(o){
+    if(chain===null){ chain=[{op:null, v:val()}]; }
+    else if(!freshEntry){ chain.push({op:chainCur, v:val()}); }
+    chainCur=o;
+    setNum(foldChain(chain)); freshEntry=true; renderTape();
+  }
+  function peekValue(){
+    if(chain===null) return val();
+    if(freshEntry) return foldChain(chain);
+    return foldChain(chain.concat([{op:chainCur, v:val()}]));
+  }
+  function closeChain(){
+    if(!freshEntry){ chain.push({op:chainCur, v:val()}); }
+    const steps=chain, value=foldChain(chain);
+    chain=null; chainCur=null;
+    return {steps:steps, value:value};
+  }
+  function post(sign){
+    let entry;
+    if(chain!==null){
+      const c=closeChain();
+      entry=(c.steps.length>1)?{sign:sign, steps:c.steps, value:c.value}:{sign:sign, value:c.value};
+    } else {
+      entry={sign:sign, value:val()};
+    }
+    entries.push(entry);
+    cursor=-1; recompute(); freshEntry=true; didPost=true;
+  }
+  function totalAt(idx){
+    let t=0;
+    for(let k=0;k<=idx;k++){ const e=entries[k]; t+=(e.sign==='-'?-1:1)*entryVal(e); }
+    return t;
+  }
+  function grandTotal(){ return entries.length?totalAt(entries.length-1):0; }
+  function recompute(){
+    renderTape();
+    const g=grandTotal(); grandEl.textContent=grp(g); setNum(g);
+    stGT.classList.toggle('on', entries.length>0); save();
+  }
+  function lineEl(o){
+    const ln=document.createElement('div');
+    ln.className='ln'+(o.cls?(' '+o.cls):'');
+    ln.innerHTML=`<div class="op ${o.opcls||''}">${o.op||''}</div>`+
+                 `<div class="val">${o.val}</div>`+
+                 `<div class="tot">${o.tot||''}</div>`+
+                 (o.delI!=null?`<button class="del" title="Delete">&times;</button>`:'');
+    if(o.edit){ ln.querySelector('.val').addEventListener('click',ev=>{ ev.stopPropagation(); editStep(o.edit.i,o.edit.k); }); }
+    if(o.delI!=null){ ln.querySelector('.del').addEventListener('click',ev=>{ ev.stopPropagation(); delLine(o.delI); }); }
+    if(o.canSign){ ln.querySelector('.op').addEventListener('click',ev=>{ ev.stopPropagation(); toggleSign(o.entryIndex); }); }
+    if(o.entryIndex!=null){ ln.addEventListener('click',()=>{ cursor=o.entryIndex; renderTape(); }); }
+    return ln;
+  }
+  function renderTape(){
+    rollEl.innerHTML='';
+    if(!entries.length && chain===null){ rollEl.innerHTML='<div class="empty">No entries yet.<br>Type a number and press + or &minus;</div>'; return; }
+    entries.forEach((e,i)=>{
+      const sel=(i===cursor)?'sel':'';
+      if(!e.steps){
+        rollEl.appendChild(lineEl({op:(i===0?'':e.sign), opcls:(e.sign==='-'?'neg':''), canSign:true,
+          val:grp(e.value), tot:grp(totalAt(i)), cls:sel, edit:{i:i,k:0}, delI:i, entryIndex:i}));
+      } else {
+        e.steps.forEach((s,k)=>{
+          rollEl.appendChild(lineEl({op:(k===0?(i===0?'':e.sign):opSym(s.op)),
+            opcls:(k===0&&e.sign==='-'?'neg':''), canSign:(k===0),
+            val:grp(s.v), tot:'', cls:('step '+sel).trim(), edit:{i:i,k:k}, delI:(k===0?i:null), entryIndex:i}));
+        });
+        rollEl.appendChild(lineEl({op:'*', opcls:'star', val:grp(entryVal(e)), tot:grp(totalAt(i)),
+          cls:('result '+sel).trim(), entryIndex:i}));
+      }
+    });
+    if(chain!==null){
+      chain.forEach((s,k)=>{ rollEl.appendChild(lineEl({op:(k===0?'':opSym(s.op)), val:grp(s.v), tot:'', cls:'pending'})); });
+      if(!freshEntry){ rollEl.appendChild(lineEl({op:opSym(chainCur), val:grp(val()), tot:'', cls:'pending'})); }
+      else { rollEl.appendChild(lineEl({op:'=', val:grp(foldChain(chain)), tot:'', cls:'pending'})); }
+    }
+    const sel=rollEl.querySelector('.ln.sel'); if(sel) sel.scrollIntoView({block:'nearest'}); else rollEl.scrollTop=rollEl.scrollHeight;
+  }
+  function editStep(i,k){
+    renderTape();
+    const cells=rollEl.querySelectorAll('.ln'); let li=0, found=null;
+    for(let ei=0; ei<entries.length && !found; ei++){
+      const e=entries[ei];
+      if(!e.steps){ if(ei===i&&k===0) found=cells[li].querySelector('.val'); li++; }
+      else { for(let kk=0; kk<e.steps.length; kk++){ if(ei===i&&kk===k) found=cells[li].querySelector('.val'); li++; } li++; }
+    }
+    if(!found) return;
+    const e0=entries[i], cur=e0.steps?e0.steps[k].v:e0.value;
+    found.innerHTML=`<input type="text" value="${cur}">`;
+    const inp=found.querySelector('input'); inp.focus(); inp.select();
+    const apply=()=>{ const v=parseFloat(inp.value.replace(/,/g,'')); if(isFinite(v)){ if(e0.steps) e0.steps[k].v=v; else e0.value=v; } recompute(); };
+    inp.addEventListener('keydown',ev=>{ if(ev.key==='Enter') apply(); else if(ev.key==='Escape') renderTape(); ev.stopPropagation(); });
+    inp.addEventListener('blur',apply);
+  }
+  function toggleSign(i){ if(i===0) return; entries[i].sign=entries[i].sign==='+'?'-':'+'; recompute(); }
+  function delLine(i){ entries.splice(i,1); if(cursor>=entries.length) cursor=entries.length-1; recompute(); }
+  function checkMove(dir){
+    if(!entries.length) return;
+    if(cursor===-1) cursor=dir>0?0:entries.length-1;
+    else cursor=Math.max(0,Math.min(entries.length-1,cursor+dir));
+    renderTape();
+  }
+  // add a terminal step (% or MU) to the live chain — shows on the tape like ×
+  function applyChainStep(op){
+    if(freshEntry) return;           // no operand typed since the operator — ignore
+    chain.push({op:op, v:val()});
+    setNum(foldChain(chain)); freshEntry=true; renderTape(); showOp('');
+  }
+  function percent(){
+    if(chain!==null){ applyChainStep(chainCur==='div'?'pctdiv':'pct'); }
+    else { setNum(val()/100); freshEntry=true; }
+  }
+  function markup(){
+    if(chain!==null){ applyChainStep('mu'); }
+  }
+  function action(act){
+    switch(act){
+      case 'add': if(!freshEntry||chain!==null){ if(peekValue()!==0||entries.length>0){ post(pendingOp); } else { chain=null; chainCur=null; } } pendingOp='+'; showOp('+'); break;
+      case 'sub': if(!freshEntry||chain!==null){ if(peekValue()!==0||entries.length>0){ post(pendingOp); } else { chain=null; chainCur=null; } } pendingOp='-'; showOp('−'); break;
+      case 'mul': chainOp('mul'); showOp('×'); break; case 'div': chainOp('div'); showOp('÷'); break;
+      case 'equals': if(!freshEntry||chain!==null){ if(peekValue()!==0||entries.length>0){ post(pendingOp); pendingOp='+'; } else { chain=null; chainCur=null; } } setNum(grandTotal());freshEntry=true; showOp(''); break; case 'percent': percent(); break;
+      case 'mu': markup(); break;
+      case 'sqrt': { const v=val(); setNum(v<0?NaN:Math.sqrt(v)); freshEntry=true; break; }
+      case 'sign': setNum(val()*-1); break;
+      case 'back':
+        if(!freshEntry){ current=current.slice(0,-1); if(current===""||current==="-") current="0"; show(); renderTape(); } break;
+      case 'ce': current="0"; freshEntry=true; chain=null; chainCur=null; show(); renderTape(); break;
+      case 'clear': current="0"; freshEntry=true; chain=null; chainCur=null; pendingOp='+'; cursor=-1; renderTape(); show(); showOp(''); break;
+      case 'clearall': entries=[]; current="0"; freshEntry=true; chain=null; chainCur=null; pendingOp='+'; didPost=false; cursor=-1; recompute(); show(); showOp(''); break;
+      case 'mplus': memory+=val(); stM.classList.add('on'); freshEntry=true; break;
+      case 'mminus': memory-=val(); stM.classList.add('on'); freshEntry=true; break;
+      case 'mrc':
+        if(mrcT&&Date.now()-mrcT<400){ memory=0; stM.classList.remove('on'); mrcT=0; }
+        else { setNum(memory); freshEntry=true; mrcT=Date.now(); }
+        break;
+      case 'gt': setNum(grandTotal()); freshEntry=true; break;
+      case 'checkup': checkMove(-1); break; case 'checkdn': checkMove(1); break;
+      case 'savehist': saveHistory(); break;
+      case 'copytape': copyTape(); break;
+      case 'cleartape': if(entries.length&&confirm('Clear the whole tape?')){ entries=[]; cursor=-1; pendingOp='+'; didPost=false; recompute(); showOp(''); } break;
+    }
+  }
+  function save(){ try{ localStorage.setItem('orbit_tape', JSON.stringify(entries)); }catch(e){} }
+  function load(){ try{ const s=localStorage.getItem('orbit_tape'); if(s) entries=JSON.parse(s)||[]; }catch(e){} }
+  function getHist(){ try{ return JSON.parse(localStorage.getItem('orbit_hist')||'[]'); }catch(e){ return []; } }
+  function setHist(h){ try{ localStorage.setItem('orbit_hist', JSON.stringify(h)); }catch(e){} renderHist(); }
+  function saveHistory(){
+    if(!entries.length){ alert('Tape is empty.'); return; }
+    const name=prompt('Save tape as:', new Date().toLocaleString()); if(name===null) return;
+    const h=getHist(); h.unshift({name:name, total:grandTotal(), entries:JSON.parse(JSON.stringify(entries))});
+    setHist(h.slice(0,30));
+  }
+  function renderHist(){
+    const h=getHist();
+    histEl.innerHTML='<div class="hh">Saved tapes</div>'+(h.length?'':'<div style="color:#666;font-size:11px;">None yet — press Save</div>');
+    h.forEach((item,idx)=>{
+      const d=document.createElement('div'); d.className='hitem';
+      d.innerHTML=`<span>${item.name}</span><span><span class="ht">${grp(item.total)}</span> <span class="hx" title="delete">&times;</span></span>`;
+      d.querySelector('span').addEventListener('click',()=>{ entries=JSON.parse(JSON.stringify(item.entries)); cursor=-1; recompute(); });
+      d.querySelector('.hx').addEventListener('click',ev=>{ ev.stopPropagation(); const hh=getHist(); hh.splice(idx,1); setHist(hh); });
+      histEl.appendChild(d);
+    });
+  }
+  function copyTape(){
+    if(!entries.length){ alert('Tape is empty.'); return; }
+    let lines=[];
+    entries.forEach((e,i)=>{
+      if(!e.steps){ lines.push(((i===0?' ':e.sign)+' '+e.value).padEnd(16)+grp(totalAt(i))); }
+      else {
+        e.steps.forEach((s,k)=>{ lines.push(((k===0?(i===0?' ':e.sign):opSym(s.op))+' '+s.v).padEnd(16)); });
+        lines.push(('* '+entryVal(e)).padEnd(16)+grp(totalAt(i)));
+      }
+    });
+    let txt=lines.join('\n')+'\n----------------\nTOTAL  '+grp(grandTotal());
+    navigator.clipboard.writeText(txt).then(()=>flash('Copied!')).catch(()=>alert(txt));
+  }
+  function flash(msg){ const t=document.querySelector('[data-act="copytape"]'); const o=t.textContent; t.textContent=msg; setTimeout(()=>t.textContent=o,900); }
+
+  document.querySelectorAll('button[data-num],button[data-act]').forEach(b=>{
+    b.addEventListener('click',()=>{ if(b.dataset.num!==undefined) inputDigit(b.dataset.num); else action(b.dataset.act); });
+  });
+  window.addEventListener('keydown',e=>{
+    if(e.target.tagName==='INPUT') return;
+    const k=e.key;
+    if(/[0-9]/.test(k)) inputDigit(k);
+    else if(k===".") inputDigit(".");
+    else if(k==="+") action('add');
+    else if(k==="-") action('sub');
+    else if(k==="*") action('mul');
+    else if(k==="/"){ e.preventDefault(); action('div'); }
+    else if(k==="Enter"||k==="="){ e.preventDefault(); if(cursor>=0) editStep(cursor,0); else action('equals'); }
+    else if(k==="%") action('percent');
+    else if(k==="Backspace"){ e.preventDefault(); action('back'); }
+    else if(k==="Escape") action('clearall');
+    else if(k==="ArrowUp"){ e.preventDefault(); checkMove(-1); }
+    else if(k==="ArrowDown"){ e.preventDefault(); checkMove(1); }
+    else if(k==="Delete"&&cursor>=0){ delLine(cursor); }
+  });
+
+  /* ---- expose API for ERP panel ---- */
+  window.orbitAPI = {
+    getScreen: () => parseFloat(current) || 0,
+    postToTape: (v, sign) => { setNum(v); chain=null; chainCur=null; freshEntry=true; post(sign||'+'); },
+    setScreen: (v) => { setNum(v); freshEntry = true; }
+  };
+
+  load(); recompute(); renderHist(); show();
+})();
+
+/* ============================================================
+   ERP TOOLS LOGIC
+   ============================================================ */
+let gstRate = 5, gstMode = 'add';
+
+function f2(n){ return isFinite(n) ? n.toFixed(2) : '—'; }
+function rupee(n){ return isFinite(n) ? '₹ ' + Number(n.toFixed(2)).toLocaleString('en-IN', {minimumFractionDigits:2}) : '—'; }
+
+function erpTab(id, el){
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  el.classList.add('active');
+}
+
+function setGSTRate(r, el){
+  gstRate = r;
+  document.querySelectorAll('#gst-rate-chips .chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  calcGST();
+}
+
+function setGSTMode(m){
+  gstMode = m;
+  document.getElementById('gst-add').classList.toggle('active', m==='add');
+  document.getElementById('gst-remove').classList.toggle('active', m==='remove');
+  calcGST();
+}
+
+function useScreen(inputId, cb){
+  const v = window.orbitAPI ? window.orbitAPI.getScreen() : 0;
+  document.getElementById(inputId).value = v;
+  if(cb) cb();
+}
+
+function sendToTape(elId, label){
+  const el = document.getElementById(elId);
+  if(!el || !window.orbitAPI) return;
+  const txt = el.textContent.replace(/[₹\s,]/g,'');
+  const v = parseFloat(txt);
+  if(!isFinite(v) || v === 0){ alert('Nothing to send yet — calculate first.'); return; }
+  window.orbitAPI.postToTape(v, '+');
+}
+
+function setEl(id, val, cls){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.textContent = val;
+  if(cls){ el.className = 'r-val ' + cls; }
+}
+
+/* ---- GST ---- */
+function calcGST(){
+  const price = parseFloat(document.getElementById('gst-price').value) || 0;
+  if(price <= 0){ ['g-base','g-cgst','g-sgst','g-gst','g-final'].forEach(id=>setEl(id,'—')); return; }
+  let base, gst, final;
+  if(gstMode === 'add'){
+    base = price; gst = base * gstRate / 100; final = base + gst;
+  } else {
+    final = price; base = final / (1 + gstRate/100); gst = final - base;
+  }
+  setEl('g-base', rupee(base));
+  setEl('g-cgst', rupee(gst/2));
+  setEl('g-sgst', rupee(gst/2));
+  setEl('g-gst',  rupee(gst));
+  setEl('g-final',rupee(final), 'highlight');
+}
+
+function calcGSTDisc(){
+  const mrp  = parseFloat(document.getElementById('gd-mrp').value) || 0;
+  const disc = parseFloat(document.getElementById('gd-disc').value) || 0;
+  const rate = parseFloat(document.getElementById('gd-rate').value) || 0;
+  if(mrp <= 0){ ['gd-damount','gd-after','gd-gst','gd-final'].forEach(id=>setEl(id,'—')); return; }
+  const discAmt = mrp * disc / 100;
+  const afterDisc = mrp - discAmt;
+  const gst = afterDisc * rate / 100;
+  const final = afterDisc + gst;
+  setEl('gd-damount', rupee(discAmt));
+  setEl('gd-after',   rupee(afterDisc));
+  setEl('gd-gst',     rupee(gst));
+  setEl('gd-final',   rupee(final), 'highlight');
+}
+
+/* ---- Margin ---- */
+function calcMargin(){
+  const cost = parseFloat(document.getElementById('m-cost').value) || 0;
+  const sell = parseFloat(document.getElementById('m-sell').value) || 0;
+  if(cost <= 0 || sell <= 0){ ['m-margin','m-markup','m-profit'].forEach(id=>setEl(id,'—')); return; }
+  const margin = (sell - cost) / sell * 100;
+  const markup = (sell - cost) / cost * 100;
+  const profit = sell - cost;
+  const barW = Math.max(0, Math.min(100, margin));
+  const barCol = margin < 0 ? '#e06060' : margin < 10 ? '#f0a060' : '#6fcf6f';
+  setEl('m-margin', f2(margin) + '%', margin < 0 ? 'neg' : margin < 10 ? 'warn' : '');
+  setEl('m-markup', f2(markup) + '%');
+  setEl('m-profit', rupee(profit), profit < 0 ? 'neg' : 'highlight');
+  const bar = document.getElementById('m-bar');
+  if(bar){ bar.style.width = barW + '%'; bar.style.background = barCol; }
+}
+
+function calcTargetMargin(){
+  const cost = parseFloat(document.getElementById('ms-cost').value) || 0;
+  const margin = parseFloat(document.getElementById('ms-margin').value) || 0;
+  if(cost <= 0 || margin >= 100){ ['ms-sell','ms-profit','ms-markup'].forEach(id=>setEl(id,'—')); return; }
+  const sell = cost / (1 - margin/100);
+  const profit = sell - cost;
+  const markup = (sell - cost) / cost * 100;
+  setEl('ms-sell',   rupee(sell), 'highlight');
+  setEl('ms-profit', rupee(profit));
+  setEl('ms-markup', f2(markup) + '%');
+}
+
+function calcMarginTable(){
+  const cost = parseFloat(document.getElementById('mt-cost').value) || 0;
+  const tbl = document.getElementById('margin-table');
+  const rates = [5,10,15,20,25,30];
+  const rows = tbl.querySelectorAll('tr');
+  rates.forEach((r,i)=>{
+    const sell = cost > 0 ? cost / (1 - r/100) : 0;
+    if(rows[i]) rows[i].cells[1].textContent = cost > 0 ? rupee(sell) : '—';
+  });
+}
+
+/* ---- Case Split ---- */
+function calcCase(){
+  const price   = parseFloat(document.getElementById('cs-price').value) || 0;
+  const pcs     = parseFloat(document.getElementById('cs-pcs').value) || 0;
+  const freight = parseFloat(document.getElementById('cs-freight').value) || 0;
+  const total = price + freight;
+  const unit  = pcs > 0 ? total / pcs : 0;
+  setEl('cs-total', rupee(total));
+  setEl('cs-unit',  unit > 0 ? rupee(unit) : '—', 'highlight');
+
+  const tbl = document.getElementById('case-margin-table');
+  const rates = [5,10,15,20,25,30];
+  const rows = tbl.querySelectorAll('tr');
+  rates.forEach((r,i)=>{
+    const sell = unit > 0 ? unit / (1 - r/100) : 0;
+    if(rows[i]) rows[i].cells[1].textContent = unit > 0 ? rupee(sell) : '—';
+  });
+}
+
+function calcQR(){
+  const qty  = parseFloat(document.getElementById('qr-qty').value) || 0;
+  const rate = parseFloat(document.getElementById('qr-rate').value) || 0;
+  const total = qty * rate;
+  setEl('qr-total', total > 0 ? rupee(total) : '—', 'highlight');
+}
+
+/* ---- Discount ---- */
+function calcDisc(){
+  const mrp  = parseFloat(document.getElementById('d-mrp').value) || 0;
+  const disc = parseFloat(document.getElementById('d-disc').value) || 0;
+  const amt  = mrp * disc / 100;
+  const sell = mrp - amt;
+  setEl('d-amount', rupee(amt));
+  setEl('d-sell',   sell > 0 ? rupee(sell) : '—', 'highlight');
+}
+
+function calcDiscTable(){
+  const mrp = parseFloat(document.getElementById('dt-mrp').value) || 0;
+  const tbl = document.getElementById('disc-table');
+  const rates = [2,5,10,15,20,25,30];
+  const rows = tbl.querySelectorAll('tr');
+  rates.forEach((r,i)=>{
+    const sell = mrp * (1 - r/100);
+    if(rows[i]) rows[i].cells[1].textContent = mrp > 0 ? rupee(sell) : '—';
+  });
+}
+
+function calcFindDisc(){
+  const mrp  = parseFloat(document.getElementById('fd-mrp').value) || 0;
+  const sell = parseFloat(document.getElementById('fd-sell').value) || 0;
+  if(mrp <= 0 || sell <= 0){ setEl('fd-disc','—'); setEl('fd-saved','—'); return; }
+  const disc = (mrp - sell) / mrp * 100;
+  const saved = mrp - sell;
+  setEl('fd-disc',  f2(disc) + '%', 'highlight');
+  setEl('fd-saved', rupee(saved));
+}
+
+/* ---- Invoice ---- */
+function calcInvoice(){
+  const total   = parseFloat(document.getElementById('inv-total').value) || 0;
+  const gst     = parseFloat(document.getElementById('inv-gst').value) || 0;
+  const qty     = parseFloat(document.getElementById('inv-qty').value) || 1;
+  const freight = parseFloat(document.getElementById('inv-freight').value) || 0;
+
+  const base    = total / (1 + gst/100);
+  const gstAmt  = total - base;
+  const withFreight = total + freight;
+  const unit    = qty > 0 ? withFreight / qty : 0;
+  const unitBase = qty > 0 ? base / qty : 0;
+
+  setEl('inv-base',       rupee(base));
+  setEl('inv-gstamt',     rupee(gstAmt));
+  setEl('inv-cgst',       '₹ ' + f2(gstAmt/2) + ' + ₹ ' + f2(gstAmt/2));
+  setEl('inv-withfreight',rupee(withFreight));
+  setEl('inv-unit',       unit > 0 ? rupee(unit) : '—', 'highlight');
+  setEl('inv-unitbase',   unitBase > 0 ? rupee(unitBase) : '—');
+
+  const tbl = document.getElementById('inv-margin-table');
+  const rates = [5,10,15,20,25,30];
+  const rows = tbl.querySelectorAll('tr');
+  rates.forEach((r,i)=>{
+    const sell = unit > 0 ? unit / (1 - r/100) : 0;
+    if(rows[i]) rows[i].cells[1].textContent = unit > 0 ? rupee(sell) : '—';
+  });
+}
+
+/* ---- Cash & Change ---- */
+function calcChange(){
+  const bill = parseFloat(document.getElementById('ch-bill').value) || 0;
+  const cash = parseFloat(document.getElementById('ch-cash').value) || 0;
+  if(bill <= 0){ setEl('ch-change','—'); setEl('ch-denoms','—'); return; }
+  if(cash < bill){
+    setEl('ch-change', '− ' + rupee(bill - cash), 'neg');
+    setEl('ch-denoms', 'Short — collect more');
+    return;
+  }
+  const change = cash - bill;
+  setEl('ch-change', rupee(change), 'highlight');
+  const denoms = [500,200,100,50,20,10,5,2,1];
+  let rem = Math.round(change * 100) / 100;
+  const parts = [];
+  for(const d of denoms){
+    const n = Math.floor(rem / d + 0.0001);
+    if(n > 0){ parts.push(n + '×₹' + d); rem = Math.round((rem - n*d)*100)/100; }
+  }
+  setEl('ch-denoms', parts.length ? parts.join('  ') : '—');
+}
+
+function calcDenom(){
+  const denoms = [500,200,100,50,20,10,5,2,1];
+  let total = 0;
+  denoms.forEach(d => { total += (parseInt(document.getElementById('dn-'+d).value)||0) * d; });
+  setEl('dn-total', rupee(total), 'highlight');
+}
+
+function clearDenoms(){
+  [500,200,100,50,20,10,5,2,1].forEach(d => { const el=document.getElementById('dn-'+d); if(el) el.value=''; });
+  setEl('dn-total', '₹ 0.00', 'highlight');
+}
+
+/* ---- Compare ---- */
+const unitToBase = { g:1, kg:1000, ml:1, L:1000, pcs:1 };
+
+function calcCompare(){
+  const aP = parseFloat(document.getElementById('cp-a-price').value)||0;
+  const aQ = parseFloat(document.getElementById('cp-a-qty').value)||0;
+  const bP = parseFloat(document.getElementById('cp-b-price').value)||0;
+  const bQ = parseFloat(document.getElementById('cp-b-qty').value)||0;
+  const aU = document.getElementById('cp-a-unit').value;
+  const bU = document.getElementById('cp-b-unit').value;
+  if(!aP||!aQ||!bP||!bQ){ ['cp-a-unit-price','cp-b-unit-price','cp-winner','cp-saving'].forEach(id=>setEl(id,'—')); return; }
+  const aBase = aQ * (unitToBase[aU]||1);
+  const bBase = bQ * (unitToBase[bU]||1);
+  const aPer = (aP/aBase)*100, bPer = (bP/bBase)*100;
+  const ul = aU===bU ? 'per 100 '+aU : 'per base unit';
+  setEl('cp-a-unit-price','₹ '+f2(aPer)+' '+ul);
+  setEl('cp-b-unit-price','₹ '+f2(bPer)+' '+ul);
+  if(aPer < bPer){
+    setEl('cp-winner','Product A — better value','highlight');
+    setEl('cp-saving',f2((bPer-aPer)/bPer*100)+'% cheaper');
+  } else if(bPer < aPer){
+    setEl('cp-winner','Product B — better value','highlight');
+    setEl('cp-saving',f2((aPer-bPer)/aPer*100)+'% cheaper');
+  } else { setEl('cp-winner','Same value',''); setEl('cp-saving','—'); }
+}
+
+function calcCompoundDisc(){
+  const price = parseFloat(document.getElementById('cd-price').value)||0;
+  const d1 = parseFloat(document.getElementById('cd-d1').value)||0;
+  const d2 = parseFloat(document.getElementById('cd-d2').value)||0;
+  const d3 = parseFloat(document.getElementById('cd-d3').value)||0;
+  if(!price){ ['cd-net-disc','cd-final','cd-saved'].forEach(id=>setEl(id,'—')); return; }
+  let final = price;
+  if(d1) final *= (1-d1/100);
+  if(d2) final *= (1-d2/100);
+  if(d3) final *= (1-d3/100);
+  const nd = (price-final)/price*100;
+  setEl('cd-net-disc', f2(nd)+'%');
+  setEl('cd-final',    rupee(final),'highlight');
+  setEl('cd-saved',    rupee(price-final));
+}
+
+/* ---- Offers ---- */
+function calcBuyXGetY(){
+  const buy  = parseFloat(document.getElementById('bx-buy').value)||0;
+  const free = parseFloat(document.getElementById('bx-free').value)||0;
+  const mrp  = parseFloat(document.getElementById('bx-mrp').value)||0;
+  const cost = parseFloat(document.getElementById('bx-cost').value)||0;
+  if(!buy||!mrp){ ['bx-pays','bx-eff-price','bx-eff-disc','bx-bundle-cost','bx-margin'].forEach(id=>setEl(id,'—')); return; }
+  const total    = buy + free;
+  const effPrice = (buy*mrp)/total;
+  const effDisc  = free/total*100;
+  const bundleCost = cost>0 ? cost*total : null;
+  const revenue    = buy*mrp;
+  const margin     = (cost>0) ? (revenue-bundleCost)/revenue*100 : null;
+  setEl('bx-pays',       buy+' pcs paid + '+free+' free = '+total+' pcs');
+  setEl('bx-eff-price',  rupee(effPrice));
+  setEl('bx-eff-disc',   f2(effDisc)+'%');
+  setEl('bx-bundle-cost',bundleCost!==null ? rupee(bundleCost) : '—');
+  setEl('bx-margin',     margin!==null ? f2(margin)+'%' : '—', margin!==null?(margin<0?'neg':margin<10?'warn':'highlight'):'');
+}
+
+function calcShrinkage(){
+  const qty    = parseFloat(document.getElementById('sw-qty').value)||0;
+  const cost   = parseFloat(document.getElementById('sw-cost').value)||0;
+  const waste  = parseFloat(document.getElementById('sw-waste').value)||0;
+  const margin = parseFloat(document.getElementById('sw-margin').value)||0;
+  if(!qty||!cost){ ['sw-saleable','sw-total-cost','sw-adj-cost','sw-sell'].forEach(id=>setEl(id,'—')); return; }
+  const saleable  = qty*(1-waste/100);
+  const totalCost = qty*cost;
+  const adjCost   = saleable>0 ? totalCost/saleable : 0;
+  const sell      = margin<100 ? adjCost/(1-margin/100) : 0;
+  setEl('sw-saleable',   f2(saleable)+' units');
+  setEl('sw-total-cost', rupee(totalCost));
+  setEl('sw-adj-cost',   rupee(adjCost));
+  setEl('sw-sell',       sell>0 ? rupee(sell) : '—','highlight');
+}
+
+function calcCashback(){
+  const sale   = parseFloat(document.getElementById('cb-sale').value)||0;
+  const amount = parseFloat(document.getElementById('cb-amount').value)||0;
+  const net    = sale - amount;
+  setEl('cb-net', sale>0 ? rupee(net) : '—', net < 0 ? 'neg' : 'highlight');
+  setEl('cb-pct', sale>0 ? f2(amount/sale*100)+'%' : '—');
+}
+
+/* ---- EMI & Finance ---- */
+function calcEMI(){
+  const P = parseFloat(document.getElementById('em-principal').value)||0;
+  const r = (parseFloat(document.getElementById('em-rate').value)||0)/12/100;
+  const n = parseFloat(document.getElementById('em-months').value)||0;
+  if(!P||!n){ ['em-emi','em-total','em-interest','em-int-pct'].forEach(id=>setEl(id,'—')); return; }
+  const emi   = r===0 ? P/n : P*r*Math.pow(1+r,n)/(Math.pow(1+r,n)-1);
+  const total = emi*n;
+  const int   = total-P;
+  setEl('em-emi',     rupee(emi),    'highlight');
+  setEl('em-total',   rupee(total));
+  setEl('em-interest',rupee(int),    'warn');
+  setEl('em-int-pct', f2(int/P*100)+'%');
+}
+
+function calcSI(){
+  const P = parseFloat(document.getElementById('si-p').value)||0;
+  const r = parseFloat(document.getElementById('si-r').value)||0;
+  const d = parseFloat(document.getElementById('si-d').value)||0;
+  if(!P||!r||!d){ setEl('si-interest','—'); setEl('si-total','—'); return; }
+  const int   = P*r*d/(100*365);
+  setEl('si-interest', rupee(int),   'warn');
+  setEl('si-total',    rupee(P+int), 'highlight');
+}
+
+function calcTarget(){
+  const monthly = parseFloat(document.getElementById('tg-monthly').value)||0;
+  const days    = parseFloat(document.getElementById('tg-days').value)||26;
+  const hours   = parseFloat(document.getElementById('tg-hours').value)||12;
+  if(!monthly){ ['tg-daily','tg-hourly','tg-per-min'].forEach(id=>setEl(id,'—')); return; }
+  const daily  = monthly/days;
+  const hourly = daily/hours;
+  setEl('tg-daily',   rupee(daily),        'highlight');
+  setEl('tg-hourly',  rupee(hourly));
+  setEl('tg-per-min', rupee(hourly/60));
+}
+
+/* ---- Nav clock ---- */
+(function(){
+  const clockEl = document.getElementById('nav-clock');
+  const dateEl  = document.getElementById('nav-date');
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function tick(){
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2,'0');
+    const m = String(now.getMinutes()).padStart(2,'0');
+    const s = String(now.getSeconds()).padStart(2,'0');
+    clockEl.textContent = h+':'+m+':'+s;
+    dateEl.textContent  = days[now.getDay()]+', '+now.getDate()+' '+months[now.getMonth()]+' '+now.getFullYear();
+  }
+  tick(); setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>
