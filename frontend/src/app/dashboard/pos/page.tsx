@@ -31,6 +31,7 @@ type BillType  = 'TAX_INVOICE' | 'RETAIL_INVOICE' | 'ESTIMATE';
 interface PluOption {
   pluCode: string; mrp: number; sellingPrice: number;
   stockOnHand: number; receivedDate: string; batchNumber: string | null;
+  isLoose: boolean; measureType: string | null; unitSymbol: string | null; baseUnitQty: number | null;
 }
 
 interface BizInfo {
@@ -70,6 +71,8 @@ interface CartItem {
   isPriceOverridden?: boolean;
   originalPrice?: number;
   overrideReason?: string;
+  looseWeightG?: number;
+  looseUnit?: string;
 }
 interface Customer {
   id: string; name: string; phone: string;
@@ -634,6 +637,13 @@ export default function PosPage() {
   const [priceNewValue, setPriceNewValue]         = useState('');
   const [priceReason, setPriceReason]             = useState('');
 
+  // Weight input popup (loose items)
+  const [showWeightPopup, setShowWeightPopup] = useState(false);
+  const [weightPlu, setWeightPlu]             = useState<PluOption | null>(null);
+  const [weightProduct, setWeightProduct]     = useState<SearchProduct | null>(null);
+  const [weightInput, setWeightInput]         = useState('');
+  const weightInputRef                        = useRef<HTMLInputElement>(null);
+
   // PLU popup
   const [showPluPopup, setShowPluPopup]   = useState(false);
   const [pluOptions, setPluOptions]       = useState<PluOption[]>([]);
@@ -677,8 +687,9 @@ export default function PosPage() {
   const [installPrompt, setInstallPrompt]       = useState<any>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
-  useEscapeKey(closePluPopup, showPluPopup);
-  useEscapeKey(() => setShowPayModal(false), showPayModal && !showPluPopup);
+  useEscapeKey(() => { setShowWeightPopup(false); setWeightInput(''); }, showWeightPopup);
+  useEscapeKey(closePluPopup, showPluPopup && !showWeightPopup);
+  useEscapeKey(() => setShowPayModal(false), showPayModal && !showPluPopup && !showWeightPopup);
   useEscapeKey(() => setShowCreditModal(false), showCreditModal && !showPayModal && !showPluPopup);
   useEscapeKey(() => setShowHoldModal(false), showHoldModal && !showCreditModal && !showPayModal && !showPluPopup);
   useEscapeKey(() => setShowPrintChoice(false), showPrintChoice && !showSuccess);
@@ -1137,10 +1148,10 @@ export default function PosPage() {
 
       const { plus } = res.data;
       if (plus.length === 0) {
-        // No PLUs with stock — fall through to standard add (backend will enforce stock)
         doAddToCart(p, null);
       } else if (plus.length === 1) {
-        doAddToCart(p, plus[0]);
+        if (plus[0].isLoose) { openWeightPopup(p, plus[0]); }
+        else { doAddToCart(p, plus[0]); }
       } else {
         // Multiple PLUs — show popup
         pluProductRef.current = p;
@@ -1159,24 +1170,50 @@ export default function PosPage() {
     }
   }
 
-  function doAddToCart(p: SearchProduct, plu: PluOption | null) {
+  function openWeightPopup(p: SearchProduct, plu: PluOption) {
+    setWeightProduct(p);
+    setWeightPlu(plu);
+    setWeightInput('');
+    setShowWeightPopup(true);
+    setTimeout(() => weightInputRef.current?.focus(), 80);
+  }
+
+  function confirmWeight() {
+    const p   = weightProduct;
+    const plu = weightPlu;
+    if (!p || !plu) return;
+    const grams = parseFloat(weightInput);
+    if (!grams || grams <= 0) return;
+    const baseQty  = plu.baseUnitQty ?? 1000;
+    const qty      = Math.round((grams / baseQty) * 10000) / 10000;
+    const unit     = plu.measureType === 'VOLUME' ? 'ml' : 'g';
+    setShowWeightPopup(false);
+    setWeightInput('');
+    doAddToCart(p, plu, qty, grams, unit);
+    setTimeout(() => prodRef.current?.focus(), 50);
+  }
+
+  function doAddToCart(p: SearchProduct, plu: PluOption | null, qty = 1, looseWeightG?: number, looseUnit?: string) {
     const key        = plu ? plu.pluCode : p.id;
     const unitPrice  = plu ? plu.sellingPrice : parseFloat(String(p.sellingPrice));
     const mrp        = plu ? plu.mrp         : parseFloat(String(p.mrp));
     const gstRate    = parseFloat(String(p.gstRatePercent ?? 0));
     const cessRate   = parseFloat(String(p.cessRate ?? 0));
-    const calc       = calcItemTax(unitPrice, 1, 0, gstRate, cessRate);
+    const calc       = calcItemTax(unitPrice, qty, 0, gstRate, cessRate);
     const item: CartItem = {
       _key: key, productId: p.id, taxId: p.taxId,
       name: p.name, barcode: p.barcode,
       unitPrice, mrp, gstRatePercent: gstRate, cessRate, unitOfMeasure: p.unitOfMeasure,
-      quantity: 1, discountPercent: 0,
+      quantity: qty, discountPercent: 0,
       allowNegativeStock: p.allowNegativeStock, currentStock: p.currentStock,
+      ...(looseWeightG !== undefined ? { looseWeightG, looseUnit } : {}),
       ...calc,
     };
     setCart((prev) => {
       const idx = prev.findIndex((c) => c._key === key);
       if (idx >= 0) {
+        // Loose items always add as a new line (different weight each time)
+        if (looseWeightG !== undefined) return [...prev, { ...item, _key: `${key}-${Date.now()}` }];
         const updated = [...prev];
         updated[idx] = recompute({ ...updated[idx], quantity: updated[idx].quantity + 1 });
         return updated;
@@ -1191,7 +1228,8 @@ export default function PosPage() {
     const p = pluProductRef.current;
     if (!p) return;
     closePluPopup();
-    doAddToCart(p, plu);
+    if (plu.isLoose) { openWeightPopup(p, plu); }
+    else { doAddToCart(p, plu); }
   }
 
   function closePluPopup() {
@@ -2170,9 +2208,11 @@ export default function PosPage() {
                               className="w-5 h-5 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500">
                               <Minus className="w-3 h-3" />
                             </button>
-                            <span onClick={() => startEdit(item._key, 'qty', item.quantity)}
-                              className="w-10 text-center text-gray-700 cursor-pointer hover:text-blue-500">
-                              {item.quantity % 1 === 0 ? item.quantity : item.quantity.toFixed(3)}
+                            <span onClick={() => !item.looseWeightG && startEdit(item._key, 'qty', item.quantity)}
+                              className="w-14 text-center text-gray-700 cursor-pointer hover:text-blue-500 text-xs">
+                              {item.looseWeightG
+                                ? `${item.looseWeightG}${item.looseUnit ?? 'g'}`
+                                : item.quantity % 1 === 0 ? item.quantity : item.quantity.toFixed(3)}
                             </span>
                             <button onClick={() => setCart(p => p.map(c => c._key === item._key ? recompute({ ...c, quantity: c.quantity + 1 }) : c))}
                               className="w-5 h-5 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500">
@@ -3201,6 +3241,86 @@ export default function PosPage() {
       )}
 
       {/* PLU Batch Selection Popup */}
+      {/* ── Weight Input Popup (loose items) ── */}
+      {showWeightPopup && weightPlu && weightProduct && (() => {
+        const unit      = weightPlu.measureType === 'VOLUME' ? 'ml' : 'g';
+        const baseQty   = weightPlu.baseUnitQty ?? 1000;
+        const grams     = parseFloat(weightInput) || 0;
+        const qty       = grams / baseQty;
+        const preview   = qty * weightPlu.sellingPrice;
+        const perLabel  = weightPlu.unitSymbol ? `₹${weightPlu.sellingPrice.toFixed(2)} / ${weightPlu.unitSymbol}` : '';
+        return (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            onClick={() => { setShowWeightPopup(false); setWeightInput(''); }}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden"
+              onClick={e => e.stopPropagation()}>
+              <div className="bg-[#1B4F8A] px-6 py-4 text-white">
+                <p className="text-xs font-semibold opacity-70 uppercase tracking-wider mb-0.5">Loose Item</p>
+                <p className="text-lg font-bold truncate">{weightProduct.name}</p>
+                {perLabel && <p className="text-sm opacity-80 mt-0.5">{perLabel}</p>}
+              </div>
+
+              <div className="px-6 py-5 space-y-4">
+                {/* Weight input */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Enter Weight ({unit})
+                  </label>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <input
+                      ref={weightInputRef}
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={weightInput}
+                      onChange={e => setWeightInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') confirmWeight(); }}
+                      placeholder={`0 ${unit}`}
+                      className="flex-1 text-4xl font-bold text-center border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-[#1B4F8A] text-gray-900"
+                    />
+                    <span className="text-2xl font-bold text-gray-400">{unit}</span>
+                  </div>
+                </div>
+
+                {/* Quick weights */}
+                <div className="grid grid-cols-4 gap-2">
+                  {(weightPlu.measureType === 'VOLUME'
+                    ? [100, 250, 500, 1000]
+                    : [100, 250, 500, 1000]
+                  ).map(w => (
+                    <button key={w} onClick={() => setWeightInput(String(w))}
+                      className={cls(
+                        'py-2.5 rounded-xl text-sm font-bold border-2 transition-colors',
+                        weightInput === String(w)
+                          ? 'bg-[#1B4F8A] text-white border-[#1B4F8A]'
+                          : 'border-gray-200 text-gray-700 hover:border-[#1B4F8A] hover:text-[#1B4F8A]',
+                      )}>
+                      {w}{unit}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Live price preview */}
+                {grams > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center justify-between">
+                    <span className="text-sm text-green-800">{grams}{unit} →</span>
+                    <span className="text-xl font-bold text-green-700">₹{preview.toFixed(2)}</span>
+                  </div>
+                )}
+
+                <button
+                  onClick={confirmWeight}
+                  disabled={!grams || grams <= 0}
+                  className="w-full py-3.5 bg-[#1B4F8A] text-white font-bold text-lg rounded-xl hover:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Add to Bill
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showPluPopup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closePluPopup}>
           <div className={cls(

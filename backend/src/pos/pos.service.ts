@@ -1088,6 +1088,10 @@ export class PosService {
         stockOnHand: true,
         receivedDate: true,
         batchNumber: true,
+        isLoose:     true,
+        measureType: true,
+        unitSymbol:  true,
+        baseUnitQty: true,
       },
     });
 
@@ -1107,6 +1111,10 @@ export class PosService {
         stockOnHand:  Number(p.stockOnHand),
         receivedDate: p.receivedDate.toISOString(),
         batchNumber:  p.batchNumber ?? null,
+        isLoose:      p.isLoose,
+        measureType:  p.measureType ?? null,
+        unitSymbol:   p.unitSymbol ?? null,
+        baseUnitQty:  p.baseUnitQty ? Number(p.baseUnitQty) : null,
       })),
     };
   }
