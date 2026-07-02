@@ -33,6 +33,7 @@ import { ListsModule } from './lists/lists.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { VolumePricingModule } from './volume-pricing/volume-pricing.module';
 import { RepackModule } from './repack/repack.module';
+import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
 
 @Module({
   controllers: [AppController],
@@ -70,6 +71,7 @@ import { RepackModule } from './repack/repack.module';
     ReviewsModule,
     VolumePricingModule,
     RepackModule,
+    PurchaseOrdersModule,
   ],
 })
 export class AppModule {}

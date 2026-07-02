@@ -12,6 +12,11 @@ export class RepackController {
     return this.repackService.searchSourcePlus(req.user.businessId, q ?? '');
   }
 
+  @Get('search/any')
+  searchAny(@Request() req: any, @Query('q') q: string) {
+    return this.repackService.searchAnyPlu(req.user.businessId, q ?? '');
+  }
+
   @Get('search/target')
   searchTarget(
     @Request() req: any,
@@ -32,7 +37,7 @@ export class RepackController {
     @Param('id') id: string,
     @Body() body: { type?: 'FIXED' | 'VARIABLE'; bulkWeightG?: number; unitWeightG?: number; conversionQty?: number; notes?: string },
   ) {
-    return this.repackService.updateBundle(req.user.businessId, id, body);
+    return this.repackService.updateBundle(req.user.businessId, id, { ...body, userRole: req.user.role });
   }
 
   @Post('sessions')
@@ -43,15 +48,32 @@ export class RepackController {
       sourceQty: number;
       type: 'FIXED' | 'VARIABLE';
       lines: { targetPluId: string; qty: number; unitWeightG?: number; notes?: string }[];
+      bulkWeightG?: number;
       wastageG?: number;
+      wastageUnits?: number;
       wastageNotes?: string;
       notes?: string;
     },
   ) {
     return this.repackService.commitSession(req.user.businessId, {
       ...body,
-      userId: req.user.id,
+      userId:   req.user.id,
       userName: req.user.fullName,
+      userRole: req.user.role,
+    });
+  }
+
+  @Post('sessions/:id/reverse')
+  reverseSession(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.repackService.reverseSession(req.user.businessId, id, {
+      userId:   req.user.id,
+      userName: req.user.fullName,
+      userRole: req.user.role,
+      reason:   body?.reason,
     });
   }
 

@@ -275,6 +275,8 @@ export class ProductsController {
       mrp: number; sellingPrice: number; wholesalePrice?: number;
       minSellingPrice?: number; gstRate?: number; hsnCode?: string;
       cessRate?: number; taxInclusive?: boolean; openingStock?: number;
+      measureType?: string; unitSymbol?: string; unitSize?: number;
+      baseUnitQty?: number; gstUqc?: string; isLoose?: boolean;
     },
   ) {
     return this.productsService.createPlu(req.user.businessId, id, body);
@@ -290,6 +292,8 @@ export class ProductsController {
       minSellingPrice?: number; gstRate?: number; cessRate?: number; taxInclusive?: boolean;
       availableOnline?: boolean; onlinePrice?: number | null;
       onlineStockCap?: number | null; packLabel?: string | null;
+      measureType?: string | null; unitSymbol?: string | null; unitSize?: number | null;
+      baseUnitQty?: number | null; gstUqc?: string | null; isLoose?: boolean;
     },
   ) {
     return this.productsService.updatePlu(req.user.businessId, id, pluId, body);
@@ -338,7 +342,7 @@ export class ProductsController {
   @Post('plu-bundles')
   createPluBundle(
     @Request() req: any,
-    @Body() body: { bulkPluId: string; singlePluId: string; conversionQty: number; notes?: string },
+    @Body() body: { bulkPluId: string; singlePluId: string; conversionQty: number; type?: string; bulkWeightG?: number; unitWeightG?: number; notes?: string },
   ) {
     return this.productsService.createPluBundle(req.user.businessId, body);
   }

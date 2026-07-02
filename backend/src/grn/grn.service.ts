@@ -752,6 +752,14 @@ export class GrnService {
         // STEP 2B: New MRP batch or cost changed — create a new PLU.
         // Enforce margin on the new selling price (only when an SP was entered).
         if (itemSp > 0) {
+          // Log margin violations even when bypass is enabled — creates audit trail
+          if (itemCost > 0 && itemCost >= itemSp && (product as any).allowBelowMargin) {
+            this.audit.log(
+              { businessId, userId: 'system', userName: approverName, userRole: 'SYSTEM' },
+              { action: 'MARGIN_VIOLATION', entity: 'GRN', entityId: grnId, entityRef: product.name,
+                description: `Cost ₹${itemCost} ≥ selling price ₹${itemSp} on "${product.name}" — below-margin bypass active` },
+            ).catch(() => {});
+          }
           assertMargin({
             sellingPrice: itemSp,
             costPrice:    itemCost,
@@ -833,23 +841,17 @@ export class GrnService {
         } // end else (new MRP batch)
       } // end STEP 2B
 
-      // STEP 2C: Auto-manage availableOnline — latest active PLU with positive stock
-      // gets online=true, all others for this product get online=false.
-      const latestWithStock = await tx.productPlu.findFirst({
-        where: { productId: item.productId, isActive: true, isArchived: false, stockOnHand: { gt: 0 } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
+      // STEP 2C: Auto-manage availableOnline — ALL active PLUs with positive stock
+      // are shown online so customers can compare every available batch (MRP).
+      // PLUs with zero stock are hidden from the storefront.
       await tx.productPlu.updateMany({
-        where: { productId: item.productId, businessId },
+        where: { productId: item.productId, businessId, isActive: true, isArchived: false, stockOnHand: { lte: 0 } },
         data:  { availableOnline: false },
       });
-      if (latestWithStock) {
-        await tx.productPlu.update({
-          where: { id: latestWithStock.id },
-          data:  { availableOnline: true },
-        });
-      }
+      await tx.productPlu.updateMany({
+        where: { productId: item.productId, businessId, isActive: true, isArchived: false, stockOnHand: { gt: 0 } },
+        data:  { availableOnline: true },
+      });
 
       // STEP 3: Update Product.totalStock = sum of all active PLU stockOnHand.
       // Only sync master prices (mrp/sellingPrice/costPrice) when this item's PLU

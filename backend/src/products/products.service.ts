@@ -1075,29 +1075,43 @@ export class ProductsService {
   }
 
   async createPluBundle(businessId: string, body: {
-    bulkPluId: string; singlePluId: string; conversionQty: number; notes?: string;
+    bulkPluId: string; singlePluId: string; conversionQty: number;
+    type?: string; bulkWeightG?: number; unitWeightG?: number; notes?: string;
   }) {
-    // Verify both PLUs belong to this business
     const [bulk, single] = await Promise.all([
-      this.prisma.productPlu.findFirst({ where: { id: body.bulkPluId }, include: { product: { select: { businessId: true, name: true } } } }),
-      this.prisma.productPlu.findFirst({ where: { id: body.singlePluId }, include: { product: { select: { businessId: true, name: true } } } }),
+      this.prisma.productPlu.findFirst({ where: { id: body.bulkPluId }, include: { product: { select: { businessId: true } } } }),
+      this.prisma.productPlu.findFirst({ where: { id: body.singlePluId }, include: { product: { select: { businessId: true } } } }),
     ]);
     if (!bulk   || bulk.product.businessId   !== businessId) throw new NotFoundException('Bulk PLU not found');
     if (!single || single.product.businessId !== businessId) throw new NotFoundException('Single PLU not found');
     if (body.conversionQty < 1) throw new BadRequestException('Conversion qty must be >= 1');
 
-    return this.prisma.pluBundle.upsert({
-      where: { bulkPluId: body.bulkPluId },
-      create: {
+    const type = body.type ?? 'FIXED';
+    // Use composite unique [bulkPluId, singlePluId] — one bulk PLU can link to many singles
+    const existing = await this.prisma.pluBundle.findFirst({
+      where: { bulkPluId: body.bulkPluId, singlePluId: body.singlePluId },
+    });
+    if (existing) {
+      return this.prisma.pluBundle.update({
+        where: { id: existing.id },
+        data: {
+          conversionQty: body.conversionQty,
+          type,
+          bulkWeightG: body.bulkWeightG ?? null,
+          unitWeightG: body.unitWeightG ?? null,
+          notes: body.notes,
+        },
+      });
+    }
+    return this.prisma.pluBundle.create({
+      data: {
         businessId,
-        bulkPluId:      body.bulkPluId,
-        singlePluId:    body.singlePluId,
-        conversionQty:  body.conversionQty,
-        notes:          body.notes,
-      },
-      update: {
+        bulkPluId:     body.bulkPluId,
         singlePluId:   body.singlePluId,
         conversionQty: body.conversionQty,
+        type,
+        bulkWeightG:   body.bulkWeightG ?? null,
+        unitWeightG:   body.unitWeightG ?? null,
         notes:         body.notes,
       },
     });
@@ -1589,6 +1603,8 @@ export class ProductsService {
     mrp: number; sellingPrice: number; wholesalePrice?: number;
     minSellingPrice?: number; gstRate?: number; hsnCode?: string;
     cessRate?: number; taxInclusive?: boolean; openingStock?: number;
+    measureType?: string; unitSymbol?: string; unitSize?: number;
+    baseUnitQty?: number; gstUqc?: string; isLoose?: boolean;
   }) {
     const product = await this.prisma.product.findFirst({ where: { id: productId, businessId } });
     if (!product) throw new NotFoundException('Product not found');
@@ -1646,6 +1662,12 @@ export class ProductsService {
           isArchived:     false,
           effectiveFrom:  new Date(),
           createdByName:  'Manual entry',
+          measureType:    body.measureType  ?? null,
+          unitSymbol:     body.unitSymbol   ?? null,
+          unitSize:       body.unitSize     ?? null,
+          baseUnitQty:    body.baseUnitQty  ?? null,
+          gstUqc:         body.gstUqc       ?? null,
+          isLoose:        body.isLoose      ?? false,
         },
       });
 
@@ -1697,6 +1719,8 @@ export class ProductsService {
     availableOnline?: boolean; onlinePrice?: number | null;
     onlineStockCap?: number | null;
     packLabel?: string | null;
+    measureType?: string | null; unitSymbol?: string | null; unitSize?: number | null;
+    baseUnitQty?: number | null; gstUqc?: string | null; isLoose?: boolean;
   }) {
     const plu = await this.prisma.productPlu.findFirst({ where: { id: pluId, productId, businessId } });
     if (!plu) throw new NotFoundException('PLU not found');
@@ -1738,6 +1762,12 @@ export class ProductsService {
         ...(body.onlinePrice        !== undefined ? { onlinePrice: body.onlinePrice }             : {}),
         ...(body.onlineStockCap     !== undefined ? { onlineStockCap: body.onlineStockCap }       : {}),
         ...(body.packLabel          !== undefined ? { displayName: body.packLabel }               : {}),
+        ...(body.measureType        !== undefined ? { measureType:  body.measureType }            : {}),
+        ...(body.unitSymbol         !== undefined ? { unitSymbol:   body.unitSymbol }             : {}),
+        ...(body.unitSize           !== undefined ? { unitSize:     body.unitSize }               : {}),
+        ...(body.baseUnitQty        !== undefined ? { baseUnitQty:  body.baseUnitQty }            : {}),
+        ...(body.gstUqc             !== undefined ? { gstUqc:       body.gstUqc }                 : {}),
+        ...(body.isLoose            !== undefined ? { isLoose:      body.isLoose }                : {}),
       },
     });
     // Keep product master prices in sync with its default PLU

@@ -244,7 +244,7 @@ export default async function ProductPage({ params }: Props) {
                   {showLowStock && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#c2410c' }}>
                       <span aria-hidden="true">⚡</span>
-                      <span>Only <strong>{product.stockLeft} left</strong> — order soon!</span>
+                      <span>Running low — <strong>order soon!</strong></span>
                     </div>
                   )}
                 </div>
@@ -297,6 +297,11 @@ export default async function ProductPage({ params }: Props) {
                           })}
                         </div>
                       </div>
+                    )}
+                    {pack.inStock && pack.availableQty > 0 && pack.availableQty <= LOW_STOCK_THRESHOLD && (
+                      <p style={{ fontSize: '11px', color: '#c2410c', fontWeight: 600, margin: '6px 0 0' }}>
+                        ⚡ Only {pack.availableQty} left
+                      </p>
                     )}
                   </div>
 

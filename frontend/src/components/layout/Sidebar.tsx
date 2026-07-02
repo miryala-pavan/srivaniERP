@@ -46,6 +46,8 @@ import {
   Scale,
   ShieldCheck,
   SplitSquareHorizontal,
+  BookOpen,
+  Calculator,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -57,6 +59,7 @@ interface NavItem {
   label: string;
   icon: React.ElementType;
   roles?: string[];
+  external?: boolean;
 }
 
 interface NavGroup {
@@ -99,6 +102,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/inventory/stock-take',      label: 'Stock-take',    icon: ClipboardList,roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'FLOOR_SUPERVISOR'] },
       { href: '/dashboard/inventory/opening-stock',   label: 'Opening Stock', icon: Warehouse,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
       { href: '/dashboard/grn',                       label: 'GRN',           icon: PackageCheck, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
+      { href: '/dashboard/purchase-orders',           label: 'Purchase Orders', icon: ShoppingCart, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
       { href: '/dashboard/products/labels',            label: 'Print Labels',  icon: Printer,      roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'PACKING_STAFF', 'FLOOR_SUPERVISOR'] },
       { href: '/dashboard/reorder',                    label: 'Reorder Guide', icon: PackageSearch, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
       { href: '/dashboard/inventory/break-bulk',        label: 'Break Bulk',    icon: SplitSquareHorizontal, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'PURCHASE_CHECKER'] },
@@ -139,6 +143,14 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/settings/financial-year',     label: 'Financial Years', icon: CalendarRange,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/notifications/whatsapp',      label: 'WhatsApp Msgs',   icon: MessageSquare,   roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/lists',                        label: 'Order Lists',      icon: FileText,        roles: ['SUPER_ADMIN'] },
+    ],
+  },
+  {
+    key: 'help',
+    label: 'Help & Guides',
+    items: [
+      { href: '/dashboard/help', label: 'Break Bulk Guide', icon: BookOpen },
+      { href: '/calc.html', label: 'Calculator', icon: Calculator, external: true },
     ],
   },
 ];
@@ -276,21 +288,18 @@ export default function Sidebar() {
                 {/* Group items */}
                 {!isCollapsed && (
                   <div className="space-y-0.5 mt-0.5">
-                    {visible.map(({ href, label, icon: Icon }) => {
+                    {visible.map(({ href, label, icon: Icon, external }) => {
                       const active = isActive(href);
                       const badge = href === '/dashboard/online-orders' && pendingOnlineOrders > 0
                         ? pendingOnlineOrders
                         : 0;
-                      return (
-                        <Link
-                          key={href}
-                          href={href}
-                          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            active
-                              ? 'bg-white/20 text-white'
-                              : 'text-blue-200 hover:bg-white/10 hover:text-white'
-                          }`}
-                        >
+                      const linkClass = `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        active
+                          ? 'bg-white/20 text-white'
+                          : 'text-blue-200 hover:bg-white/10 hover:text-white'
+                      }`;
+                      const inner = (
+                        <>
                           <Icon className="w-4 h-4 shrink-0" />
                           <span className="flex-1">{label}</span>
                           {badge > 0 && (
@@ -298,6 +307,15 @@ export default function Sidebar() {
                               {badge > 99 ? '99+' : badge}
                             </span>
                           )}
+                        </>
+                      );
+                      return external ? (
+                        <a key={href} href={href} target="_blank" rel="noopener noreferrer" className={linkClass}>
+                          {inner}
+                        </a>
+                      ) : (
+                        <Link key={href} href={href} className={linkClass}>
+                          {inner}
                         </Link>
                       );
                     })}

@@ -12,6 +12,7 @@ import { Events } from '../events/event-types';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ShopCacheService } from '../shop/shop-cache.service';
 import { checkMargin } from '../common/margin.util';
+import { PurchaseOrdersService } from '../purchase-orders/purchase-orders.service';
 import { CreateCounterDto } from './dto/create-counter.dto';
 import { OpenShiftDto } from './dto/open-shift.dto';
 import { CloseShiftDto } from './dto/close-shift.dto';
@@ -68,6 +69,7 @@ export class PosService {
     private eventsService: EventsService,
     private auditLog: AuditLogService,
     private shopCache: ShopCacheService,
+    private purchaseOrders: PurchaseOrdersService,
   ) {}
 
   // ─── COUNTER ──────────────────────────────────────────
@@ -934,8 +936,10 @@ export class PosService {
               type: 'LOW_STOCK', priority: 'HIGH',
               title: `Low Stock: ${product.name}`,
               message: `Only ${stock} units remaining. Reorder level: ${reorderLevel}.`,
-              actionUrl: '/dashboard/grn/new', actionLabel: 'Create GRN',
+              actionUrl: '/dashboard/purchase-orders', actionLabel: 'View POs',
             });
+            // Auto-generate a draft PO if product has a preferred supplier + reorderQuantity
+            this.purchaseOrders.autoGenerate(businessId, productId).catch(() => { /* non-fatal */ });
           }
         }
 

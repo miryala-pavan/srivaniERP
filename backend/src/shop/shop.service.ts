@@ -141,8 +141,11 @@ function mapPacks(plusList: PluRow[], unit: string, allowNegativeStock: boolean,
       ? Number(plu.onlineStockCap)
       : null;
 
-    // Effective online quantity = total physical stock, capped if onlineStockCap is set
-    const availableQty = cap !== null ? Math.min(totalStock, cap) : totalStock;
+    // Effective online quantity = this PLU's own stockOnHand, capped if onlineStockCap is set.
+    // Since all stocked PLUs are now individually marked availableOnline, each pack shows
+    // its own accurate stock count (e.g. "MRP ₹22 — 3 left", "MRP ₹24 — 30 available").
+    const pluStock     = toDecimal(plu.stockOnHand);
+    const availableQty = cap !== null ? Math.min(pluStock, cap) : pluStock;
 
     return {
       pluBarcode:     plu.pluCode,
@@ -150,7 +153,7 @@ function mapPacks(plusList: PluRow[], unit: string, allowNegativeStock: boolean,
       unit,
       price,
       mrp:            plu.mrp !== null && plu.mrp !== undefined ? toDecimal(plu.mrp) : null,
-      inStock:        availableQty > 0 || allowNegativeStock,
+      inStock:        pluStock > 0 || allowNegativeStock,
       availableQty,
       onlineStockCap: cap,
       volumeTiers:    [],
@@ -396,8 +399,7 @@ export class ShopService {
           },
           plusList: {
             where: pluFilter,
-            orderBy: { createdAt: 'desc' },
-            take: 1,
+            orderBy: [{ mrp: 'asc' }, { createdAt: 'asc' }],
             select: PLU_SELECT,
           },
         },

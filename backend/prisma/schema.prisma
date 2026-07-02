@@ -82,6 +82,7 @@ model Business {
   stockAlerts         StockAlert[]
   volumePricingTiers  VolumePricingTier[]
   repackSessions      RepackSession[]
+  purchaseOrders      PurchaseOrder[]
 
   @@map("business")
 }
@@ -357,7 +358,8 @@ model Product {
   plusList        ProductPlu[]
   supplierAliases SupplierItemAlias[]
   productImages   ProductImage[]
-  groupMemberships ProductGroupMember[]
+  groupMemberships    ProductGroupMember[]
+  purchaseOrderItems  PurchaseOrderItem[]
 
   @@unique([businessId, barcode])
   @@unique([businessId, productCode])
@@ -511,13 +513,14 @@ model Supplier {
   bankBankName       String?
   bankBranchName     String?
 
-  business     Business             @relation(fields: [businessId], references: [id])
-  purchases    Purchase[]
-  itemAliases  SupplierItemAlias[]
-  advances     SupplierAdvance[]
-  creditNotes  SupplierCreditNote[]
-  payments     SupplierPayment[]
-  bankAccounts SupplierBankAccount[]
+  business       Business             @relation(fields: [businessId], references: [id])
+  purchases      Purchase[]
+  itemAliases    SupplierItemAlias[]
+  advances       SupplierAdvance[]
+  creditNotes    SupplierCreditNote[]
+  payments       SupplierPayment[]
+  bankAccounts   SupplierBankAccount[]
+  purchaseOrders PurchaseOrder[]
 
   @@index([businessId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
@@ -1205,12 +1208,12 @@ model SystemSetting {
 model PluBundle {
   id              String   @id @default(cuid())
   businessId      String
-  bulkPluId       String   @unique   // e.g. PLU 000278002 (box of 10)
+  bulkPluId       String             // e.g. PLU 000278002 (box of 10)
   singlePluId     String             // e.g. PLU 000278001 (single blade)
-  conversionQty   Int                // 1 bulk = conversionQty singles (FIXED) or max capacity (VARIABLE)
+  conversionQty   Int                // 1 bulk = conversionQty singles (FIXED); ignored for VARIABLE
   type            String   @default("FIXED")  // FIXED | VARIABLE
-  bulkWeightG     Decimal? @db.Decimal(10, 3) // weight of 1 bulk unit in grams (VARIABLE only)
-  unitWeightG     Decimal? @db.Decimal(10, 3) // weight of 1 single unit in grams (VARIABLE only)
+  bulkWeightG     Decimal? @db.Decimal(10, 3) // weight of 1 bulk unit in grams (VARIABLE)
+  unitWeightG     Decimal? @db.Decimal(10, 3) // default weight of 1 single in grams (VARIABLE)
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1218,6 +1221,7 @@ model PluBundle {
   bulkPlu   ProductPlu @relation("BulkPlu",   fields: [bulkPluId],   references: [id])
   singlePlu ProductPlu @relation("SinglePlu", fields: [singlePluId], references: [id])
 
+  @@unique([bulkPluId, singlePluId])
   @@index([businessId])
   @@index([singlePluId])
   @@map("plu_bundle")
@@ -1225,24 +1229,32 @@ model PluBundle {
 
 // ─── REPACK SESSION ───────────────────────────────────
 model RepackSession {
-  id            String   @id @default(cuid())
-  businessId    String
-  sessionNo     String               // human-readable e.g. RPK-20260629-001
-  sourcePluId   String
-  sourceQty     Decimal  @db.Decimal(10, 3)
-  type          String   @default("FIXED")  // FIXED | VARIABLE
-  totalInputG   Decimal? @db.Decimal(15, 3) // grams available (VARIABLE)
-  totalOutputG  Decimal? @db.Decimal(15, 3) // grams accounted (VARIABLE)
-  wastageG      Decimal  @db.Decimal(15, 3) @default(0)
-  wastageNotes  String?
-  notes         String?
-  createdById   String?
-  createdByName String?
-  createdAt     DateTime @default(now())
+  id               String    @id @default(cuid())
+  businessId       String
+  sessionNo        String                         // human-readable e.g. RPK-20260629-0001
+  sourcePluId      String
+  sourceQty        Decimal   @db.Decimal(10, 3)
+  type             String    @default("FIXED")    // FIXED | VARIABLE
+  bulkWeightG      Decimal?  @db.Decimal(10, 3)  // grams per bulk unit at session time (VARIABLE)
+  totalInputG      Decimal?  @db.Decimal(15, 3)  // sourceQty × bulkWeightG (VARIABLE)
+  totalOutputG     Decimal?  @db.Decimal(15, 3)  // sum of output grams (VARIABLE)
+  wastageG         Decimal   @db.Decimal(15, 3)  @default(0) // VARIABLE: grams
+  wastageUnits     Int       @default(0)          // FIXED: units lost
+  wastageNotes     String?
+  notes            String?
+  reversed         Boolean   @default(false)
+  reversedAt       DateTime?
+  reversedById     String?
+  reversedByName   String?
+  reversedSessionId String?                       // points to the session that reversed this one
+  createdById      String?
+  createdByName    String?
+  createdAt        DateTime  @default(now())
 
   lines    RepackSessionLine[]
   business Business @relation(fields: [businessId], references: [id])
 
+  @@unique([businessId, sessionNo])
   @@index([businessId])
   @@index([businessId, createdAt])
   @@map("repack_session")
@@ -1321,6 +1333,13 @@ model ProductPlu {
   availableOnline   Boolean   @default(false)
   onlinePrice       Decimal?  @db.Decimal(15, 2)
   onlineStockCap    Int?      // null = no cap (sell up to totalStock); set to limit online channel
+  // UOM fields
+  measureType       String?           // WEIGHT | VOLUME | COUNT
+  unitSymbol        String?           // kg | g | L | ml | pcs | nos | ctn | box | doz | btl | bag | pkt
+  unitSize          Decimal?  @db.Decimal(10, 3)  // e.g. 50 for 50kg, 500 for 500g
+  baseUnitQty       Decimal?  @db.Decimal(15, 3)  // always grams (WEIGHT), ml (VOLUME), or 1 (COUNT)
+  gstUqc            String?           // KGS | GMS | LTR | MLT | NOS | PCS | CTN | BOX | BTL | BAG | PAC | DOZ
+  isLoose           Boolean   @default(false)      // Phase 2: marks counter loose-weigh item
   // Status flags
   isDefault         Boolean   @default(false)
   isActive          Boolean   @default(true)
@@ -1335,7 +1354,7 @@ model ProductPlu {
   product   Product         @relation(fields: [productId], references: [id])
   business  Business        @relation(fields: [businessId], references: [id])
   barcodes  ProductBarcode[]
-  asBulk    PluBundle?      @relation("BulkPlu")
+  asBulk    PluBundle[]     @relation("BulkPlu")
   asSingle  PluBundle[]     @relation("SinglePlu")
 
   @@unique([businessId, pluCode])
@@ -1852,4 +1871,53 @@ model VolumePricingTier {
   @@unique([businessId, pluBarcode, minQty])
   @@index([businessId, pluBarcode])
   @@map("volume_pricing_tier")
+}
+
+// ─── PURCHASE ORDER ──────────────────────────────────
+model PurchaseOrder {
+  id            String   @id @default(cuid())
+  businessId    String
+  poNumber      String
+  supplierId    String
+  supplierName  String
+  status        String   @default("DRAFT") // DRAFT | SENT | PARTIALLY_RECEIVED | RECEIVED | CANCELLED
+  source        String   @default("MANUAL") // MANUAL | AUTO_REORDER
+  expectedDate  DateTime?
+  sentAt        DateTime?
+  sentVia       String?  // WHATSAPP | EMAIL
+  notes         String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  business Business            @relation(fields: [businessId], references: [id])
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  items    PurchaseOrderItem[]
+
+  @@unique([businessId, poNumber])
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, supplierId])
+  @@map("purchase_order")
+}
+
+model PurchaseOrderItem {
+  id          String   @id @default(cuid())
+  poId        String
+  productId   String
+  productName String
+  pluCode     String?
+  qtyOrdered  Decimal  @db.Decimal(15, 3)
+  qtyReceived Decimal  @db.Decimal(15, 3) @default(0)
+  unitCost    Decimal? @db.Decimal(15, 2)
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  po      PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  product Product       @relation(fields: [productId], references: [id])
+
+  @@index([poId])
+  @@index([productId])
+  @@map("purchase_order_item")
 }

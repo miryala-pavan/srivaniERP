@@ -43,9 +43,15 @@ export class GrnCalculationsService {
     const d = (v?: number) => v ?? 0;
     const r2 = this.r2.bind(this);
 
-    const packSize = item.packSize ?? 1;
-    const totalReceivedQty = r2((d(item.casesReceived) * packSize) + d(item.looseQty));
-    const totalFreeQty     = r2((d(item.freeCases)     * packSize) + d(item.freeLoose));
+    const casesReceived = d(item.casesReceived);
+    const packSize      = item.packSize ?? 1;
+    if (casesReceived > 0 && packSize < 1) {
+      throw new BadRequestException(
+        `Pack size must be ≥ 1 when cases are entered (got ${item.packSize ?? 'unset'}) — set pack size on the GRN line`,
+      );
+    }
+    const totalReceivedQty = r2((casesReceived * packSize) + d(item.looseQty));
+    const totalFreeQty     = r2((d(item.freeCases) * packSize) + d(item.freeLoose));
     const totalQty         = r2(totalReceivedQty + totalFreeQty);
 
     // ── LINE-LEVEL discount calculation ────────────────────────────────────
