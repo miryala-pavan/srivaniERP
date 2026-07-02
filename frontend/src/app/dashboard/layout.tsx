@@ -14,6 +14,8 @@ import FYSwitcher from '@/components/layout/FYSwitcher';
 import OnlineOrderAlert from '@/components/layout/OnlineOrderAlert';
 import { GstHealthBanner } from '@/components/layout/GstHealthBanner';
 import { GstToast } from '@/components/layout/GstToast';
+import { AssistantProvider } from '@/components/help/AssistantProvider';
+import { AssistantDrawer } from '@/components/help/AssistantDrawer';
 
 interface StoredUser { role: string; fullName?: string }
 
@@ -231,21 +233,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <WebSocketProvider>
-      <FYProvider>
-        <div className="min-h-screen bg-gray-50 flex">
-          <Sidebar />
-          <div className="flex-1 md:ml-56 flex flex-col min-h-screen">
-            <FYSwitcher />
-            <GstHealthBanner />
-            {children}
+    <AssistantProvider>
+      <WebSocketProvider>
+        <FYProvider>
+          <div className="min-h-screen bg-gray-50 flex">
+            <Sidebar />
+            <div className="flex-1 md:ml-56 flex flex-col min-h-screen">
+              <FYSwitcher />
+              <GstHealthBanner />
+              {children}
+            </div>
+            {updateAvailable && <UpdateBanner onDismiss={dismiss} />}
+            <CommandPalette />
+            <OnlineOrderAlert />
+            <GstToast />
+            <AssistantDrawer />
           </div>
-          {updateAvailable && <UpdateBanner onDismiss={dismiss} />}
-          <CommandPalette />
-          <OnlineOrderAlert />
-          <GstToast />
-        </div>
-      </FYProvider>
-    </WebSocketProvider>
+        </FYProvider>
+      </WebSocketProvider>
+    </AssistantProvider>
   );
 }

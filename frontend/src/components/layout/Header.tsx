@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Bell, LogOut, Menu, User, Search, Package, Users, Truck, FileText, ShoppingCart, X } from 'lucide-react';
+import { AlertTriangle, Bell, HelpCircle, LogOut, Menu, User, Search, Package, Users, Truck, FileText, ShoppingCart, X } from 'lucide-react';
 import { logout, getUser } from '@/lib/auth';
+import { useAssistant } from '@/components/help/AssistantProvider';
 import api from '@/lib/api';
 import type { User as UserType } from '@/types';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
@@ -254,6 +255,7 @@ function typeToPage(type: string, actionUrl?: string | null): string {
 export default function Header({ title, actions, icon }: HeaderProps) {
   const router      = useRouter();
   const queryClient = useQueryClient();
+  const { toggle: toggleAssistant } = useAssistant();
   const [mounted, setMounted]               = useState(false);
   const [open, setOpen]                     = useState(false);
   const [yesterdayPending, setYesterdayPending] = useState(false);
@@ -375,6 +377,15 @@ export default function Header({ title, actions, icon }: HeaderProps) {
         <UniversalSearch />
 
         <div className="flex items-center gap-3">
+          {/* Help Assistant */}
+          <button
+            onClick={toggleAssistant}
+            title="Help (press ? anytime)"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors text-gray-400 hover:text-[#1B4F8A]"
+          >
+            <HelpCircle className="w-5 h-5" />
+          </button>
+
           {/* Notification Bell */}
           {mounted && (
             <div ref={bellRef} className="relative">
