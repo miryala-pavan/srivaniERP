@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 const PO_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'ACCOUNTS_PERSON'];
@@ -246,6 +246,133 @@ export class PurchaseOrdersService {
       data: { status: 'CANCELLED' },
     });
   }
+
+  // ─── Create GRN draft from PO ──────────────────────────────────────────────
+  async createGrnFromPo(
+    businessId: string,
+    poId: string,
+    body: { invoiceNumber: string; invoiceDate: string; branchId?: string },
+  ) {
+    const po = await this.prisma.purchaseOrder.findFirst({
+      where: { id: poId, businessId },
+      include: {
+        items: { include: { product: { include: { tax: true } } } },
+        supplier: true,
+      },
+    });
+    if (!po) throw new NotFoundException('Purchase order not found');
+    if (po.status === 'CANCELLED') throw new BadRequestException('Cannot receive a cancelled PO');
+    if (po.status === 'RECEIVED')  throw new BadRequestException('This PO is already fully received');
+
+    const branch = await this.prisma.branch.findFirst({
+      where: { businessId, isActive: true, ...(body.branchId ? { id: body.branchId } : {}) },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!branch) throw new BadRequestException('No active branch found');
+
+    const dup = await this.prisma.purchase.findFirst({
+      where: { businessId, supplierId: po.supplierId, invoiceNumber: body.invoiceNumber },
+    });
+    if (dup) throw new ConflictException(`Invoice ${body.invoiceNumber} already recorded for this supplier`);
+
+    // Resolve inter-state from supplier GSTIN vs business state code
+    const biz = await this.prisma.business.findUnique({
+      where: { id: businessId }, select: { stateCode: true },
+    });
+    const supplierState  = po.supplier.gstin?.substring(0, 2) ?? null;
+    const isInterState   = !!(biz?.stateCode && supplierState && supplierState !== biz.stateCode);
+
+    // GRN number from active bill series
+    const fy = await this.prisma.financialYear.findFirst({
+      where: { businessId, isActive: true },
+    });
+    if (!fy) throw new BadRequestException('No active financial year. Configure in Settings.');
+    const series = await this.prisma.billSeries.findFirst({
+      where: { businessId, financialYearId: fy.id, billType: 'GRN', isActive: true },
+    });
+    if (!series) throw new BadRequestException('GRN bill series not configured. Run Admin → Seed.');
+    const updated = await this.prisma.billSeries.update({
+      where: { id: series.id },
+      data: { currentNumber: { increment: 1 } },
+    });
+    const padLen   = updated.numberFormat.length;
+    const grnNumber = `${updated.seriesPrefix}${fy.fyCode}/${String(updated.currentNumber).padStart(padLen, '0')}`;
+
+    // Build items with basic GST calculation (TAX_EXCLUSIVE, no discounts)
+    let taxableTotal = 0, cgstTotal = 0, sgstTotal = 0, igstTotal = 0;
+
+    const itemsData = po.items
+      .filter(i => Number(i.qtyOrdered) > 0)
+      .map(i => {
+        const product  = i.product;
+        if (!product) throw new BadRequestException(`Product ${i.productName} not found`);
+        const gstRate  = Number(product.tax?.taxRate ?? 0);
+        const qty      = Number(i.qtyOrdered);
+        const cost     = Number(i.unitCost ?? 0);
+        const taxable  = this.r2(cost * qty);
+        const cgst     = isInterState ? 0 : this.r2(taxable * gstRate / 200);
+        const sgst     = isInterState ? 0 : this.r2(taxable * gstRate / 200);
+        const igst     = isInterState ? this.r2(taxable * gstRate / 100) : 0;
+        const lineTotal = taxable + cgst + sgst + igst;
+
+        taxableTotal += taxable;
+        cgstTotal    += cgst;
+        sgstTotal    += sgst;
+        igstTotal    += igst;
+
+        return {
+          productId: i.productId, taxId: product.taxId,
+          productName: product.name, hsnCode: product.hsnCode ?? null,
+          quantity: qty, freeQuantity: 0, unitPrice: cost,
+          taxableAmount: taxable, gstRatePercent: gstRate,
+          cgstAmount: cgst, sgstAmount: sgst, igstAmount: igst,
+          totalAmount: lineTotal, lineTotal,
+          basicCostPrice: cost, netCostPrice: cost, trueCostPrice: cost,
+          casesReceived: qty, totalReceivedQty: qty, acceptedQty: qty,
+          unitOfMeasure: 'PCS',
+        };
+      });
+
+    const grandTotal = this.r2(taxableTotal + cgstTotal + sgstTotal + igstTotal);
+
+    const purchase = await this.prisma.purchase.create({
+      data: {
+        businessId,
+        branchId: branch.id,
+        supplierId:    po.supplierId,
+        supplierName:  po.supplierName,
+        supplierGstin: po.supplier.gstin ?? null,
+        invoiceNumber: body.invoiceNumber,
+        invoiceDate:   new Date(body.invoiceDate),
+        grnNumber,
+        status:          'PENDING_APPROVAL',
+        poNumber:        po.poNumber,
+        taxType:         'TAX_EXCLUSIVE',
+        itcEligibility:  'ELIGIBLE',
+        isInterState,
+        taxableAmount:   this.r2(taxableTotal),
+        totalTaxAmount:  this.r2(cgstTotal + sgstTotal + igstTotal),
+        cgstTotal:       this.r2(cgstTotal),
+        sgstTotal:       this.r2(sgstTotal),
+        igstTotal:       this.r2(igstTotal),
+        grandTotal,
+        amountPayable:   grandTotal,
+        balanceAmount:   grandTotal,
+        receivedDate:    new Date(),
+        items: { create: itemsData },
+      },
+      select: { id: true, grnNumber: true },
+    });
+
+    await this.prisma.purchaseOrder.update({
+      where: { id: poId },
+      data:  { status: 'PARTIALLY_RECEIVED' },
+    });
+
+    return { grnId: purchase.id, grnNumber: purchase.grnNumber };
+  }
+
+  private r2(n: number): number { return Math.round(n * 100) / 100; }
 
   // ─── Build WhatsApp message text for a PO ─────────────────────────────────
   async buildWhatsAppText(businessId: string, id: string): Promise<string> {

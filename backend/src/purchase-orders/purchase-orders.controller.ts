@@ -61,4 +61,16 @@ export class PurchaseOrdersController {
   cancel(@Request() req: any, @Param('id') id: string) {
     return this.service.cancel(req.user.businessId, id);
   }
+
+  @Post(':id/create-grn')
+  createGrn(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { invoiceNumber: string; invoiceDate: string },
+  ) {
+    return this.service.createGrnFromPo(req.user.businessId, id, {
+      ...body,
+      branchId: req.user.branchId ?? undefined,
+    });
+  }
 }

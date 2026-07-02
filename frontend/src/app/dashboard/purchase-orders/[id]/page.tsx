@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 import Link from 'next/link';
 import {
   ArrowLeft, Send, MessageCircle, CheckCircle2, XCircle,
-  Bot, Package, Edit2, Check, X,
+  Bot, Package, Edit2, Check, X, ClipboardCheck,
 } from 'lucide-react';
 
 interface POItem {
@@ -38,6 +38,9 @@ export default function PurchaseOrderDetailPage() {
   const qc = useQueryClient();
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [editQty, setEditQty] = useState('');
+  const [showReceivePanel, setShowReceivePanel] = useState(false);
+  const [invNumber, setInvNumber] = useState('');
+  const [invDate, setInvDate]   = useState(new Date().toISOString().split('T')[0]);
 
   const { data: po, isLoading } = useQuery({
     queryKey: ['purchase-order', id],
@@ -68,6 +71,18 @@ export default function PurchaseOrderDetailPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
   });
 
+  const createGrnMut = useMutation({
+    mutationFn: () => api.post(`/purchase-orders/${id}/create-grn`, {
+      invoiceNumber: invNumber.trim(),
+      invoiceDate:   invDate,
+    }),
+    onSuccess: (res) => {
+      toast.success(`GRN ${res.data.grnNumber} created — pending approval`);
+      router.push(`/dashboard/grn/${res.data.grnId}`);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to create GRN'),
+  });
+
   async function sendWhatsApp() {
     try {
       const { data } = await api.get(`/purchase-orders/${id}/whatsapp-text`);
@@ -83,9 +98,10 @@ export default function PurchaseOrderDetailPage() {
   if (isLoading) return <div className="p-8 text-center text-gray-400">Loading…</div>;
   if (!po) return <div className="p-8 text-center text-gray-400">PO not found</div>;
 
-  const canSend    = ['DRAFT', 'SENT'].includes(po.status);
-  const canReceive = ['SENT', 'PARTIALLY_RECEIVED'].includes(po.status);
-  const canCancel  = !['RECEIVED', 'CANCELLED'].includes(po.status);
+  const canSend       = ['DRAFT', 'SENT'].includes(po.status);
+  const canReceive    = ['SENT', 'PARTIALLY_RECEIVED'].includes(po.status);
+  const canCreateGrn  = !['RECEIVED', 'CANCELLED'].includes(po.status);
+  const canCancel     = !['RECEIVED', 'CANCELLED'].includes(po.status);
   const totalItems = po.items.length;
   const doneItems  = po.items.filter(i => Number(i.qtyReceived) >= Number(i.qtyOrdered)).length;
 
@@ -116,7 +132,7 @@ export default function PurchaseOrderDetailPage() {
       </div>
 
       {/* Actions */}
-      {(canSend || canCancel) && (
+      {(canSend || canCreateGrn || canCancel) && (
         <div className="flex gap-2 flex-wrap">
           {canSend && (
             <button onClick={sendWhatsApp}
@@ -134,6 +150,13 @@ export default function PurchaseOrderDetailPage() {
               Mark as Sent
             </button>
           )}
+          {canCreateGrn && (
+            <button onClick={() => setShowReceivePanel(v => !v)}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+              <ClipboardCheck className="w-4 h-4" />
+              Receive Goods → GRN
+            </button>
+          )}
           {canCancel && (
             <button onClick={() => { if (confirm('Cancel this PO?')) cancelMut.mutate(); }}
               disabled={cancelMut.isPending}
@@ -142,6 +165,69 @@ export default function PurchaseOrderDetailPage() {
               Cancel PO
             </button>
           )}
+        </div>
+      )}
+
+      {/* Receive Goods panel */}
+      {showReceivePanel && canCreateGrn && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5 space-y-4">
+          <div>
+            <h3 className="text-sm font-bold text-indigo-900 mb-0.5">Create GRN from this PO</h3>
+            <p className="text-xs text-indigo-700">
+              Items and quantities will be pre-filled from PO. Enter the supplier's invoice details.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Supplier Invoice Number <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={invNumber}
+                onChange={e => setInvNumber(e.target.value)}
+                placeholder="e.g. INV-2024-001"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Invoice Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={invDate}
+                onChange={e => setInvDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+            </div>
+          </div>
+          <div className="bg-white border border-indigo-100 rounded-lg px-4 py-3 text-xs text-gray-600 space-y-1">
+            <p className="font-semibold text-gray-700">What gets created:</p>
+            <p>• GRN with {po.items.length} item{po.items.length !== 1 ? 's' : ''} pre-filled from this PO</p>
+            <p>• Status: Pending Approval — approve to update stock</p>
+            <p>• You can adjust quantities and prices on the GRN page</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (!invNumber.trim()) { toast.error('Enter supplier invoice number'); return; }
+                if (!invDate) { toast.error('Enter invoice date'); return; }
+                createGrnMut.mutate();
+              }}
+              disabled={createGrnMut.isPending}
+              className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+            >
+              <ClipboardCheck className="w-4 h-4" />
+              {createGrnMut.isPending ? 'Creating…' : 'Create GRN'}
+            </button>
+            <button
+              onClick={() => setShowReceivePanel(false)}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
