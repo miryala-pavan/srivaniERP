@@ -145,14 +145,6 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/lists',                        label: 'Order Lists',      icon: FileText,        roles: ['SUPER_ADMIN'] },
     ],
   },
-  {
-    key: 'help',
-    label: 'Help & Guides',
-    items: [
-      { href: '/dashboard/help', label: 'Break Bulk Guide', icon: BookOpen },
-      { href: '/calc.html', label: 'Calculator', icon: Calculator, external: true },
-    ],
-  },
 ];
 
 const LS_KEY = 'srivani_nav_collapsed';
@@ -362,6 +354,16 @@ export default function Sidebar() {
               )}
             </>
           )}
+          <div className="flex gap-1">
+            <Link href="/dashboard/help" className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-md text-blue-300 hover:text-white hover:bg-white/10 text-xs transition-colors">
+              <BookOpen className="w-3.5 h-3.5 shrink-0" />
+              Help Guide
+            </Link>
+            <a href="/calc.html" target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-md text-blue-300 hover:text-white hover:bg-white/10 text-xs transition-colors">
+              <Calculator className="w-3.5 h-3.5 shrink-0" />
+              Calculator
+            </a>
+          </div>
           <p className="text-blue-400 text-xs px-2">v1.0.0 · Telangana, India</p>
         </div>
       </aside>
