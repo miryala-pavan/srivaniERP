@@ -48,6 +48,32 @@ export class GstReportsController {
     res.send(buf);
   }
 
+  // ─── Inward Supplies Register (GSTR-2 format) ─────────────────────────────
+
+  @Get('inward-supplies')
+  getInwardSupplies(
+    @Req() req: any,
+    @Query('month', ParseIntPipe) month: number,
+    @Query('year',  ParseIntPipe) year:  number,
+  ) {
+    return this.gstReports.getInwardSuppliesReport(req.user.businessId, month, year);
+  }
+
+  @Get('inward-supplies/excel')
+  async getInwardSuppliesExcel(
+    @Req()  req: any,
+    @Res()  res: Response,
+    @Query('month', ParseIntPipe) month: number,
+    @Query('year',  ParseIntPipe) year:  number,
+  ) {
+    const data     = await this.gstReports.getInwardSuppliesReport(req.user.businessId, month, year);
+    const buf      = this.excelExport.generateInwardSuppliesExcel(data);
+    const filename = `GSTR2_Inward_Supplies_${MONTH_ABBR[month - 1]}_${year}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buf);
+  }
+
   // ─── Purchase Register ─────────────────────────────────────────────────────
 
   @Get('purchase-register')

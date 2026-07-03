@@ -30,6 +30,28 @@ export class GrnService {
 
   private r2(n: number) { return Math.round(n * 100) / 100; }
 
+  private buildTaxBreakup(itemsData: any[]): Array<{
+    gstRate: number; taxableAmount: number;
+    cgstAmount: number; sgstAmount: number; igstAmount: number; cessAmount: number;
+  }> {
+    const map = new Map<number, { taxable: number; cgst: number; sgst: number; igst: number; cess: number }>();
+    for (const item of itemsData) {
+      const rate = Number(item.gstRatePercent ?? 0);
+      const existing = map.get(rate) ?? { taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0 };
+      map.set(rate, {
+        taxable: this.r2(existing.taxable + Number(item.taxableAmount ?? 0)),
+        cgst:    this.r2(existing.cgst    + Number(item.cgstAmount    ?? 0)),
+        sgst:    this.r2(existing.sgst    + Number(item.sgstAmount    ?? 0)),
+        igst:    this.r2(existing.igst    + Number(item.igstAmount    ?? 0)),
+        cess:    this.r2(existing.cess    + Number(item.cessAmount    ?? 0)),
+      });
+    }
+    return Array.from(map.entries()).map(([rate, v]) => ({
+      gstRate: rate, taxableAmount: v.taxable,
+      cgstAmount: v.cgst, sgstAmount: v.sgst, igstAmount: v.igst, cessAmount: v.cess,
+    }));
+  }
+
   // ── GRN PRODUCT SEARCH (no stock gate — receiving goods) ──────────────────────
 
   async searchProductsForGrn(q: string, businessId: string) {
@@ -344,6 +366,13 @@ export class GrnService {
       include: { items: true, supplier: { select: { id: true, name: true, phone: true } } },
     });
 
+    const taxBreakup = this.buildTaxBreakup(itemsData);
+    if (taxBreakup.length > 0) {
+      await this.prisma.purchaseTaxBreakup.createMany({
+        data: taxBreakup.map((r) => ({ ...r, purchaseId: purchase.id })),
+      });
+    }
+
     if (!isDraft) {
       this.notifications.create({
         businessId,
@@ -457,6 +486,13 @@ export class GrnService {
       if (itemsData.length > 0) {
         await tx.purchaseItem.deleteMany({ where: { purchaseId: id } });
         await tx.purchaseItem.createMany({ data: itemsData.map((d) => ({ ...d, purchaseId: id })) });
+        await tx.purchaseTaxBreakup.deleteMany({ where: { purchaseId: id } });
+        const taxBreakup = this.buildTaxBreakup(itemsData);
+        if (taxBreakup.length > 0) {
+          await tx.purchaseTaxBreakup.createMany({
+            data: taxBreakup.map((r) => ({ ...r, purchaseId: id })),
+          });
+        }
       }
       await tx.purchase.update({
         where: { id },

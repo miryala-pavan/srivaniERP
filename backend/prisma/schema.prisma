@@ -94,6 +94,9 @@ model Business {
   itReturns           ItReturn[]
   itFilingRecords     ItFilingRecord[]
 
+  // Phase 0 Platform
+  tenant              Tenant?
+
   @@map("business")
 }
 
@@ -838,6 +841,8 @@ model Purchase {
   @@index([supplierId])
   @@index([status])
   @@map("purchase")
+
+  taxBreakup   PurchaseTaxBreakup[]
 }
 
 enum PurchaseStatus {
@@ -846,6 +851,25 @@ enum PurchaseStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+// ─── PURCHASE TAX BREAKUP ─────────────────────────────
+// Rate-wise GST summary per GRN — used directly for GSTR-2 inward supply report
+model PurchaseTaxBreakup {
+  id             String   @id @default(cuid())
+  purchaseId     String
+  gstRate        Decimal  @db.Decimal(5, 2)   // 0, 5, 12, 18, 28
+  taxableAmount  Decimal  @db.Decimal(15, 2)
+  cgstAmount     Decimal  @db.Decimal(15, 2)  @default(0)
+  sgstAmount     Decimal  @db.Decimal(15, 2)  @default(0)
+  igstAmount     Decimal  @db.Decimal(15, 2)  @default(0)
+  cessAmount     Decimal  @db.Decimal(15, 2)  @default(0)
+
+  purchase  Purchase  @relation(fields: [purchaseId], references: [id])
+
+  @@unique([purchaseId, gstRate])
+  @@index([purchaseId])
+  @@map("purchase_tax_breakup")
 }
 
 // ─── PURCHASE ITEM ────────────────────────────────────
@@ -2500,4 +2524,363 @@ model ItFilingRecord {
   @@unique([businessId, financialYear])
   @@index([businessId])
   @@map("it_filing_record")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 0 — PLATFORM CORE LAYER
+// All new tables added additively. No existing models modified.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── P0.1  TENANT (formal multi-tenancy foundation) ─────────────────────
+model Tenant {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  plan       String   @default("STARTER")
+  status     String   @default("ACTIVE")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business   Business @relation(fields: [businessId], references: [id])
+
+  @@map("Tenant")
+}
+
+// ─── P0.2  AUDIT LOG (Platform — richer than legacy audit_log) ────────────
+model PlatformAuditLog {
+  id            String   @id @default(cuid())
+  businessId    String
+  userId        String?
+  action        String
+  tableName     String
+  recordId      String
+  before        Json?
+  after         Json?
+  ipAddress     String?
+  userAgent     String?
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+  @@index([tableName, recordId])
+  @@map("PlatformAuditLog")
+}
+
+// ─── P0.3  EVENT PLATFORM (Outbox / Inbox) ──────────────────────────────
+model OutboxEvent {
+  id            String   @id @default(cuid())
+  businessId    String
+  aggregateType String
+  aggregateId   String
+  eventType     String
+  payload       Json
+  status        String   @default("PENDING")
+  correlationId String?
+  causationId   String?
+  publishedAt   DateTime?
+  retryCount    Int      @default(0)
+  error         String?
+  createdAt     DateTime @default(now())
+
+  @@index([businessId])
+  @@index([status, createdAt])
+  @@map("OutboxEvent")
+}
+
+model InboxEvent {
+  id          String    @id @default(cuid())
+  businessId  String
+  eventId     String
+  eventType   String
+  status      String    @default("RECEIVED")
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([businessId, eventId])
+  @@index([businessId])
+  @@map("InboxEvent")
+}
+
+// ─── P0.4  RULE ENGINE ───────────────────────────────────────────────────
+model RuleAuthority {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  name         String
+  jurisdiction String    @default("IN")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  ruleSets     RuleSet[]
+
+  @@map("RuleAuthority")
+}
+
+model RuleSet {
+  id            String    @id @default(cuid())
+  authorityId   String
+  code          String
+  name          String
+  category      String
+  version       String    @default("1")
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  sourceSection String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  authority     RuleAuthority        @relation(fields: [authorityId], references: [id])
+  rules         Rule[]
+  overrides     BusinessRuleOverride[]
+
+  @@unique([code, effectiveFrom])
+  @@index([code])
+  @@map("RuleSet")
+}
+
+model Rule {
+  id        String   @id @default(cuid())
+  ruleSetId String
+  priority  Int
+  condition Json
+  effect    Json
+  notes     String?
+  createdAt DateTime @default(now())
+
+  ruleSet   RuleSet @relation(fields: [ruleSetId], references: [id])
+
+  @@index([ruleSetId, priority])
+  @@map("Rule")
+}
+
+model BusinessRuleOverride {
+  id            String    @id @default(cuid())
+  businessId    String
+  ruleSetCode   String
+  ruleSetId     String
+  effect        Json
+  reason        String
+  approvedBy    String?
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+
+  ruleSet       RuleSet   @relation(fields: [ruleSetId], references: [id])
+
+  @@index([businessId, ruleSetCode])
+  @@map("BusinessRuleOverride")
+}
+
+// ─── P0.5  DOCUMENT PLATFORM ─────────────────────────────────────────────
+model Document {
+  id               String    @id @default(cuid())
+  businessId       String
+  uploadedByUserId String?
+  filename         String
+  mimeType         String
+  sizeBytes        Int
+  storageKey       String
+  sha256Hash       String
+  category         String?
+  linkedTable      String?
+  linkedRecordId   String?
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([businessId])
+  @@index([linkedTable, linkedRecordId])
+  @@index([sha256Hash])
+  @@map("Document")
+}
+
+// ─── P0.7  AI PLATFORM ───────────────────────────────────────────────────
+model AiCallLog {
+  id          String   @id @default(cuid())
+  businessId  String
+  provider    String
+  model       String
+  promptHash  String
+  tokensUsed  Int
+  latencyMs   Int
+  confidence  Float
+  success     Boolean
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+  @@map("AiCallLog")
+}
+
+model AiCorrection {
+  id             String   @id @default(cuid())
+  businessId     String
+  aiCallLogId    String?
+  field          String
+  originalValue  String
+  correctedValue String
+  correctedBy    String?
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  @@index([businessId])
+  @@map("AiCorrection")
+}
+
+model KnowledgeChunk {
+  id        String   @id @default(cuid())
+  businessId String?
+  source    String
+  content   String
+  tags      String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId])
+  @@map("KnowledgeChunk")
+}
+
+// ─── P0.8  GENERAL LEDGER FOUNDATION ─────────────────────────────────────
+model AccountGroup {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  type       String
+  parentId   String?
+  createdAt  DateTime @default(now())
+
+  parent     AccountGroup?  @relation("GroupHierarchy", fields: [parentId], references: [id])
+  children   AccountGroup[] @relation("GroupHierarchy")
+  accounts   Account[]
+
+  @@index([businessId])
+  @@map("AccountGroup")
+}
+
+model Account {
+  id             String   @id @default(cuid())
+  businessId     String
+  accountGroupId String
+  code           String
+  name           String
+  currency       String   @default("INR")
+  isControl      Boolean  @default(false)
+  description    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  accountGroup   AccountGroup  @relation(fields: [accountGroupId], references: [id])
+  journalLines   JournalLine[]
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@map("Account")
+}
+
+model FiscalPeriod {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  startDate  DateTime
+  endDate    DateTime
+  status     String   @default("OPEN")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  journals   Journal[]
+
+  @@index([businessId])
+  @@map("FiscalPeriod")
+}
+
+model Journal {
+  id              String    @id @default(cuid())
+  businessId      String
+  fiscalPeriodId  String
+  reference       String?
+  narration       String
+  totalDebit      Decimal   @db.Decimal(19, 4)
+  totalCredit     Decimal   @db.Decimal(19, 4)
+  status          String    @default("DRAFT")
+  postedAt        DateTime?
+  reversedBy      String?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  fiscalPeriod    FiscalPeriod @relation(fields: [fiscalPeriodId], references: [id])
+  lines           JournalLine[]
+
+  @@index([businessId])
+  @@index([businessId, fiscalPeriodId])
+  @@map("Journal")
+}
+
+model JournalLine {
+  id           String   @id @default(cuid())
+  journalId    String
+  accountId    String
+  debitAmount  Decimal  @db.Decimal(19, 4) @default(0)
+  creditAmount Decimal  @db.Decimal(19, 4) @default(0)
+  narration    String?
+  createdAt    DateTime @default(now())
+
+  journal      Journal @relation(fields: [journalId], references: [id])
+  account      Account @relation(fields: [accountId], references: [id])
+
+  @@index([journalId])
+  @@index([accountId])
+  @@map("JournalLine")
+}
+
+// ─── P0.9  NUMBER SERIES ENGINE ──────────────────────────────────────────
+model NumberSeries {
+  id           String   @id @default(cuid())
+  businessId   String
+  code         String
+  prefix       String
+  padLength    Int      @default(6)
+  currentValue Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@map("NumberSeries")
+}
+
+// ─── P0.10 BUSINESS CONFIGURATION ENGINE ─────────────────────────────────
+model BusinessConfig {
+  id         String   @id @default(cuid())
+  businessId String
+  key        String
+  value      String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([businessId, key])
+  @@index([businessId])
+  @@map("BusinessConfig")
+}
+
+// ─── P0.11 COMPUTATION LINEAGE ENGINE ────────────────────────────────────
+model ComputationJob {
+  id                String    @id @default(cuid())
+  businessId        String
+  jobType           String
+  status            String    @default("RUNNING")
+  triggeredByUserId String?
+  inputSummary      Json      @default("{}")
+  outputSummary     Json?
+  error             String?
+  startedAt         DateTime
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([businessId])
+  @@index([businessId, jobType])
+  @@map("ComputationJob")
 }

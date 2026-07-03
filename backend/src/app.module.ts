@@ -1,5 +1,18 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+
+// Platform Core modules (Phase 0)
+import { ClockModule } from './platform/clock/clock.module';
+import { AuditModule } from './platform/audit/audit.module';
+import { PlatformEventsModule } from './platform/events/events.module';
+import { RuleEngineModule } from './platform/rule-engine/rule-engine.module';
+import { DocumentsModule } from './platform/documents/documents.module';
+import { PlatformNotificationsModule } from './platform/notifications/notifications.module';
+import { AiModule } from './platform/ai/ai.module';
+import { LedgerModule } from './platform/ledger/ledger.module';
+import { NumberSeriesModule } from './platform/number-series/number-series.module';
+import { BusinessConfigModule } from './platform/config/business-config.module';
+import { ComputationModule } from './platform/computation/computation.module';
 import { AppController } from './app.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -72,6 +85,19 @@ import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
     VolumePricingModule,
     RepackModule,
     PurchaseOrdersModule,
+
+    // Platform Core (Phase 0)
+    ClockModule,
+    AuditModule,
+    PlatformEventsModule,
+    RuleEngineModule,
+    DocumentsModule,
+    PlatformNotificationsModule,
+    AiModule,
+    LedgerModule,
+    NumberSeriesModule,
+    BusinessConfigModule,
+    ComputationModule,
   ],
 })
 export class AppModule {}

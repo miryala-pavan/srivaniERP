@@ -466,6 +466,171 @@ export class GstReportsService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // METHOD 2A: Inward Supplies Register (GSTR-2 format)
+  // One row per GST rate per GRN, sourced from purchase_tax_breakup.
+  // This is the correct format for the auditor and for filing inward supply data.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  private static readonly STATE_CODES: Record<string, string> = {
+    '01':'Jammu & Kashmir','02':'Himachal Pradesh','03':'Punjab','04':'Chandigarh',
+    '05':'Uttarakhand','06':'Haryana','07':'Delhi','08':'Rajasthan','09':'Uttar Pradesh',
+    '10':'Bihar','11':'Sikkim','12':'Arunachal Pradesh','13':'Nagaland','14':'Manipur',
+    '15':'Mizoram','16':'Tripura','17':'Meghalaya','18':'Assam','19':'West Bengal',
+    '20':'Jharkhand','21':'Odisha','22':'Chhattisgarh','23':'Madhya Pradesh',
+    '24':'Gujarat','25':'Daman & Diu','26':'Dadra & Nagar Haveli','27':'Maharashtra',
+    '28':'Andhra Pradesh (Old)','29':'Karnataka','30':'Goa','31':'Lakshadweep',
+    '32':'Kerala','33':'Tamil Nadu','34':'Puducherry','35':'Andaman & Nicobar Islands',
+    '36':'Telangana','37':'Andhra Pradesh','38':'Ladakh',
+  };
+
+  private stateNameFromGstin(gstin: string | null | undefined): string {
+    if (!gstin || gstin.length < 2) return '';
+    return GstReportsService.STATE_CODES[gstin.slice(0, 2)] ?? '';
+  }
+
+  async getInwardSuppliesReport(businessId: string, month: number, year: number) {
+    const gstFromDate = await this.getGstFromDate(businessId);
+    const { startDate, endDate, period } = this.getPeriodDates(month, year, gstFromDate);
+
+    const [biz, purchases] = await Promise.all([
+      this.prisma.business.findUnique({
+        where:  { id: businessId },
+        select: { gstin: true, stateCode: true, name: true },
+      }),
+      this.prisma.purchase.findMany({
+        where: {
+          businessId,
+          status:         'APPROVED' as any,
+          excludeFromGst: false,
+          invoiceDate:    { gte: startDate, lte: endDate },
+        },
+        include: {
+          taxBreakup: { orderBy: { gstRate: 'asc' } },
+          supplier:   { select: { gstin: true } },
+        },
+        orderBy: { invoiceDate: 'asc' },
+      }),
+    ]);
+
+    const bizStateName = GstReportsService.STATE_CODES[biz?.stateCode ?? '36'] ?? 'Telangana';
+
+    const rows: {
+      supplierGstin:   string;
+      supplierName:    string;
+      transactionType: string;
+      invoiceNumber:   string;
+      invoiceDate:     string;
+      invoiceValue:    number;
+      gstRate:         number;
+      cessRate:        number;
+      taxableValue:    number;
+      igstAmount:      number;
+      cgstAmount:      number;
+      sgstAmount:      number;
+      cessAmount:      number;
+      placeOfSupply:   string;
+      itcEligibility:  string;
+      isInterState:    boolean;
+    }[] = [];
+
+    for (const p of purchases) {
+      const effectiveGstin = p.supplierGstin ?? p.supplier?.gstin ?? '';
+      const pos = p.placeOfSupply
+        ? p.placeOfSupply
+        : p.isInterState
+          ? this.stateNameFromGstin(effectiveGstin)
+          : bizStateName;
+
+      // If no tax breakup rows exist (edge case), emit one summary row
+      if (p.taxBreakup.length === 0) {
+        rows.push({
+          supplierGstin:   effectiveGstin,
+          supplierName:    p.supplierName,
+          transactionType: 'Purchase',
+          invoiceNumber:   p.invoiceNumber,
+          invoiceDate:     fmtDate(p.invoiceDate),
+          invoiceValue:    Number(p.grandTotal),
+          gstRate:         0,
+          cessRate:        0,
+          taxableValue:    Number(p.taxableAmount),
+          igstAmount:      Number(p.igstTotal),
+          cgstAmount:      Number(p.cgstTotal),
+          sgstAmount:      Number(p.sgstTotal),
+          cessAmount:      Number(p.cessTotal),
+          placeOfSupply:   pos,
+          itcEligibility:  p.itcEligibility,
+          isInterState:    p.isInterState,
+        });
+        continue;
+      }
+
+      for (const tb of p.taxBreakup) {
+        const rate = Number(tb.gstRate);
+        // Rate = 0 with no tax amounts → exempt/nil-rated row
+        const eligibility = rate === 0 && p.itcEligibility === 'ELIGIBLE'
+          ? 'EXEMPT'
+          : p.itcEligibility;
+
+        rows.push({
+          supplierGstin:   effectiveGstin,
+          supplierName:    p.supplierName,
+          transactionType: 'Purchase',
+          invoiceNumber:   p.invoiceNumber,
+          invoiceDate:     fmtDate(p.invoiceDate),
+          invoiceValue:    Number(p.grandTotal),
+          gstRate:         rate,
+          cessRate:        0,
+          taxableValue:    Number(tb.taxableAmount),
+          igstAmount:      Number(tb.igstAmount),
+          cgstAmount:      Number(tb.cgstAmount),
+          sgstAmount:      Number(tb.sgstAmount),
+          cessAmount:      Number(tb.cessAmount),
+          placeOfSupply:   pos,
+          itcEligibility:  eligibility,
+          isInterState:    p.isInterState,
+        });
+      }
+    }
+
+    // Summary
+    const eligibleRows = rows.filter((r) => r.itcEligibility === 'ELIGIBLE');
+    const exemptRows   = rows.filter((r) => r.itcEligibility === 'EXEMPT');
+    const ineligible   = rows.filter((r) => r.itcEligibility === 'NOT_ELIGIBLE');
+
+    const sum = (arr: typeof rows, key: keyof typeof rows[0]) =>
+      r2(arr.reduce((s, r) => s + (r[key] as number), 0));
+
+    const summary = {
+      totalGrns:          purchases.length,
+      totalRows:          rows.length,
+      // Eligible ITC
+      eligibleGrns:       new Set(eligibleRows.map((r) => r.invoiceNumber)).size,
+      eligibleTaxable:    sum(eligibleRows, 'taxableValue'),
+      eligibleCgst:       sum(eligibleRows, 'cgstAmount'),
+      eligibleSgst:       sum(eligibleRows, 'sgstAmount'),
+      eligibleIgst:       sum(eligibleRows, 'igstAmount'),
+      eligibleCess:       sum(eligibleRows, 'cessAmount'),
+      eligibleITC:        r2(sum(eligibleRows, 'cgstAmount') + sum(eligibleRows, 'sgstAmount') + sum(eligibleRows, 'igstAmount') + sum(eligibleRows, 'cessAmount')),
+      // Exempt / Nil-rated (GSTR-3B Table 5)
+      exemptGrns:         new Set(exemptRows.map((r) => r.invoiceNumber)).size,
+      exemptTaxable:      sum(exemptRows, 'taxableValue'),
+      // Ineligible (Section 17(5))
+      ineligibleGrns:     new Set(ineligible.map((r) => r.invoiceNumber)).size,
+      ineligibleTaxable:  sum(ineligible, 'taxableValue'),
+      ineligibleITC:      r2(sum(ineligible, 'cgstAmount') + sum(ineligible, 'sgstAmount') + sum(ineligible, 'igstAmount') + sum(ineligible, 'cessAmount')),
+    };
+
+    return {
+      period,
+      businessGstin: biz?.gstin ?? '',
+      businessName:  biz?.name ?? '',
+      tradeName:     biz?.name ?? '',
+      rows,
+      summary,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // METHOD 2: Purchase Register
   // ─────────────────────────────────────────────────────────────────────────────
 

@@ -151,4 +151,90 @@ export class ExcelExportService {
 
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
+
+  generateInwardSuppliesExcel(data: any): Buffer {
+    const wb  = XLSX.utils.book_new();
+    const fmt = (n: number) => Number(n.toFixed(2));
+
+    // ── Sheet 1: Inward Supplies (GSTR-2 format) ──────────────────────────────
+    const titleRows: any[][] = [
+      ['INWARD SUPPLIES - PURCHASE REGISTER'],
+      ['Form GSTR-2 / Inward Supply Register'],
+      [''],
+      ['Period',                                   data.period],
+      ['1. GSTIN',                                 data.businessGstin],
+      ['2.a Legal name of the registered person',  data.businessName],
+      ['2.b Trade name, if any',                   data.tradeName],
+      ['3.a Aggregate turnover of preceding FY',   ''],
+      ['3.b Aggregate turnover (Apr to period)',    ''],
+      [''],
+    ];
+
+    const headerRow = [
+      'GSTIN/UIN', 'Party Name', 'Transaction Type', 'Invoice No.',
+      'Invoice Date', 'Invoice Value', 'Rate', 'Cess Rate',
+      'Taxable Value', 'Integrated Tax Amount', 'Central Tax Amount',
+      'State/UT Tax Amount', 'Cess Amount', 'Place of Supply (Name of state)',
+    ];
+
+    const dataRows = data.rows.map((r: any) => [
+      r.supplierGstin,
+      r.supplierName,
+      r.transactionType,
+      r.invoiceNumber,
+      r.invoiceDate,
+      fmt(r.invoiceValue),
+      r.gstRate,
+      r.cessRate,
+      fmt(r.taxableValue),
+      fmt(r.igstAmount),
+      fmt(r.cgstAmount),
+      fmt(r.sgstAmount),
+      fmt(r.cessAmount),
+      r.placeOfSupply,
+    ]);
+
+    const allRows = [...titleRows, headerRow, ...dataRows];
+    const ws1     = XLSX.utils.aoa_to_sheet(allRows);
+
+    // Column widths
+    ws1['!cols'] = [18,30,16,16,13,15,7,10,15,20,18,18,13,28].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, ws1, 'Inward Supplies');
+
+    // ── Sheet 2: ITC Summary ──────────────────────────────────────────────────
+    const s = data.summary;
+    const itcRows: any[][] = [
+      ['ITC SUMMARY'],
+      [''],
+      ['Period',      data.period],
+      ['GSTIN',       data.businessGstin],
+      ['Legal Name',  data.businessName],
+      [''],
+      ['ELIGIBLE ITC (GSTR-3B Table 4)'],
+      ['  GRNs',                   s.eligibleGrns],
+      ['  Taxable Value',          fmt(s.eligibleTaxable)],
+      ['  CGST ITC',               fmt(s.eligibleCgst)],
+      ['  SGST ITC',               fmt(s.eligibleSgst)],
+      ['  IGST ITC',               fmt(s.eligibleIgst)],
+      ['  Cess ITC',               fmt(s.eligibleCess)],
+      ['  TOTAL Eligible ITC',     fmt(s.eligibleITC)],
+      [''],
+      ['EXEMPT / NIL-RATED PURCHASES (GSTR-3B Table 5)'],
+      ['  GRNs',                   s.exemptGrns],
+      ['  Taxable Value',          fmt(s.exemptTaxable)],
+      ['  ITC Available',          0],
+      [''],
+      ['INELIGIBLE ITC — Section 17(5) (GSTR-3B Table 4D2 disclosure)'],
+      ['  GRNs',                   s.ineligibleGrns],
+      ['  Taxable Value',          fmt(s.ineligibleTaxable)],
+      ['  Blocked ITC',            fmt(s.ineligibleITC)],
+      [''],
+      ['NOTE: Cross-verify eligible ITC with GSTR-2B before claiming.', ''],
+    ];
+    const ws2 = XLSX.utils.aoa_to_sheet(itcRows);
+    ws2['!cols'] = [{ wch: 48 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, ws2, 'ITC Summary');
+
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  }
 }
