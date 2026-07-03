@@ -2,7 +2,7 @@ import { IsString, IsNotEmpty, IsOptional, Matches, IsEmail, IsIn } from 'class-
 
 const ALLOWED_ROLES = [
   'BRANCH_MANAGER', 'CASHIER', 'PURCHASE_CHECKER',
-  'ACCOUNTS_PERSON', 'FLOOR_SUPERVISOR', 'PACKING_STAFF', 'SALES_REP', 'VIEWER',
+  'ACCOUNTS_PERSON', 'FLOOR_SUPERVISOR', 'PACKING_STAFF', 'SALES_REP', 'VIEWER', 'CA',
 ];
 
 export class CreateUserDto {

@@ -2,7 +2,7 @@ import { IsString, IsOptional, IsEmail, IsIn, Matches } from 'class-validator';
 
 const ALLOWED_ROLES = [
   'BRANCH_MANAGER', 'CASHIER', 'PURCHASE_CHECKER',
-  'ACCOUNTS_PERSON', 'FLOOR_SUPERVISOR', 'PACKING_STAFF', 'SALES_REP', 'VIEWER',
+  'ACCOUNTS_PERSON', 'FLOOR_SUPERVISOR', 'PACKING_STAFF', 'SALES_REP', 'VIEWER', 'CA',
 ];
 
 export class UpdateUserDto {
