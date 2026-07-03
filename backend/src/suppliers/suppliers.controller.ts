@@ -196,4 +196,9 @@ export class SuppliersController {
   importExecute(@Request() req: any, @Body() body: { entries: any[] }) {
     return this.suppliersService.executeBankAccountImport(req.user.businessId, body.entries);
   }
+
+  @Get('payables-aging')
+  getPayablesAging(@Request() req: any) {
+    return this.suppliersService.getPayablesAging(req.user.businessId);
+  }
 }

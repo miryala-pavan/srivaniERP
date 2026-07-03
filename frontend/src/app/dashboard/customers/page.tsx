@@ -97,6 +97,7 @@ export default function CustomersPage() {
   const [search, setSearch]               = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage]                   = useState(1);
+  const [showInactive, setShowInactive]   = useState(false);
   const [showModal, setShowModal]         = useState(false);
   const [editing, setEditing]             = useState<Customer | null>(null);
   const [form, setForm]                   = useState({ ...EMPTY_FORM });
@@ -121,10 +122,15 @@ export default function CustomersPage() {
   // ── Query ──────────────────────────────────────────────────────────────────
 
   const { data, isLoading } = useQuery({
-    queryKey: ['customers', { page, search: debouncedSearch }],
+    queryKey: ['customers', { page, search: debouncedSearch, showInactive }],
     queryFn: async () => {
       const res = await api.get('/customers', {
-        params: { page, limit: 20, search: debouncedSearch || undefined },
+        params: {
+          page,
+          limit: 20,
+          search: debouncedSearch || undefined,
+          isActive: showInactive ? undefined : 'true',
+        },
       });
       return res.data as { data: Customer[]; meta: { totalPages: number; total: number } };
     },
@@ -245,12 +251,22 @@ export default function CustomersPage() {
 
       <main className="flex-1 p-6 space-y-4">
         {/* Toolbar */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <BarcodeScannerInput
             value={search} onChange={handleSearch}
             placeholder="Search name, phone, code or scan…"
             className="flex-1 max-w-xs"
           />
+          <button
+            onClick={() => { setShowInactive(v => !v); setPage(1); }}
+            className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border transition-colors ${
+              showInactive
+                ? 'bg-amber-50 text-amber-700 border-amber-300'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            {showInactive ? 'Hide inactive' : 'Show inactive'}
+          </button>
           <span className="text-sm text-gray-400 ml-auto">
             {total} customer{total !== 1 ? 's' : ''}
           </span>

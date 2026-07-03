@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Phone, Mail, Edit2, AlertTriangle, ChevronLeft, ChevronRight,
-  RefreshCw, X, Check, Plus, Trash2, Star, Printer,
+  RefreshCw, X, Check, Plus, Trash2, Star, Printer, UserX, UserCheck,
 } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -289,6 +289,16 @@ export default function CustomerDetailPage() {
     onError:    (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update customer'),
   });
 
+  const toggleActive = useMutation({
+    mutationFn: (active: boolean) =>
+      active ? api.patch(`/customers/${id}/activate`) : api.patch(`/customers/${id}/deactivate`),
+    onSuccess: (_, active) => {
+      toast.success(active ? 'Customer activated' : 'Customer deactivated');
+      invalidate();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update customer'),
+  });
+
   // ── Real-time ────────────────────────────────────────────────────────────────
 
   useWebSocketEvent('customer.updated',          invalidate);
@@ -413,25 +423,48 @@ export default function CustomerDetailPage() {
                 Record Payment
               </button>
               {!customer.isSystemDefault && (
-                <button
-                  onClick={() => {
-                    setEditForm({
-                      name:           customer.name,
-                      phone:          customer.phone          ?? '',
-                      email:          customer.email          ?? '',
-                      creditLimit:    n(customer.creditLimit),
-                      status:         customer.status,
-                      whatsappOptIn:  customer.whatsappOptIn  ?? false,
-                      smsOptIn:       customer.smsOptIn       ?? false,
-                      emailOptIn:     customer.emailOptIn     ?? false,
-                    });
-                    setShowEdit(true);
-                  }}
-                  className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500"
-                  title="Edit customer"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      if (!confirm(customer.isActive
+                        ? `Deactivate ${customer.name || customer.phone}? They will be hidden from POS and customer lists.`
+                        : `Activate ${customer.name || customer.phone}?`
+                      )) return;
+                      toggleActive.mutate(!customer.isActive);
+                    }}
+                    disabled={toggleActive.isPending}
+                    className={`p-1.5 border rounded-lg transition-colors disabled:opacity-50 ${
+                      customer.isActive
+                        ? 'border-red-200 text-red-500 hover:bg-red-50'
+                        : 'border-green-200 text-green-600 hover:bg-green-50'
+                    }`}
+                    title={customer.isActive ? 'Deactivate customer' : 'Activate customer'}
+                  >
+                    {customer.isActive
+                      ? <UserX className="w-4 h-4" />
+                      : <UserCheck className="w-4 h-4" />
+                    }
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditForm({
+                        name:           customer.name,
+                        phone:          customer.phone          ?? '',
+                        email:          customer.email          ?? '',
+                        creditLimit:    n(customer.creditLimit),
+                        status:         customer.status,
+                        whatsappOptIn:  customer.whatsappOptIn  ?? false,
+                        smsOptIn:       customer.smsOptIn       ?? false,
+                        emailOptIn:     customer.emailOptIn     ?? false,
+                      });
+                      setShowEdit(true);
+                    }}
+                    className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500"
+                    title="Edit customer"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                </>
               )}
             </div>
           </div>

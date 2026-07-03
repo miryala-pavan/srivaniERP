@@ -48,6 +48,9 @@ import {
   SplitSquareHorizontal,
   BookOpen,
   Calculator,
+  AlarmClock,
+  Percent,
+  Banknote,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -73,7 +76,7 @@ const GROUPS: NavGroup[] = [
     key: 'overview',
     label: 'Overview',
     items: [
-      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'CASHIER', 'PURCHASE_CHECKER', 'ACCOUNTS_PERSON', 'FLOOR_SUPERVISOR', 'PACKING_STAFF', 'SALES_REP', 'VIEWER'] },
     ],
   },
   {
@@ -104,8 +107,10 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/grn',                       label: 'GRN',           icon: PackageCheck, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
       { href: '/dashboard/purchase-orders',           label: 'Purchase Orders', icon: ShoppingCart, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
       { href: '/dashboard/products/labels',            label: 'Print Labels',  icon: Printer,      roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'PACKING_STAFF', 'FLOOR_SUPERVISOR'] },
-      { href: '/dashboard/reorder',                    label: 'Reorder Guide', icon: PackageSearch, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
-      { href: '/dashboard/inventory/break-bulk',        label: 'Break Bulk',    icon: SplitSquareHorizontal, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'PURCHASE_CHECKER'] },
+      { href: '/dashboard/reorder',                         label: 'Reorder Guide',   icon: PackageSearch,      roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER'] },
+      { href: '/dashboard/inventory/break-bulk',            label: 'Break Bulk',      icon: SplitSquareHorizontal, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'PURCHASE_CHECKER'] },
+      { href: '/dashboard/inventory/expiry',                label: 'Expiry Tracker',  icon: AlarmClock,         roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'FLOOR_SUPERVISOR'] },
+      { href: '/dashboard/inventory/volume-pricing',        label: 'Volume Pricing',  icon: Percent,            roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
     ],
   },
   {
@@ -131,6 +136,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/reports/gst-reconciliation', label: 'GST Reconciliation', icon: Scale,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
       { href: '/dashboard/reports/ca-export',        label: 'CA Export',          icon: FileSpreadsheet,  roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'CA'] },
       { href: '/dashboard/reports/year-comparison',  label: 'Year Comparison',    icon: TrendingUp,       roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
+      { href: '/dashboard/reports/payables',          label: 'Payables Aging',     icon: Banknote,         roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/historical-bills',          label: 'Historical Bills',   icon: History,          roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
     ],
   },

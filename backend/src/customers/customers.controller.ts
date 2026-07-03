@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, Query,
+  Controller, Get, Post, Put, Patch, Delete, Body, Param, Query,
   UseGuards, Request,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
@@ -151,5 +151,15 @@ export class CustomersController {
   @Put(':id')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateCustomerDto) {
     return this.customersService.update(req.user.businessId, id, dto);
+  }
+
+  @Patch(':id/deactivate')
+  deactivate(@Request() req: any, @Param('id') id: string) {
+    return this.customersService.deactivateCustomer(req.user.businessId, id);
+  }
+
+  @Patch(':id/activate')
+  activate(@Request() req: any, @Param('id') id: string) {
+    return this.customersService.activateCustomer(req.user.businessId, id);
   }
 }

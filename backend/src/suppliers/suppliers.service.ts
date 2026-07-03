@@ -1287,4 +1287,90 @@ export class SuppliersService {
       })),
     };
   }
+
+  // ─── PAYABLES AGING REPORT ───────────────────────────────────────────────────
+
+  async getPayablesAging(businessId: string) {
+    const suppliers = await this.prisma.supplier.findMany({
+      where:  { businessId, isActive: true },
+      select: { id: true, name: true, phone: true, email: true,
+                openingBalance: true, openingBalanceType: true, paymentTermsDays: true },
+    });
+    if (!suppliers.length) return { rows: [], totals: { current: 0, d30_60: 0, d61_90: 0, d90plus: 0, total: 0 } };
+
+    const ids = suppliers.map((s) => s.id);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    const [grnGroups, payGroups, creditGroups, invoiceDates, lastPayDates] = await Promise.all([
+      this.prisma.purchase.groupBy({
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'RECEIVED' as any },
+        _sum: { amountPayable: true },
+      }),
+      this.prisma.supplierPayment.groupBy({
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids } },
+        _sum: { amount: true },
+      }),
+      this.prisma.supplierCreditNote.groupBy({
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids } },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.purchase.groupBy({
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'RECEIVED' as any },
+        _min: { invoiceDate: true },
+        _max: { invoiceDate: true },
+      }),
+      this.prisma.supplierPayment.groupBy({
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids } },
+        _max: { paymentDate: true },
+      }),
+    ]);
+
+    const grnMap     = new Map(grnGroups.map(r => [r.supplierId, Number(r._sum.amountPayable ?? 0)]));
+    const payMap     = new Map(payGroups.map(r => [r.supplierId, Number(r._sum.amount ?? 0)]));
+    const creditMap  = new Map(creditGroups.map(r => [r.supplierId, Number(r._sum.totalAmount ?? 0)]));
+    const dateMap    = new Map(invoiceDates.map(r => [r.supplierId, { oldest: r._min.invoiceDate, latest: r._max.invoiceDate }]));
+    const lastPayMap = new Map(lastPayDates.map(r => [r.supplierId, r._max.paymentDate]));
+
+    const rows = suppliers.map((s) => {
+      const opening = Number(s.openingBalance ?? 0);
+      const openingAmt = s.openingBalanceType === 'CREDIT' ? opening
+        : s.openingBalanceType === 'DEBIT' ? -opening : 0;
+      const outstanding = openingAmt + (grnMap.get(s.id) ?? 0) - (payMap.get(s.id) ?? 0) - (creditMap.get(s.id) ?? 0);
+      if (outstanding < 0.01) return null;
+
+      const oldest     = dateMap.get(s.id)?.oldest;
+      const daysOld    = oldest ? Math.floor((today.getTime() - new Date(oldest).getTime()) / 86_400_000) : 0;
+      const bucket     = daysOld <= 30 ? 'current' : daysOld <= 60 ? 'd30_60' : daysOld <= 90 ? 'd61_90' : 'd90plus';
+
+      return {
+        id: s.id, name: s.name, phone: s.phone, email: s.email,
+        outstanding,
+        paymentTermsDays: s.paymentTermsDays,
+        oldestInvoiceDate: oldest ?? null,
+        latestInvoiceDate: dateMap.get(s.id)?.latest ?? null,
+        lastPaymentDate:   lastPayMap.get(s.id) ?? null,
+        daysOld,
+        bucket,
+        current:  bucket === 'current'  ? outstanding : 0,
+        d30_60:   bucket === 'd30_60'   ? outstanding : 0,
+        d61_90:   bucket === 'd61_90'   ? outstanding : 0,
+        d90plus:  bucket === 'd90plus'  ? outstanding : 0,
+      };
+    }).filter(Boolean) as any[];
+
+    rows.sort((a, b) => b.outstanding - a.outstanding);
+
+    const totals = rows.reduce(
+      (acc, r) => ({
+        current: acc.current + r.current,
+        d30_60:  acc.d30_60  + r.d30_60,
+        d61_90:  acc.d61_90  + r.d61_90,
+        d90plus: acc.d90plus + r.d90plus,
+        total:   acc.total   + r.outstanding,
+      }),
+      { current: 0, d30_60: 0, d61_90: 0, d90plus: 0, total: 0 },
+    );
+
+    return { rows, totals };
+  }
 }

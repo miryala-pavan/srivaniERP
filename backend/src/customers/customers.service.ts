@@ -364,6 +364,31 @@ export class CustomersService {
     return updated;
   }
 
+  // ─── ENDPOINT E2: DEACTIVATE / ACTIVATE ──────────────────────────────────────
+
+  async deactivateCustomer(businessId: string, id: string) {
+    const customer = await this.prisma.customer.findFirst({ where: { id, businessId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+    if (customer.isSystemDefault) throw new BadRequestException('Cannot deactivate the walk-in customer');
+    const updated = await this.prisma.customer.update({
+      where: { id },
+      data:  { isActive: false, status: 'INACTIVE' as any },
+    });
+    this.eventsService.emitToBusiness(businessId, Events.CUSTOMER_UPDATED, { customerId: id });
+    return updated;
+  }
+
+  async activateCustomer(businessId: string, id: string) {
+    const customer = await this.prisma.customer.findFirst({ where: { id, businessId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+    const updated = await this.prisma.customer.update({
+      where: { id },
+      data:  { isActive: true, status: 'ACTIVE' as any },
+    });
+    this.eventsService.emitToBusiness(businessId, Events.CUSTOMER_UPDATED, { customerId: id });
+    return updated;
+  }
+
   // ─── ENDPOINT F: BILLS ────────────────────────────────────────────────────────
 
   async getBills(

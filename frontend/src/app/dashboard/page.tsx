@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   IndianRupee, ShoppingBag, AlertTriangle,
   PackageCheck, TrendingUp, TrendingDown, Minus,
@@ -179,7 +181,12 @@ function MarginCard({ stats }: { stats: MarginStats }) {
 export default function DashboardPage() {
   const queryClient    = useQueryClient();
   const { connected }  = useWebSocket();
+  const router         = useRouter();
   const user = getUser<{ role: string }>();
+
+  useEffect(() => {
+    if (user?.role === 'CA') router.replace('/dashboard/reports/gst-health');
+  }, [user?.role, router]);
 
   const { data, isLoading, isError } = useQuery<DashboardData>({
     queryKey: ['dashboard'],

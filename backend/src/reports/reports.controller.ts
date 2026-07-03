@@ -109,7 +109,7 @@ export class ReportsController {
 
   // ─── CA EXPORT ────────────────────────────────────────
 
-  @Roles('SUPER_ADMIN', 'ACCOUNTS_PERSON', 'BRANCH_MANAGER')
+  @Roles('SUPER_ADMIN', 'ACCOUNTS_PERSON', 'BRANCH_MANAGER', 'CA')
   @Get('ca-export')
   async caExport(
     @Request() req: any,

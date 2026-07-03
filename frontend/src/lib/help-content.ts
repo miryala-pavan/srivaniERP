@@ -1,4 +1,4 @@
-// ─── EAAS Help Content — Single Source of Truth ──────────────────────────────
+﻿// ─── EAAS Help Content — Single Source of Truth ──────────────────────────────
 // To add help for a new page: add one entry to HELP_CONTENT. Nothing else.
 // Bump `version` when content changes — drawer shows "Updated vX.X" once.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -887,13 +887,132 @@ export const HELP_CONTENT: HelpEntry[] = [
   // ── CA Export ─────────────────────────────────────────────────────────────
   {
     id: 'ca-export', route: '/dashboard/reports/ca-export', module: 'reports', version: '1.0',
-    title: { en: 'CA Export', te: 'CA ఎగుమతి' },
+    title: { en: 'CA Export — Complete Guide for Chartered Accountants', te: 'CA ఎగుమతి — చార్టర్డ్ అకౌంటెంట్ల కోసం పూర్తి గైడ్' },
     summary: {
-      en: 'Export structured financial data for your Chartered Accountant. Generates Excel files with: all bills (GST breakup), GRNs (ITC details), supplier payments, customer outstanding, and P&L summary. Share monthly for TDS, GST reconciliation, and income tax filing.',
-      te: 'మీ చార్టర్డ్ అకౌంటెంట్ కోసం నిర్మాణాత్మక ఆర్థిక డేటా ఎగుమతి చేయండి. అన్ని బిల్లులు (GST విచ్ఛిన్నం), GRN లు (ITC వివరాలు), సరఫరాదారు చెల్లింపులు, కస్టమర్ బాకీ మరియు P&L సారాంశంతో Excel ఫైల్‌లు రూపొందిస్తుంది.',
+      en: 'One-click Excel workbook for your CA containing 9 structured sheets: Purchase Register (ITC), Sales Register (Output GST), Bank Transactions, Bank Reconciliation, Expense Summary, Supplier Outstanding, Stock Register, GST Summary, and a cover Summary. Select the date range (typically the full financial year or a quarter) and download. Share this file monthly for GST filing or yearly for ITR.',
+      te: 'మీ CA కోసం ఒక్క క్లిక్‌లో 9 సిద్ధంగా ఉన్న షీట్‌లతో Excel వర్క్‌బుక్ తయారవుతుంది: కొనుగోలు రిజిస్టర్ (ITC కోసం), విక్రయ రిజిస్టర్ (అవుట్‌పుట్ GST కోసం), బ్యాంక్ లావాదేవీలు, బ్యాంక్ సయోధ్య, ఖర్చుల సారాంశం, సరఫరాదారు బకాయి, స్టాక్ రిజిస్టర్, GST సారాంశం మరియు కవర్ పేజీ. తేదీ పరిధి ఎంచుకోండి — GST ఫైలింగ్ కోసం ఒక నెల మొత్తం, ITR కోసం పూర్తి ఆర్థిక సంవత్సరం (01-ఏప్రిల్ నుండి 31-మార్చి) — డౌన్‌లోడ్ చేసి CA కి పంపించండి. మీ CA కి కావలసిన అన్నీ ఒక ఫైల్‌లో ఉంటాయి.',
     },
-    relatedTopics: ['reports-gst', 'reports', 'bills', 'grn'],
-    tags: ['ca-export', 'accountant', 'tds', 'gst', 'income-tax', 'excel'],
+    fields: {
+      dateFrom: { en: 'Start date for the export. For GST filing: first day of the month. For ITR: 01-April of the financial year. Format: YYYY-MM-DD.', te: 'ఎగుమతి కాలం ప్రారంభ తేదీ. నెల GST ఫైలింగ్ కోసం: ఆ నెల 1వ తేదీ వాడండి (ఉదా: 01-జూన్-2025). వార్షిక ITR కోసం: ఆర్థిక సంవత్సరం 01-ఏప్రిల్ వాడండి.' },
+      dateTo:   { en: 'End date. For GST: last day of the month. For ITR: 31-March of the financial year.', te: 'ముగింపు తేదీ. నెల GST కోసం: ఆ నెల చివరి రోజు (ఉదా: 30-జూన్-2025). ITR కోసం: ఆర్థిక సంవత్సరం 31-మార్చి. తేదీ తప్పులు రాకుండా Quick Presets బటన్లు వాడండి.' },
+    },
+    sections: [
+      {
+        title: { en: 'Sheet 0 — Summary (Cover Page)', te: 'షీట్ 0 — సారాంశం (కవర్ పేజీ)' },
+        body:  {
+          en: 'Totals at a glance for the selected period: Total Sales (taxable + GST), Total Purchases (taxable + GST), Gross Profit estimate, Total Expenses, Net Payable GST. CA uses this as a quick sanity check before diving into details. If any figure looks wildly off vs the previous period, investigate before filing.',
+          te: 'ఎంచుకున్న కాలానికి ఒక్క చూపులో అన్నీ కనిపించే సారాంశం: మొత్తం విక్రయాలు (పన్ను + GST), మొత్తం కొనుగోళ్ళు (పన్ను + GST), స్థూల లాభం అంచనా, నమోదైన మొత్తం ఖర్చులు మరియు చెల్లించాల్సిన నికర GST. మీ CA మొదటగా ఈ పేజీ చూసి వేగంగా తనిఖీ చేస్తారు — ఉదాహరణకు అమ్మకాలు గత త్రైమాసికం కంటే తక్కువగా ఉంటే, లేదా GST ఆశించిన దానికంటే ఎక్కువగా ఉంటే, ఫైల్ చేయడానికి ముందే విచారణ చేస్తారు. వివరాల షీట్లు తెరవడానికి ముందు ఒక్కసారి చూసే డాష్‌బోర్డ్ అని అర్థం చేసుకోండి.',
+        },
+      },
+      {
+        title: { en: 'Sheet 1 — Purchase Register (ITC Workbook)', te: 'షీట్ 1 — కొనుగోలు రిజిస్టర్ (ITC వర్క్‌బుక్)' },
+        body:  {
+          en: 'Every GRN (goods receipt) in the period: Supplier name, GSTIN, Invoice number, Invoice date, HSN, Taxable amount, CGST, SGST, IGST, Total. CA uses this to:\n• Claim Input Tax Credit (ITC) in GSTR-3B Table 4\n• Match against supplier GSTR-1 in GSTR-2B reconciliation\n• File GSTR-2A/2B reconciliation report\n• Verify that IGST was charged for inter-state purchases (supplier GSTIN starts with a different state code than 36 = Telangana)\nImportant: ITC is claimable only if the supplier has filed their GSTR-1 and the invoice appears in your GSTR-2B. Ask CA to do GSTR-2B matching every month.',
+          te: 'కాలంలో నమోదైన ప్రతి GRN (సరుకు అందుకోవడం) జాబితా: సరఫరాదారు పేరు, సరఫరాదారు GSTIN, ఇన్‌వాయిస్ నంబర్, ఇన్‌వాయిస్ తేదీ, HSN కోడ్, పన్ను విధించదగిన మొత్తం, CGST, SGST, IGST, మొత్తం ఇన్‌వాయిస్ విలువ. మీ CA ఈ షీట్‌ను ఇలా ఉపయోగిస్తారు:\n• ఇన్‌పుట్ టాక్స్ క్రెడిట్ (ITC) క్లెయిమ్ చేయడానికి — సరఫరాదారులకు చెల్లించిన CGST+SGST లేదా IGST ప్రతి రూపాయి ప్రభుత్వానికి చెల్లించాల్సిన GST తగ్గిస్తుంది (GSTR-3B Table 4)\n• GSTR-2B తో ప్రతి ఇన్‌వాయిస్ సరిచూడడానికి — GSTR-2B లో కనిపించే ఇన్‌వాయిస్‌లకు మాత్రమే ITC క్లెయిమ్ చేయవచ్చు\n• రాష్ట్రాంతర కొనుగోళ్ళకు IGST సరిగ్గా వేయబడిందో తనిఖీ చేయడానికి — సరఫరాదారు GSTIN 36 (తెలంగాణ) తప్ప వేరే స్టేట్ కోడ్‌తో మొదలైతే IGST వేయాల్సింది\n• ERP లో నమోదు కాని ఇన్‌వాయిస్‌లు గుర్తించడానికి — GRN లేకుండా వదిలిపెట్టిన ఇన్‌వాయిస్‌లు అంటే పోగొట్టుకున్న ITC\nముఖ్యమైన నియమం: మీ సరఫరాదారు GSTR-1 ఫైల్ చేయకపోతే, ఆ ఇన్‌వాయిస్ మీ GSTR-2B లో కనిపించదు, ఆ నెలలో ITC క్లెయిమ్ చేయలేరు. GSTR-2B లో పదేపదే కనిపించని సరఫరాదారులను అనుసరించండి.',
+        },
+      },
+      {
+        title: { en: 'Sheet 2 — Sales Register (Output GST)', te: 'షీట్ 2 — విక్రయ రిజిస్టర్ (అవుట్‌పుట్ GST)' },
+        body:  {
+          en: 'Every sales bill: Bill number, Date, Customer name, Customer GSTIN (if B2B), Payment mode (Cash/UPI/Card/Credit), Taxable amount, CGST, SGST, IGST, Grand Total. CA uses this to:\n• File GSTR-1 (outward supplies) — B2B invoices with customer GSTIN go to Table 4; B2C invoices above Rs.2.5 lakh go to Table 5; rest aggregate into Table 7\n• Compute Output GST rate-wise for GSTR-3B Table 3.1\n• Verify that all credit sales are recorded (match against customer outstanding)\n• Detect missing GST if a B2B customer gave a GSTIN but was billed as B2C',
+          te: 'ప్రతి విక్రయ బిల్లు జాబితా: బిల్లు నంబర్, తేదీ, కస్టమర్ పేరు, కస్టమర్ GSTIN (ఇచ్చినట్లయితే), చెల్లింపు విధానం (నగదు/UPI/కార్డ్/క్రెడిట్), పన్ను విధించదగిన మొత్తం, CGST, SGST, IGST, మొత్తం బిల్లు విలువ. మీ CA ఇలా ఉపయోగిస్తారు:\n• GSTR-1 ఫైల్ చేయడానికి (తదుపరి నెల 11వ తేదీలోపు) — కస్టమర్ GSTIN ఇచ్చిన B2B ఇన్‌వాయిస్‌లు Table 4 లో వేస్తారు; రూ.2.5 లక్షలు దాటిన B2C బిల్లులు Table 5 లో వేస్తారు; మిగతా చిన్న B2C బిల్లులు Table 7 లో కలిపి చూపిస్తారు\n• GSTR-3B Table 3.1 కోసం రేటు వారీగా (5%, 12%, 18%) మొత్తం అవుట్‌పుట్ GST లెక్కించడానికి\n• క్రెడిట్ విక్రయాలు సరిచూడడానికి — క్రెడిట్ విధానంలో చేసిన బిల్లుల మొత్తం పుస్తకాల్లో కస్టమర్ బకాయిగా చూపించాల్సింది\n• B2B కస్టమర్ GSTIN ఇచ్చినా B2C గా బిల్లు చేసిన కేసులు పట్టుకోవడానికి — అటువంటి ఇన్‌వాయిస్‌లను GSTR-1 లో వేరుగా B2B గా నివేదించాలి',
+        },
+      },
+      {
+        title: { en: 'Sheet 3 — Bank Transactions', te: 'షీట్ 3 — బ్యాంక్ లావాదేవీలు' },
+        body:  {
+          en: 'Complete bank ledger across all accounts: Date, Description, Credit, Debit, Balance, Match status (Matched / Unmatched), Reference. CA uses this to:\n• Verify cash flow — total credits should reconcile with Sales + Supplier payments received\n• Identify unaccounted deposits (possible income not entered in ERP)\n• Detect duplicate payments\n• Support Form 26AS / AIS reconciliation for income tax\n• Prepare books of accounts for tax audit if turnover > Rs.1 crore',
+          te: 'అన్ని లింక్ చేసిన బ్యాంక్ ఖాతాల పూర్తి లెడ్జర్: తేదీ, వివరణ, క్రెడిట్ మొత్తం, డెబిట్ మొత్తం, నడుస్తున్న బ్యాలెన్స్, మ్యాచ్ స్థితి (Matched = ERP లో బిల్లు/చెల్లింపు/ఖర్చుకు అనుసంధానించబడింది; Unmatched = ఇంకా అనుసంధానించలేదు). మీ CA ఇలా ఉపయోగిస్తారు:\n• నమోదైన విక్రయాలు + ఇతర ఆదాయంతో మొత్తం బ్యాంక్ క్రెడిట్‌లు సరిపోతున్నాయా తనిఖీ చేయడానికి — వివరించలేని డిపాజిట్ ERP లో నమోదు కాని ఆదాయాన్ని సూచిస్తుంది\n• నకిలీ చెల్లింపులు కనుగొనడానికి — అదే సరఫరాదారుకు రెండుసార్లు చెల్లించినట్లయితే అదే తేదీలో అదే మొత్తంలో రెండు డెబిట్‌లు కనిపిస్తాయి\n• Form 26AS/AIS రీకాన్సిలేషన్‌కు మద్దతివ్వడానికి — ఆదాయపు పన్ను శాఖ నిర్దిష్ట పరిమితులకు మించిన అన్ని బ్యాంక్ క్రెడిట్‌లను సేకరిస్తుంది\n• Sec 44AB కింద పన్ను ఆడిట్‌కు (టర్నోవర్ రూ.1 కోటి మించినట్లయితే తప్పనిసరి) అవసరమైన లెక్కల పుస్తకాలు నిర్మించడానికి',
+        },
+      },
+      {
+        title: { en: 'Sheet 4 — Bank Reconciliation', te: 'షీట్ 4 — బ్యాంక్ సయోధ్య (BRS)' },
+        body:  {
+          en: 'Per-account summary: Opening balance (from bank statement), Closing balance (from bank statement), Book balance (from ERP), Difference, List of unmatched transactions. CA uses this to:\n• Ensure books agree with the bank — a difference means either a transaction was not entered in ERP, or a bank charge/interest was missed\n• Prepare the Bank Reconciliation Statement (BRS) required for audit\n• Identify unclaimed cheques (issued but not encashed)\nTarget: difference should be zero or explained by timing (cheques in transit, bank charges not yet in ERP).',
+          te: 'ఖాతా వారీ సారాంశం: ప్రారంభ బ్యాలెన్స్ (బ్యాంక్ స్టేట్‌మెంట్ ప్రకారం), ముగింపు బ్యాలెన్స్ (బ్యాంక్ స్టేట్‌మెంట్ ప్రకారం), పుస్తకాల బ్యాలెన్స్ (ERP ప్రకారం), తేడా మరియు అన్‌మ్యాచ్డ్ లావాదేవీల జాబితా. మీ CA ఇలా ఉపయోగిస్తారు:\n• ERP పుస్తకాలు వాస్తవ బ్యాంక్‌కు సరిపోతున్నాయో నిర్ధారించడానికి — ఏదైనా తేడా అంటే ఒక లావాదేవీ ERP లో నమోదు కాలేదు (ఉదా: బ్యాంక్ చార్జ్ లేదా వడ్డీ) లేదా రెండుసార్లు నమోదైంది\n• బ్యాంక్ రీకాన్సిలేషన్ స్టేట్‌మెంట్ (BRS) తయారు చేయడానికి — ఆడిట్‌కు తప్పనిసరి పత్రం; ఆడిటర్ తప్పక అడుగుతారు\n• వాడుకోని చెక్కులు గుర్తించడానికి — మీరు సరఫరాదారులకు ఇచ్చిన చెక్కులు వారు వేయకపోతే, ERP లో చెల్లింపుగా కనిపించినా బ్యాంక్ బ్యాలెన్స్ తగ్గదు\nలక్ష్యం: తేడా కాలమ్ సున్నా ఉండాలి, లేదా స్పష్టమైన కారణం వివరించబడాలి. వివరించలేని తేడా ఆడిటర్‌కు హెచ్చరిక సంకేతం.',
+        },
+      },
+      {
+        title: { en: 'Sheet 5 — Expense Summary', te: 'షీట్ 5 — ఖర్చుల సారాంశం' },
+        body:  {
+          en: 'Month-wise breakdown of all expenses by category: Rent, Electricity, Salaries, Packaging, Transport, Bank Charges, Maintenance, Other. CA uses this to:\n• Map to P&L line items (above-the-line vs below-the-line)\n• Verify allowability under Income Tax Act — rent paid to a relative requires a proper agreement; salary to family members must be at market rate\n• Identify expenses that need TDS deduction: Rent > Rs.50,000/month requires TDS @ 5% u/s 194IB; Contractor payments > Rs.30,000 per contract require TDS @ 1% u/s 194C\n• Check if any capital expenditure (CCTV, refrigerator, computer) was entered as expense instead of asset',
+          te: 'అన్ని ఖర్చులను నెల వారీగా వర్గం ప్రకారం విభజన: అద్దె, విద్యుత్, జీతాలు & వేతనాలు, ప్యాకేజింగ్, రవాణా, బ్యాంక్ చార్జీలు, నిర్వహణ మరియు ఇతరాలు. మీ CA ఇలా ఉపయోగిస్తారు:\n• ప్రతి వర్గాన్ని P&L లైన్ అంశాలకు మ్యాప్ చేయడానికి — Above-the-line (అమ్మిన వస్తువుల వ్యయం) vs Below-the-line (నిర్వహణ ఖర్చులు)\n• ఆదాయపు పన్ను చట్టం కింద అనుమతి ధృవీకరించడానికి — కుటుంబ సభ్యులకు అద్దె చెల్లింపు సరైన అద్దె ఒప్పందం మరియు మార్కెట్ రేటుతో ఉండాలి\n• TDS బాధ్యత ఉండే ఖర్చులు గుర్తించడానికి: నెలకు రూ.50,000 కంటే ఎక్కువ అద్దె అంటే Section 194IB కింద 5% TDS; ఒక ఒప్పందానికి రూ.30,000 మించిన కాంట్రాక్టర్ చెల్లింపులు Section 194C కింద 1% TDS అవసరం\n• ఖర్చులుగా తప్పుగా నమోదైన మూలధన వ్యయాలు పట్టుకోవడానికి — CCTV కెమెరాలు, రిఫ్రిజిరేటర్లు, కంప్యూటర్లు Fixed Asset Register లో ఉండాలి, నేరుగా ఖర్చులుగా వేయకూడదు',
+        },
+      },
+      {
+        title: { en: 'Sheet 6 — Supplier Outstanding (Creditors Ageing)', te: 'షీట్ 6 — సరఫరాదారు బకాయి (క్రెడిటర్స్ ఏజింగ్)' },
+        body:  {
+          en: 'All suppliers with outstanding balance, bucketed by age: 0–30 days, 31–60 days, 61–90 days, 90+ days. Also shows last invoice date and last payment date. CA uses this to:\n• Prepare Creditors Schedule for Balance Sheet\n• Identify unpaid invoices where TDS should have been deducted but payment is pending\n• Assess working capital — large 90+ day balances may signal cash flow stress\n• Verify that supplier advances (if any) are netted correctly',
+          te: 'బకాయి బ్యాలెన్స్ ఉన్న అన్ని సరఫరాదారులు, అత్యంత పాత చెల్లించని ఇన్‌వాయిస్ ఆధారంగా వయసు బకెట్‌లలో: 0-30 రోజులు (ప్రస్తుతం), 31-60 రోజులు, 61-90 రోజులు, 90+ రోజులు (గడువు మించింది). సరఫరాదారు వారీగా చివరి ఇన్‌వాయిస్ తేదీ మరియు చివరి చెల్లింపు తేదీ కూడా చూపిస్తుంది. మీ CA ఇలా ఉపయోగిస్తారు:\n• బ్యాలెన్స్ షీట్ కోసం క్రెడిటర్స్ షెడ్యూల్ (Trade Payables Schedule) తయారు చేయడానికి — బ్యాలెన్స్ ఉన్న ప్రతి సరఫరాదారు జాబితాలో ఉండాలి\n• 90+ రోజుల బకెట్‌లో చెల్లింపు జరిగినప్పుడు TDS తీసివేయాల్సిన ఇన్‌వాయిస్‌లు గుర్తించడానికి — చెల్లింపు జరిగిన తర్వాత 7 రోజులలోపు TDS జమ చేయాలి\n• వర్కింగ్ క్యాపిటల్ ఆరోగ్యం అంచనా వేయడానికి — పెద్ద 90+ రోజుల బకెట్ అంటే సరఫరాదారుల సంబంధాలు దెబ్బతింటాయి, నగదు ప్రవాహ సమస్య సూచిస్తుంది\n• సంవత్సరంలో చెల్లించిన సరఫరాదారు అడ్వాన్సులు GRN లకు సరిగ్గా సర్దుబాటు అయ్యాయో నిర్ధారించడానికి',
+        },
+      },
+      {
+        title: { en: 'Sheet 7 — Stock Register', te: 'షీట్ 7 — స్టాక్ రిజిస్టర్' },
+        body:  {
+          en: 'All stock movements in the period: Product, Date, Movement type (Purchase In / Sale Out / Adjustment), Quantity, Cost per unit, Total value. CA uses this to:\n• Compute Closing Stock value for Balance Sheet — Opening Stock + Purchases − Sales (at cost) = Closing Stock\n• Verify COGS (Cost of Goods Sold) for P&L: COGS = Opening Stock + Purchases − Closing Stock\n• Identify write-offs or adjustment entries that reduce stock without a corresponding sale\n• Check for shrinkage — if COGS % of sales is unusually high vs prior year, investigate pilferage or data entry errors',
+          te: 'కాలంలోని అన్ని స్టాక్ కదలికలు: ఉత్పత్తి పేరు, తేదీ, కదలిక రకం (కొనుగోలు వచ్చింది / అమ్మకం వెళ్ళింది / సర్దుబాటు / రైటాఫ్), పరిమాణం, యూనిట్ వ్యయం, వ్యయం ప్రకారం మొత్తం విలువ. మీ CA ఇలా ఉపయోగిస్తారు:\n• బ్యాలెన్స్ షీట్ కోసం ముగింపు స్టాక్ లెక్కించడానికి: ప్రారంభ స్టాక్ + కొనుగోళ్ళు (వ్యయం ప్రకారం) − అమ్మిన వస్తువుల వ్యయం = ముగింపు స్టాక్. ఇది ఫిజికల్ స్టాక్ లెక్కింపు విలువకు సరిపోవాలి\n• P&L లో COGS ధృవీకరించడానికి: COGS = ప్రారంభ స్టాక్ + కొనుగోళ్ళు − ముగింపు స్టాక్. COGS అమ్మకాల శాతం గత సంవత్సరం కంటే అసాధారణంగా ఎక్కువగా ఉంటే పాడైపోవడం, దొంగతనం లేదా తప్పు వ్యయ ధరలు కావచ్చు\n• స్టాక్ రైటాఫ్ లేదా మాన్యువల్ సర్దుబాటు ఎంట్రీలు గుర్తించడానికి — ఇవి అమ్మకం లేకుండా స్టాక్ తగ్గిస్తాయి, P&L లో shrinkage లేదా write-off గా నష్టాలు కనిపించాలి\n• స్టాక్ విలువను బ్యాలెన్స్ షీట్‌లోని ఇన్వెంటరీ ఖాతా బ్యాలెన్స్‌తో సరిపోల్చడానికి',
+        },
+      },
+      {
+        title: { en: 'Sheet 8 — GST Summary (Month-wise)', te: 'షీట్ 8 — GST సారాంశం (నెల వారీగా)' },
+        body:  {
+          en: 'Each month shows: Output GST (from sales) rate-wise (0%, 5%, 12%, 18%), Input GST (from purchases) rate-wise, Net GST Payable = Output − ITC, Cumulative payable. CA uses this to:\n• Cross-verify against GSTR-3B before filing — the system-computed figure should match what GSTN portal shows\n• Identify months where ITC exceeded Output GST (refund may be available for exporters; carry-forward for regular traders)\n• Spot months with unusually high or low tax — may indicate missing invoices\n• GSTR-3B filing deadline: 20th of the following month. Late filing attracts Rs.50/day late fee + 18% interest on unpaid tax',
+          te: 'ఎంచుకున్న పరిధిలోని ప్రతి నెలలో: అవుట్‌పుట్ GST (విక్రయాల నుండి) రేటు వారీగా — 0%, 5%, 12%, 18%; ఇన్‌పుట్ GST (కొనుగోళ్ళు/ITC నుండి) రేటు వారీగా; చెల్లించాల్సిన నికర GST = అవుట్‌పుట్ GST − అర్హమైన ITC; మరియు సంవత్సరానికి సంచిత బకాయి. మీ CA ఇలా ఉపయోగిస్తారు:\n• ఫైలింగ్ కోసం GSTR-3B లెక్క ముందే తనిఖీ చేయడానికి — ఇక్కడ లెక్కించిన నికర GST GSTR-1 డేటా నమోదు చేసిన తర్వాత GSTN పోర్టల్ చూపించే దానికి సరిపోవాలి\n• ITC అవుట్‌పుట్ GST కంటే ఎక్కువైన నెలలు గుర్తించడానికి — సాధారణ వ్యాపారులకు ఈ అదనపు మొత్తం తదుపరి నెలకు carry forward అవుతుంది\n• అసాధారణంగా ఎక్కువ లేదా తక్కువ GST ఉన్న నెలలు గుర్తించడానికి — ఆ నెలలో కొన్ని బిల్లులు system లో లేకపోయి ఉండవచ్చు\nఫైలింగ్ గడువు: GSTR-3B తదుపరి నెల 20వ తేదీ లోపు ఫైల్ చేయాలి. ఆలస్య ఫైలింగ్ జరిమానా: రోజుకు రూ.50 (నిల్ రిటర్న్ అయితే రూ.20/రోజు). పన్ను ఆలస్య చెల్లింపు: సంవత్సరానికి 18% వడ్డీ రోజువారీ లెక్కించబడుతుంది. ఉదాహరణ: 20-జూలై గడువు రూ.10,000 GST 20-ఆగష్టున ఫైల్ చేస్తే = 30 రోజులు × 18%/365 × రూ.10,000 = రూ.148 వడ్డీ.',
+        },
+      },
+      {
+        title: { en: 'How to use for GST Filing (Monthly Workflow)', te: 'GST ఫైలింగ్ కోసం ఎలా ఉపయోగించాలి (నెల వారీ వర్క్‌ఫ్లో)' },
+        body:  {
+          en: 'Step 1 — Day after month-end: Owner downloads CA Export for that month (e.g., 01-Jun to 30-Jun). Shares file with CA via WhatsApp or email.\nStep 2 — CA opens Sheet 2 (Sales Register). Filters by B2B customers (those with GSTIN). Uploads to GSTN portal → GSTR-1 → B2B Invoices section. Remaining B2C bills go to B2C aggregate.\nStep 3 — CA opens Sheet 1 (Purchase Register). Cross-checks against GSTR-2B (downloaded from GST portal). Marks invoices that appear in GSTR-2B as eligible ITC. If a supplier invoice is NOT in GSTR-2B, ITC cannot be claimed that month — follow up with supplier.\nStep 4 — CA opens Sheet 8 (GST Summary) for that month. Computes: Net GST = Output GST (Sheet 2 total) − Eligible ITC (verified from Sheet 1). Files GSTR-3B with this figure.\nStep 5 — CA verifies Sheet 4 (Bank Reconciliation) to confirm tax payments are reflected in bank.',
+          te: 'దశ 1 (నెల 1-3 తేదీ): Owner ERP లో లాగిన్ అయి → నివేదికలు → CA Export కి వెళ్తారు. తేదీ పరిధి గత నెలకు సెట్ చేసి (ఉదా: 01-జూన్ నుండి 30-జూన్) Excel ఫైల్ డౌన్‌లోడ్ చేసి అదే రోజు WhatsApp లేదా email ద్వారా CA కి పంపిస్తారు.\nదశ 2 (8వ తేదీలోపు): CA షీట్ 2 (విక్రయ రిజిస్టర్) తెరిచి "కస్టమర్ GSTIN" కాలమ్ ప్రకారం సార్ట్ చేస్తారు — GSTIN ఉన్న వరుసలు B2B ఇన్‌వాయిస్‌లు. GST పోర్టల్‌లో GSTR-1 → B2B Invoices table లో ప్రతి B2B ఇన్‌వాయిస్ నమోదు చేస్తారు. GSTIN లేని మిగతా వరుసలు B2C Others table లో రేటు వారీగా కలిపి చూపిస్తారు.\nదశ 3 (10వ తేదీలోపు): CA GST పోర్టల్ నుండి ఆ నెల GSTR-2B డౌన్‌లోడ్ చేసి షీట్ 1 (కొనుగోలు రిజిస్టర్) తో సరిచూస్తారు. GSTR-2B లో ఉన్న ఇన్‌వాయిస్‌లు = అర్హమైన ITC. GSTR-2B లో లేనివి = ఆ నెల క్లెయిమ్ చేయలేరు. CA లేని వాటిని నోట్ చేసుకుని ఆ సరఫరాదారులను సంప్రదిస్తారు.\nదశ 4 (18వ తేదీలోపు): CA షీట్ 8 (GST సారాంశం) తెరిచి ఆ నెల నికర GST తీసుకుని దశ 3 లో క్లెయిమ్ చేయలేని ITC తీసివేసి GSTR-3B ఫైల్ చేస్తారు. GST పోర్టల్‌లో ఈ మొత్తం చెల్లిస్తారు.\nదశ 5 (20వ తేదీలోపు): GSTR-3B ఫైల్ అయింది, GST చెల్లించబడింది. CA owner కి నిర్ధారణ ఇస్తారు. Owner షీట్ 4 (బ్యాంక్ సయోధ్య) చూసి GST చెల్లింపు బ్యాంక్‌లో డెబిట్‌గా కనిపిస్తుందో ధృవీకరిస్తారు.',
+        },
+      },
+      {
+        title: { en: 'How to use for Annual ITR Filing', te: 'వార్షిక ITR ఫైలింగ్ కోసం ఎలా ఉపయోగించాలి' },
+        body:  {
+          en: 'Select full financial year (01-Apr to 31-Mar). Download CA Export. CA uses:\n• Sheet 2 — Gross Sales for ITR turnover\n• Sheet 7 — Opening and Closing Stock values (confirmed by physical stock-take)\n• Sheet 1 — Total Purchases (gross)\n• Sheet 5 — Total Expenses (mapped to Schedule BP — Business Profession)\n• Sheet 3 — Bank statement cross-check for cash withdrawals and deposits\nCA will then prepare: P&L Statement (Sales − COGS − Expenses = Net Profit), Balance Sheet (Capital + Liabilities = Assets), and file ITR-3 (proprietorship) or ITR-4 (presumptive — if turnover < Rs.2 crore and 8%/6% profit claimed).\nFor tax audit (turnover > Rs.1 crore): CA needs Form 3CD — supply all GRN invoices, bank statements, and expense bills physically. The ERP data gives the summary; physical bills are the supporting documents.',
+          te: 'పూర్తి ఆర్థిక సంవత్సరం ఎంచుకోండి (FY 2024-25 కోసం 01-ఏప్రిల్-2024 నుండి 31-మార్చి-2025). CA Export డౌన్‌లోడ్ చేయండి. మీ CA ఇలా ఉపయోగిస్తారు:\n• షీట్ 2 (విక్రయ రిజిస్టర్) — ITR కోసం స్థూల టర్నోవర్ లెక్క. రూ.2.5 లక్షలు మించిన B2C బిల్లు ఆ నెలలో GSTR-1 లో వేరుగా నివేదించారో తనిఖీ చేస్తారు\n• షీట్ 7 (స్టాక్ రిజిస్టర్) — ప్రారంభ స్టాక్ విలువ (గత సంవత్సరం ముగింపు స్టాక్‌కు సరిపోవాలి) మరియు ముగింపు స్టాక్ విలువ. CA దీన్ని సంవత్సరాంతంలో చేసిన ఫిజికల్ స్టాక్ లెక్కింపుతో సరిపోల్చుతారు\n• షీట్ 1 (కొనుగోలు రిజిస్టర్) — COGS లెక్కకు మొత్తం కొనుగోళ్ళు: ప్రారంభ స్టాక్ + కొనుగోళ్ళు − ముగింపు స్టాక్\n• షీట్ 5 (ఖర్చుల సారాంశం) — ITR యొక్క Schedule BP కి అనుమతించదగిన అన్ని తగ్గింపులు. CA ప్రతి ఖర్చు అనుమతి మరియు TDS సమ్మతి తనిఖీ చేస్తారు\n• షీట్ 3 (బ్యాంక్ లావాదేవీలు) — నివేదించబడని ఆదాయం కోసం అన్ని నగదు డిపాజిట్‌లు తనిఖీ చేస్తారు\nCA తర్వాత ITR-3 (proprietorship, అసలు పుస్తకాలు నిర్వహించేవారికి) లేదా ITR-4 Sugam (టర్నోవర్ రూ.2 కోట్లు తక్కువగా ఉంటే presumptive taxation — digital అందుకున్న వాటిపై 6%, నగదుపై 8% లాభం) ఫైల్ చేస్తారు.\nటర్నోవర్ రూ.1 కోటి మించినట్లయితే: Sec 44AB కింద పన్ను ఆడిట్ తప్పనిసరి. CA Form 3CD తయారు చేస్తారు. దీనికి CA కి ఫిజికల్ GRN ఇన్‌వాయిస్‌లు, ఫిజికల్ ఖర్చుల బిల్లులు, బ్యాంక్ స్టేట్‌మెంట్‌లు అందించండి.',
+        },
+      },
+      {
+        title: { en: 'What is NOT in the CA Export', te: 'CA Export లో లేనివి — విడిగా అందించాలి' },
+        body:  {
+          en: 'The following must be supplied separately by the owner:\n• TDS certificates received from customers (Form 16A) — enter manually in ITR\n• Physical cash counted at year-end — reconcile with ERP closing cash\n• Fixed asset register (CCTV, AC, refrigerators, computers) — depreciation calculation is outside ERP\n• Loan accounts (bank loans, owner capital) — not tracked in ERP\n• Personal drawings by the owner — note separately\n• GST advance paid (if any month had cash crunch) — enter challan numbers\nAlso note: TDS deducted on rent or contractor payments must be deposited on NSDL and Form 26Q/27Q filed quarterly — this is not in the ERP. CA handles this separately.',
+          te: 'ERP మీ వ్యాపార కార్యకలాపాలను కవర్ చేస్తుంది. కింది వాటి ERP పరిధిలో లేవు, విడిగా మీ CA కి అందించాలి:\n• కస్టమర్ల నుండి అందుకున్న TDS సర్టిఫికేట్‌లు (Form 16A) — ఏదైనా కస్టమర్ మీకు చెల్లింపులపై TDS తీసివేసినట్లయితే, వారి నుండి Form 16A సేకరించి CA కి ఇవ్వండి\n• సంవత్సరాంతంలో ఫిజికల్ నగదు లెక్కింపు — 31-మార్చి రోజు డ్రాయర్‌లో ఉన్న నగదు లెక్కించి ERP తో సరిపోల్చండి\n• స్థిర ఆస్తి రిజిస్టర్ — CCTV, AC, రిఫ్రిజిరేటర్లు, కంప్యూటర్లు, ఫర్నిచర్ — CA ప్రత్యేకంగా depreciation చెడ్యూల్ నిర్వహిస్తారు. ERP depreciation ట్రాక్ చేయదు\n• Proprietor మూలధన ఖాతా మరియు డ్రాయింగ్‌లు — వ్యక్తిగత అవసరాల కోసం వ్యాపారం నుండి డబ్బు తీసుకుంటే అది "drawings" అవుతుంది, బ్యాలెన్స్ షీట్‌లో మూలధన తగ్గింపుగా చూపిస్తారు\n• బ్యాంక్ లోన్ ఖాతాలు — వ్యాపార రుణం ఉంటే, బకాయి బ్యాలెన్స్ మరియు EMI చెడ్యూల్ ERP లో లేవు\n• GST అడ్వాన్స్ పన్ను చెల్లించినట్లయితే — ఏదైనా నెలలో challan ద్వారా ముందస్తుగా GST చెల్లిస్తే, challan నంబర్ CA కి ఇవ్వండి\nముఖ్య గమనిక: అద్దె లేదా కాంట్రాక్టర్ చెల్లింపులపై తీసివేసిన TDS, Form 26Q త్రైమాసికంగా ఫైల్ చేయాలి — ఇది ERP లో లేదు. CA ప్రత్యేకంగా నిర్వహిస్తారు.',
+        },
+      },
+      {
+        title: { en: 'CA Role Access in ERP', te: 'మీ CA కి ERP యాక్సెస్ ఎలా ఇవ్వాలి' },
+        body:  {
+          en: 'Give your CA the "CA" role (Settings → Users → Add User → Role: CA). CA role can access: All Reports (GST, Day Book, CA Export, Year Comparison, Ageing), Read-only Bills view, Read-only GRN view, Bank Transactions. CA cannot: process POS sales, raise GRNs, add products, change settings, or see staff details. This ensures your CA can verify data at any time without disrupting operations.',
+          te: 'Settings → Users → Add User కి వెళ్ళండి. మీ CA పేరు, మొబైల్ నంబర్ నమోదు చేసి Role ని "CA" గా సెట్ చేయండి. CA పాత్ర ఇవి చదవడానికి మాత్రమే అనుమతిస్తుంది: అన్ని నివేదికలు (GST నివేదిక, రోజు పుస్తకం, CA Export, సంవత్సరం పోలిక, ఏజింగ్ నివేదిక, GST హెల్త్, GST రీకాన్సిలేషన్), Bills జాబితా (చదవడం మాత్రమే), GRN జాబితా (చదవడం మాత్రమే), బ్యాంక్ లావాదేవీలు (చదవడం మాత్రమే). CA పాత్ర ఇవి చేయలేదు: POS బిల్లు చేయడం, GRN సృష్టించడం లేదా ఆమోదించడం, ఉత్పత్తులు జోడించడం/సవరించడం, వ్యాపార సెట్టింగ్‌లు మార్చడం, సిబ్బంది వేతన లేదా వ్యక్తిగత వివరాలు చూడడం. అంటే మీ CA ఆర్థిక సంవత్సరంలో ఎప్పుడైనా లాగిన్ అయి డేటా తనిఖీ చేయవచ్చు — మీ రోజువారీ కార్యకలాపాలకు ఎటువంటి ముప్పు లేకుండా.',
+        },
+      },
+    ],
+    commonMistakes: [
+      {
+        mistake: { en: 'Sending CA Export for the wrong date range', te: 'తప్పు తేదీ పరిధిలో CA Export పంపడం' },
+        fix:     { en: 'For monthly GST: use 1st to last day of the exact calendar month. For ITR: use 01-Apr to 31-Mar of the financial year. Always use the Quick Presets (This Month / Last Month / This FY) to avoid manual date errors.', te: 'నెల GST ఫైలింగ్ కోసం: From = ఆ నెల 1వ తేదీ, To = ఆ నెల చివరి రోజు (ఉదా: 01-జూన్ నుండి 30-జూన్). వార్షిక ITR కోసం: From = 01-ఏప్రిల్, To = 31-మార్చి. Quick Preset బటన్లు (This Month, Last Month, This FY, Last FY) ఎల్లప్పుడూ వాడండి — అవి తేదీలు స్వయంచాలకంగా సెట్ చేస్తాయి, తప్పులు రాకుండా చేస్తాయి.' },
+      },
+      {
+        mistake: { en: 'Supplier invoice not in GSTR-2B — trying to claim ITC anyway', te: 'GSTR-2B లో లేని సరఫరాదారు ఇన్‌వాయిస్‌కు ITC క్లెయిమ్ చేయడం' },
+        fix:     { en: 'ITC is claimable only when the invoice appears in your GSTR-2B (i.e., your supplier filed their GSTR-1). If missing: call supplier, check if they filed late. You can claim ITC in a later month once it appears. Claiming ITC for missing invoices leads to GST demand + 18% interest + penalty.', te: 'ఇన్‌వాయిస్ మీ GSTR-2B లో కనిపించినప్పుడు మాత్రమే ITC క్లెయిమ్ చేయవచ్చు — అంటే మీ సరఫరాదారు మొదట వారి GSTR-1 ఫైల్ చేసి ఉండాలి. ఇన్‌వాయిస్ GSTR-2B లో కనిపించకపోతే: సరఫరాదారుకు ఫోన్ చేసి వారి పెండింగ్ GSTR-1 ఫైల్ చేయమని అడగండి. కనిపించిన తర్వాత తదుపరి నెలలో ITC క్లెయిమ్ చేయవచ్చు. GSTR-2B లో లేకుండా ITC క్లెయిమ్ చేస్తే GST డిమాండ్ నోటీసు, 18% వడ్డీ, మరియు జరిమానా వస్తుంది. ఫిజికల్ ఇన్‌వాయిస్ ఉందని మాత్రమే క్లెయిమ్ చేయకండి.' },
+      },
+      {
+        mistake: { en: 'Expenses entered without categorisation — CA cannot map to P&L', te: 'అన్ని ఖర్చులను "ఇతర" వర్గంలో నమోదు చేయడం' },
+        fix:     { en: 'Always select the correct expense category when entering. Never use "Other" for recurring items like rent or salary. If wrong category was used, edit the expense and change the category — it will update in the next export.', te: '"ఇతర" వర్గాన్ని CA నిర్దిష్ట P&L లైన్ అంశాలకు మ్యాప్ చేయలేరు — ITR కి ఖర్చులు వర్గీకరించాలి (అద్దె, విద్యుత్, వేతనాలు, మొదలైనవి). ఖర్చు నమోదు చేసేటప్పుడు ఎల్లప్పుడూ సరైన వర్గం ఎంచుకోండి. గతంలో తప్పు వర్గాలు వాడినట్లయితే, Expenses కి వెళ్ళి ప్రతి ఎంట్రీ సవరించి వర్గం మార్చండి — తదుపరి CA Export లో వెంటనే అప్‌డేట్ అవుతుంది.' },
+      },
+      {
+          mistake: { en: 'Thinking the ERP files GST automatically', te: 'ERP స్వయంచాలకంగా GST లేదా ITR ఫైల్ చేస్తుందని అనుకోవడం' },
+        fix:     { en: 'The ERP generates all the data your CA needs — it does not file on the GST portal. Your CA must log into GSTN portal separately and use the export data to file GSTR-1 and GSTR-3B. Deadline for GSTR-3B: 20th of every month.', te: 'ERP మీ CA కి కావలసిన అన్ని డేటా తయారు చేస్తుంది కానీ ప్రభుత్వ పోర్టల్‌లో ఏదీ ఫైల్ చేయదు. మీ CA GSTR-1 మరియు GSTR-3B ఫైల్ చేయడానికి GSTN పోర్టల్‌లో (gst.gov.in) వేరుగా లాగిన్ అవ్వాలి, ITR ఫైల్ చేయడానికి ఆదాయపు పన్ను పోర్టల్‌లో (incometax.gov.in) లాగిన్ అవ్వాలి. ERP మీ డేటా వనరు; మీ CA ఫైలర్. గడువులు: GSTR-1 ప్రతి నెల 11వ తేదీ, GSTR-3B ప్రతి నెల 20వ తేదీ.' },
+      },
+      {
+        mistake: { en: 'Not sharing export promptly — CA misses filing deadline', te: 'నెల 18 లేదా 19వ తేదీన CA Export పంచుకోవడం' },
+        fix:     { en: 'Share the CA Export within the first 3 days of every month for the previous month. GSTR-1 due: 11th. GSTR-3B due: 20th. If you share on the 18th, your CA has only 2 days — errors are more likely. Set a monthly reminder.', te: 'GSTR-1 గడువు 11వ తేదీ, GSTR-3B గడువు 20వ తేదీ. 18వ తేదీన ఫైల్ పంచుకుంటే, మీ CA కి సమీక్షించడానికి, GSTR-2B మ్యాచింగ్ చేయడానికి, ITC లెక్కించడానికి కేవలం 2 రోజులు మాత్రమే ఉంటాయి — ఆ ఒత్తిడిలో తప్పులు జరిగే అవకాశం చాలా ఎక్కువ. ప్రతి నెల 1వ తేదీన ఫోన్ రిమైండర్ పెట్టుకోండి. 3వ తేదీలోపు పంచుకుంటే, GSTR-3B గడువుకు ముందు CA కి పూర్తి 17 రోజులు ఉంటాయి.' },
+      },
+    ],
+    relatedTopics: ['reports-gst', 'reports', 'bills', 'grn', 'bank', 'expenses'],
+    tags: ['ca-export', 'accountant', 'tds', 'gst', 'income-tax', 'excel', 'itr', 'audit', 'gstr-1', 'gstr-3b', 'itc', 'p-and-l', 'brs', 'form-16a', '194c', '194ib', 'presumptive'],
   },
 
   // ── Year Comparison ────────────────────────────────────────────────────────

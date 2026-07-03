@@ -339,4 +339,61 @@ export class InventoryService {
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
+
+  // ─── EXPIRY DASHBOARD ─────────────────────────────────────────────────────────
+
+  async getExpiringBatches(businessId: string, days: number) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + days);
+
+    const batches = await this.prisma.productBatch.findMany({
+      where: {
+        product:      { businessId },
+        remainingQty: { gt: 0 },
+        status:       { not: 'DEPLETED' },
+        expiryDate:   { lte: cutoff },
+      },
+      include: {
+        product: {
+          select: {
+            id: true, name: true, productCode: true, unitOfMeasure: true,
+            category: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { expiryDate: 'asc' },
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return batches.map((b) => {
+      const daysLeft = b.expiryDate
+        ? Math.ceil((b.expiryDate.getTime() - today.getTime()) / 86_400_000)
+        : null;
+      const urgency =
+        daysLeft === null   ? 'UNKNOWN'
+        : daysLeft <= 0     ? 'EXPIRED'
+        : daysLeft <= 7     ? 'CRITICAL'
+        : daysLeft <= 14    ? 'WARNING'
+        : 'WATCH';
+      return {
+        id:           b.id,
+        batchNumber:  b.batchNumber,
+        expiryDate:   b.expiryDate,
+        daysLeft,
+        urgency,
+        remainingQty: Number(b.remainingQty),
+        costPrice:    Number(b.costPrice),
+        rackLocation: b.rackLocation,
+        product: {
+          id:           b.product.id,
+          name:         b.product.name,
+          productCode:  b.product.productCode,
+          category:     b.product.category?.name ?? null,
+          unitOfMeasure: b.product.unitOfMeasure,
+        },
+      };
+    });
+  }
 }

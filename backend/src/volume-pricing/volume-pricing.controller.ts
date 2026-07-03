@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Delete, Query, Param, Body, UseGuards,
+  Controller, Get, Post, Delete, Query, Param, Body, Request, UseGuards,
 } from '@nestjs/common';
 import { VolumePricingService } from './volume-pricing.service';
 import { CreateVolumeTierDto } from './dto/create-tier.dto';
@@ -8,6 +8,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER'] as const;
+const ALL_STAFF   = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'FLOOR_SUPERVISOR', 'SALES_REP', 'CASHIER'] as const;
 
 @Controller('volume-pricing')
 export class VolumePricingController {
@@ -17,6 +18,14 @@ export class VolumePricingController {
   @Get()
   getByPlu(@Query('pluBarcode') pluBarcode: string) {
     return this.service.getByPlu(pluBarcode ?? '');
+  }
+
+  // All staff — management UI + POS needs to read all tiers
+  @Get('all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...ALL_STAFF)
+  getAll(@Request() req: any) {
+    return this.service.getAllByBusiness(req.user.businessId);
   }
 
   // Admin — create or update a tier (upsert on pluBarcode+minQty)

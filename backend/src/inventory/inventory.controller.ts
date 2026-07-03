@@ -52,4 +52,10 @@ export class InventoryController {
   getOpeningStockSummary(@Request() req: any, @Query('branchId') branchId?: string) {
     return this.inventoryService.getOpeningStockSummary(req.user.businessId, branchId);
   }
+
+  @Get('expiry')
+  getExpiry(@Request() req: any, @Query('days') days?: string) {
+    const d = Math.min(365, Math.max(1, parseInt(days ?? '30')));
+    return this.inventoryService.getExpiringBatches(req.user.businessId, d);
+  }
 }

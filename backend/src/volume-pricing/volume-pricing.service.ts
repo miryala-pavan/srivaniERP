@@ -59,6 +59,42 @@ export class VolumePricingService {
     return { success: true };
   }
 
+  async getAllByBusiness(businessId: string) {
+    const tiers = await this.prisma.volumePricingTier.findMany({
+      where:   { businessId },
+      orderBy: [{ pluBarcode: 'asc' }, { minQty: 'asc' }],
+    });
+    if (!tiers.length) return [];
+
+    const grouped = new Map<string, typeof tiers>();
+    for (const t of tiers) {
+      if (!grouped.has(t.pluBarcode)) grouped.set(t.pluBarcode, []);
+      grouped.get(t.pluBarcode)!.push(t);
+    }
+
+    const plusData = await this.prisma.productPlu.findMany({
+      where:  { businessId, pluCode: { in: [...grouped.keys()] } },
+      select: {
+        pluCode: true, displayName: true, sellingPrice: true, mrp: true,
+        product: { select: { name: true, unitOfMeasure: true } },
+      },
+    });
+    const pluMap = new Map(plusData.map((p) => [p.pluCode, p]));
+
+    return [...grouped.entries()].map(([pluBarcode, trs]) => {
+      const plu = pluMap.get(pluBarcode);
+      return {
+        pluBarcode,
+        productName:   plu?.product.name       ?? pluBarcode,
+        displayName:   plu?.displayName        ?? null,
+        sellingPrice:  plu ? Number(plu.sellingPrice) : null,
+        mrp:           plu ? Number(plu.mrp)          : null,
+        unitOfMeasure: plu?.product.unitOfMeasure     ?? null,
+        tiers: trs.map((t) => ({ id: t.id, minQty: t.minQty, price: Number(t.price) })),
+      };
+    });
+  }
+
   /** Compute the effective unit price given qty and a set of tiers (sorted by minQty asc). */
   static applyTiers(
     basePrice: number,
