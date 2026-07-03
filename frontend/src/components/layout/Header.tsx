@@ -255,7 +255,7 @@ function typeToPage(type: string, actionUrl?: string | null): string {
 export default function Header({ title, actions, icon }: HeaderProps) {
   const router      = useRouter();
   const queryClient = useQueryClient();
-  const { toggle: toggleAssistant } = useAssistant();
+  const { toggle: toggleAssistant, hasNewContent, isOpen: assistantOpen } = useAssistant();
   const [mounted, setMounted]               = useState(false);
   const [open, setOpen]                     = useState(false);
   const [yesterdayPending, setYesterdayPending] = useState(false);
@@ -381,9 +381,12 @@ export default function Header({ title, actions, icon }: HeaderProps) {
           <button
             onClick={toggleAssistant}
             title="Help (press ? anytime)"
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors text-gray-400 hover:text-[#1B4F8A]"
+            className="relative w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors text-gray-400 hover:text-[#1B4F8A]"
           >
             <HelpCircle className="w-5 h-5" />
+            {hasNewContent && !assistantOpen && (
+              <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-blue-500 rounded-full border-2 border-white" />
+            )}
           </button>
 
           {/* Notification Bell */}

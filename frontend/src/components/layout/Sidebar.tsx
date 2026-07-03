@@ -53,6 +53,7 @@ import {
   Banknote,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
+import type { User } from '@/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
 import api from '@/lib/api';
@@ -156,12 +157,36 @@ const GROUPS: NavGroup[] = [
 
 const LS_KEY = 'srivani_nav_collapsed';
 
+function useLoginDuration(): string {
+  const [duration, setDuration] = useState('');
+  useEffect(() => {
+    function compute() {
+      try {
+        const token = localStorage.getItem('srivani_token');
+        if (!token) return '';
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (!payload.iat) return '';
+        const mins = Math.floor((Date.now() - payload.iat * 1000) / 60_000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return `${mins}m`;
+        const h = Math.floor(mins / 60), m = mins % 60;
+        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+      } catch { return ''; }
+    }
+    setDuration(compute());
+    const id = setInterval(() => setDuration(compute()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return duration;
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
-  const user     = getUser<{ role: string }>();
+  const user     = getUser<User>();
   const role     = user?.role ?? '';
 
   const [mounted,       setMounted]       = useState(false);
+  const loginDuration = useLoginDuration();
   const [mobileOpen,    setMobileOpen]    = useState(false);
   const [collapsed,     setCollapsed]     = useState<Record<string, boolean>>({});
   const [installPrompt, setInstallPrompt] = useState<any>(null);
@@ -244,7 +269,7 @@ export default function Sidebar() {
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         {/* Logo row */}
-        <div className="flex items-center gap-2 px-5 py-5 border-b border-blue-700 shrink-0">
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-blue-700 shrink-0">
           <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 bg-white">
             <img src="/icons/logo512x512.png" alt="Srivani Stores" className="w-full h-full object-contain" />
           </div>
@@ -260,6 +285,28 @@ export default function Sidebar() {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Logged-in user */}
+        {mounted && user && (
+          <div className="px-4 py-3 border-b border-blue-700 shrink-0 bg-blue-900/30">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                <span className="text-white text-sm font-bold">
+                  {(user.fullName || user.username || 'U')[0].toUpperCase()}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-semibold truncate leading-tight">
+                  {user.fullName || user.username}
+                </p>
+                <p className="text-blue-300 text-[10px] mt-0.5 truncate">
+                  {user.role?.replace(/_/g, ' ')}
+                  {loginDuration ? ` · ${loginDuration}` : ''}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Nav groups */}
         <nav className="flex-1 px-2 py-3 overflow-y-auto">

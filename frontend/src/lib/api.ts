@@ -19,6 +19,7 @@ api.interceptors.request.use((config) => {
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
+let sessionExpiredHandled = false;
 
 async function silentRefresh(): Promise<boolean> {
   if (isRefreshing && refreshPromise) {
@@ -73,6 +74,15 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status === 401 && typeof window !== 'undefined' && !error.config?.url?.includes('/auth/login')) {
+      // No token at all — user was never logged in on this device; redirect silently
+      if (!localStorage.getItem('srivani_token')) {
+        if (!sessionExpiredHandled) {
+          sessionExpiredHandled = true;
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+
       const refreshed = await silentRefresh();
 
       if (refreshed) {
@@ -81,10 +91,14 @@ api.interceptors.response.use(
         return api.request(error.config);
       }
 
-      localStorage.removeItem('srivani_token');
-      localStorage.removeItem('srivani_user');
-      alert('Your session has expired. Please login again.');
-      window.location.href = '/login';
+      // Token existed but is now invalid — show alert exactly once
+      if (!sessionExpiredHandled) {
+        sessionExpiredHandled = true;
+        localStorage.removeItem('srivani_token');
+        localStorage.removeItem('srivani_user');
+        alert('Your session has expired. Please login again.');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   },
