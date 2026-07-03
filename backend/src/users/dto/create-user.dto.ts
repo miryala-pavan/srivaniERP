@@ -1,9 +1,8 @@
 import { IsString, IsNotEmpty, IsOptional, Matches, IsEmail, IsIn } from 'class-validator';
+import { UserRole } from '@prisma/client';
 
-const ALLOWED_ROLES = [
-  'BRANCH_MANAGER', 'CASHIER', 'PURCHASE_CHECKER',
-  'ACCOUNTS_PERSON', 'FLOOR_SUPERVISOR', 'PACKING_STAFF', 'SALES_REP', 'VIEWER', 'CA',
-];
+// Derived from Prisma enum — any new role added to schema.prisma is automatically valid here
+const ALLOWED_ROLES = Object.values(UserRole).filter(r => r !== UserRole.SUPER_ADMIN);
 
 export class CreateUserDto {
   @IsString()
