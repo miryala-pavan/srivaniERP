@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Download, FileJson, Loader2, AlertCircle, Info, CheckCircle, AlertTriangle, Share2, Copy, TrendingUp, TrendingDown } from 'lucide-react';
+import { Download, FileJson, Loader2, AlertCircle, Info, CheckCircle, AlertTriangle, Share2, Copy, TrendingUp, TrendingDown, HelpCircle } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
@@ -174,6 +174,17 @@ function downloadJSON(data: object, filename: string) {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function Tip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="group relative inline-flex items-center align-middle ml-1">
+      <HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-normal text-left shadow-lg">
+        {children}
+      </span>
+    </span>
+  );
+}
 
 function TaxCell({ n, bold }: { n: number; bold?: boolean }) {
   return (
@@ -368,13 +379,13 @@ export default function GstReportsPage() {
 
   const yearRange = [2024, 2025, 2026, 2027];
 
-  const TABS: { id: Tab; label: string }[] = [
-    { id: 'gstr3b',   label: 'GSTR-3B Summary'           },
-    { id: 'sales',    label: 'Sales Register'             },
-    { id: 'purchase', label: 'Purchase Register'          },
-    { id: 'hsn',      label: 'HSN + GSTR-1'              },
-    { id: 'inward',   label: 'Inward Supplies (GSTR-2)'  },
-    { id: 'trend',    label: 'FY Trend Dashboard'         },
+  const TABS: { id: Tab; label: string; tip: string }[] = [
+    { id: 'gstr3b',   label: 'GSTR-3B Summary',          tip: 'Monthly tax summary filed on the GST portal. Shows outward tax collected, ITC available, and net cash to pay.' },
+    { id: 'sales',    label: 'Sales Register',            tip: 'All sales bills for the period split into B2B (with GSTIN), B2C Large (inter-state >₹2.5L), and B2C Small (rest). Used to prepare GSTR-1.' },
+    { id: 'purchase', label: 'Purchase Register',         tip: 'All approved GRNs for the period with ITC eligibility. Cross-verify with GSTR-2B on the portal before claiming ITC in GSTR-3B.' },
+    { id: 'hsn',      label: 'HSN + GSTR-1',             tip: 'HSN-wise summary of all outward supplies (Table 12 of GSTR-1). Also download the GSTR-1 JSON for direct portal upload.' },
+    { id: 'inward',   label: 'Inward Supplies (GSTR-2)', tip: 'Rate-wise inward supplies in GSTR-2 format. One row per GST rate slab per invoice. Classifies ITC as Eligible, Exempt, or Blocked under Sec 17(5).' },
+    { id: 'trend',    label: 'FY Trend Dashboard',        tip: 'Full financial year (April–March) view. See month-wise taxable sales, ITC claimed, and net GST payable in a chart and table.' },
   ];
 
   const hasData = gstr3b || salesData || purchData || inwardData || trendData;
@@ -394,18 +405,27 @@ export default function GstReportsPage() {
         {/* Compliance note */}
         <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700">
           <Info className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>
-            Reports comply with <strong>GSTR-1 v GST3.0.4</strong> schema.
-            Opening ITC balance is auto-computed from FY start. GSTR-1 JSON is validated before download.
-            Credit notes for cross-period voided bills are generated automatically.
-          </span>
+          <div className="space-y-1">
+            <p>
+              Reports comply with <strong>GSTR-1 v GST3.0.4</strong> schema. Opening ITC balance is auto-computed from April 1 of the financial year.
+              GSTR-1 JSON is validated before download. Credit notes for cross-period voided bills are generated automatically.
+            </p>
+            <p className="text-blue-500">
+              <strong>GST Financial Year:</strong> April to March (e.g. April 2025 – March 2026 = FY 2025-26).
+              Monthly returns (GSTR-1 &amp; GSTR-3B) are due by the 11th and 20th of the following month respectively.
+              GSTR-2B (auto-populated ITC statement) is available on the portal after the 14th.
+            </p>
+          </div>
         </div>
 
         {/* Period Selector */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Month</label>
+              <label className="block text-xs text-gray-500 mb-1">
+                Month
+                <Tip>Select the GST return month. GSTR-1 is due by the 11th and GSTR-3B by the 20th of the following month.</Tip>
+              </label>
               <select
                 value={month}
                 onChange={(e) => setMonth(Number(e.target.value))}
@@ -415,7 +435,10 @@ export default function GstReportsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Year</label>
+              <label className="block text-xs text-gray-500 mb-1">
+                Year
+                <Tip>Calendar year of the return month. For April 2025, select Year 2025. The FY Trend tab will automatically show the full April 2025 – March 2026 financial year.</Tip>
+              </label>
               <select
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
@@ -427,6 +450,7 @@ export default function GstReportsPage() {
             <button
               onClick={generate}
               disabled={loading3b || loadingSales || loadingPurch || loadingInward || loadingTrend || loadingPreflight}
+              title="Loads all 6 report tabs for the selected month and year — GSTR-3B, Sales, Purchases, HSN, Inward Supplies, and FY Trend"
               className="px-5 py-2 bg-[#1B4F8A] text-white text-sm font-semibold rounded-lg hover:bg-[#163f6e] disabled:opacity-60 transition-colors flex items-center gap-2"
             >
               {(loading3b || loadingSales || loadingPurch || loadingInward || loadingTrend || loadingPreflight) && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -435,6 +459,7 @@ export default function GstReportsPage() {
             {hasData && (
               <button
                 onClick={handleShare}
+                title="Generates a secure read-only link valid for 30 days. Share it with your CA or auditor — no login required on their end."
                 className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
               >
                 {shareCopied ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Share2 className="w-4 h-4" />}
@@ -491,10 +516,11 @@ export default function GstReportsPage() {
           <>
             {/* Tab Bar */}
             <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
-              {TABS.map(({ id, label }) => (
+              {TABS.map(({ id, label, tip }) => (
                 <button
                   key={id}
                   onClick={() => setTab(id)}
+                  title={tip}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     tab === id ? 'bg-white text-[#1B4F8A] shadow-sm' : 'text-gray-500 hover:text-gray-800'
                   }`}
@@ -515,28 +541,65 @@ export default function GstReportsPage() {
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="px-5 py-4 border-b border-gray-100">
                       <h2 className="font-bold text-gray-900">GSTR-3B Summary</h2>
-                      <p className="text-xs text-gray-500 mt-0.5">Period: {gstr3b.period}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Period: {gstr3b.period} · Monthly self-assessed return filed on the GST portal</p>
                     </div>
+
+                    {/* How to read GSTR-3B */}
+                    <details className="border-b border-gray-100">
+                      <summary className="px-5 py-2.5 text-xs text-blue-700 cursor-pointer select-none flex items-center gap-1.5 hover:bg-blue-50">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" /> How to read this report
+                      </summary>
+                      <div className="px-5 pb-4 pt-2 text-xs text-gray-600 space-y-2 bg-blue-50">
+                        <p><strong>Section 3.1 — Outward Taxable Supplies:</strong> Total tax collected on sales.
+                           B2B = sales to businesses with GSTIN (reported invoice-wise in GSTR-1 Table 4).
+                           B2C = sales to consumers without GSTIN (reported consolidated).</p>
+                        <p><strong>CGST + SGST</strong> apply to intra-state sales (buyer and seller in the same state).
+                           <strong>IGST</strong> applies to inter-state sales (buyer in a different state). Never both at the same time.</p>
+                        <p><strong>Section 4 — ITC Available:</strong> Input Tax Credit you can deduct from your tax liability.
+                           Only purchases with ELIGIBLE ITC status are included. CGST credit offsets CGST liability, SGST offsets SGST, IGST can offset all three heads.</p>
+                        <p><strong>Net Payable:</strong> Tax Collected − ITC = cash you owe to the government for this period.</p>
+                        <p><strong>Cash to Pay After Opening ITC:</strong> Net Payable minus any leftover ITC balance carried forward from prior months.</p>
+                        <p><strong>Section 4D(2) — Ineligible ITC:</strong> Tax paid on blocked purchases (vehicles, food, personal use items under Section 17(5)).
+                           This must be disclosed in GSTR-3B but cannot be claimed as credit.</p>
+                      </div>
+                    </details>
 
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="bg-[#1B4F8A] text-white text-xs">
                             <th className="text-left px-3 py-2.5 w-64">Description</th>
-                            <th className="text-right px-3 py-2.5">Taxable</th>
-                            <th className="text-right px-3 py-2.5">CGST</th>
-                            <th className="text-right px-3 py-2.5">SGST</th>
-                            <th className="text-right px-3 py-2.5">IGST</th>
-                            <th className="text-right px-3 py-2.5">CESS</th>
+                            <th className="text-right px-3 py-2.5">
+                              Taxable
+                              <Tip>Value of goods/services before adding GST. This is the base amount on which tax is calculated.</Tip>
+                            </th>
+                            <th className="text-right px-3 py-2.5">
+                              CGST
+                              <Tip>Central GST — half the applicable GST rate, collected by the Central Government. Applies only to intra-state (within Andhra Pradesh) transactions.</Tip>
+                            </th>
+                            <th className="text-right px-3 py-2.5">
+                              SGST
+                              <Tip>State GST — other half of the applicable GST rate, collected by the Andhra Pradesh Government. Applies only to intra-state transactions.</Tip>
+                            </th>
+                            <th className="text-right px-3 py-2.5">
+                              IGST
+                              <Tip>Integrated GST — full GST rate applied to inter-state transactions (buyer in a different state). Replaces CGST+SGST for cross-state sales/purchases.</Tip>
+                            </th>
+                            <th className="text-right px-3 py-2.5">
+                              CESS
+                              <Tip>Compensation Cess — extra levy on certain goods (tobacco, luxury cars, aerated drinks) over and above GST. Most FMCG products have 0 cess.</Tip>
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          <SectionDivider label="3.1  Outward Taxable Supplies" />
+                          <SectionDivider label="3.1  Outward Taxable Supplies" sub="All sales bills for the period" />
                           <Gstr3bRow label="(a) B2B — with GSTIN"    row={gstr3b.outwardSupplies.b2b} />
+                          <tr><td colSpan={6} className="px-3 pb-1 text-[10px] text-gray-400 italic">Sales to businesses or dealers with a valid GSTIN. Reported invoice-by-invoice in GSTR-1 Table 4. Buyer can claim ITC on these.</td></tr>
                           <Gstr3bRow label="(a) B2C — without GSTIN" row={gstr3b.outwardSupplies.b2c} />
+                          <tr><td colSpan={6} className="px-3 pb-1 text-[10px] text-gray-400 italic">Sales to consumers/retailers without GSTIN. Reported consolidated. No ITC available to the buyer.</td></tr>
                           <Gstr3bRow label="Total Outward"           row={gstr3b.outwardSupplies.total} isTotal />
 
-                          <SectionDivider label="3.1(d)  Reverse Charge" sub="(RCM — if applicable)" />
+                          <SectionDivider label="3.1(d)  Reverse Charge" sub="RCM — buyer pays tax directly to govt instead of seller" />
                           <tr>
                             <td className="px-3 py-2 text-sm text-gray-500 italic" colSpan={6}>
                               CGST ₹{inr(gstr3b.reverseCharge.cgst)}  SGST ₹{inr(gstr3b.reverseCharge.sgst)}  IGST ₹{inr(gstr3b.reverseCharge.igst)}
@@ -547,7 +610,8 @@ export default function GstReportsPage() {
                           <SectionDivider label="3.2  Inter-State to Unregistered" sub="(informational)" />
                           <Gstr3bRow label="Inter-state B2C" row={gstr3b.interStateUnregistered} />
 
-                          <SectionDivider label="4.  Eligible ITC" />
+                          <SectionDivider label="4.  Eligible ITC" sub="Input Tax Credit you can set off against your tax liability" />
+                          <tr><td colSpan={6} className="px-3 pb-1 text-[10px] text-gray-400 italic">ITC = tax paid on purchases that you can deduct from tax collected on sales. Only ELIGIBLE purchases qualify. Cannot use CGST credit against SGST liability or vice versa — but IGST credit can offset any head.</td></tr>
                           <tr>
                             <td className="px-3 py-2 text-sm text-gray-700">From Purchases (verify with GSTR-2B)</td>
                             <td className="px-3 py-2" />
@@ -613,8 +677,9 @@ export default function GstReportsPage() {
                       <div className={`rounded-xl p-5 text-center ${
                         gstr3b.netPayable.total > 0 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
                       }`}>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center justify-center gap-1">
                           Net GST (this period) — {gstr3b.period}
+                          <Tip>Tax collected on sales minus eligible ITC for this month. If positive (red), you owe this to the government. If zero or negative (green), your ITC covers your full liability this month.</Tip>
                         </p>
                         <p className={`text-3xl font-bold ${gstr3b.netPayable.total > 0 ? 'text-red-700' : 'text-green-700'}`}>
                           ₹{inr(gstr3b.netPayable.total)}
@@ -623,8 +688,9 @@ export default function GstReportsPage() {
                       <div className={`rounded-xl p-5 text-center ${
                         gstr3b.creditLedger.netPayableAfterOpening > 0 ? 'bg-orange-50 border border-orange-200' : 'bg-green-50 border border-green-200'
                       }`}>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center justify-center gap-1">
                           Cash to Pay After Opening ITC
+                          <Tip>Net Payable minus the opening ITC balance carried forward from previous months. This is the actual cash you need to deposit via Challan (PMT-06) on the GST portal before the 20th.</Tip>
                         </p>
                         <p className={`text-3xl font-bold ${gstr3b.creditLedger.netPayableAfterOpening > 0 ? 'text-orange-700' : 'text-green-700'}`}>
                           ₹{inr(gstr3b.creditLedger.netPayableAfterOpening)}
@@ -634,16 +700,22 @@ export default function GstReportsPage() {
 
                     {/* ITC Credit Ledger */}
                     <div className="px-5 pb-5">
-                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">ITC Credit Ledger</h3>
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
+                        ITC Credit Ledger
+                        <Tip>Your Electronic Credit Ledger on the GST portal. Tracks how much ITC you have accumulated vs. used. Closing balance carries forward to the next month.</Tip>
+                      </h3>
+                      <p className="text-[10px] text-gray-400 mb-3">ITC flows: Opening balance + ITC claimed this period − ITC used to pay tax = Closing balance</p>
                       <div className="grid grid-cols-4 gap-3">
                         {[
-                          { label: 'Opening Balance', value: gstr3b.creditLedger.openingBalance, note: gstr3b.creditLedger.openingBalanceNote },
-                          { label: 'ITC Claimed',     value: gstr3b.creditLedger.itcClaimed },
-                          { label: 'ITC Used',        value: gstr3b.creditLedger.itcUsed },
-                          { label: 'Closing Balance', value: gstr3b.creditLedger.closingBalance },
-                        ].map(({ label, value, note }) => (
+                          { label: 'Opening Balance', tip: 'Total unused ITC accumulated from all prior months of this financial year (April onwards). Auto-computed from all GRNs before this period.', value: gstr3b.creditLedger.openingBalance, note: gstr3b.creditLedger.openingBalanceNote },
+                          { label: 'ITC Claimed',     tip: 'Eligible ITC from GRNs approved this month — tax paid to suppliers that you are now claiming as credit.', value: gstr3b.creditLedger.itcClaimed },
+                          { label: 'ITC Used',        tip: 'Portion of ITC applied against your outward tax liability for this period. IGST credit is used first, then CGST against CGST, SGST against SGST.', value: gstr3b.creditLedger.itcUsed },
+                          { label: 'Closing Balance', tip: 'Remaining unused ITC carried forward to next month. If positive, you do not need to pay cash next month until this is exhausted.', value: gstr3b.creditLedger.closingBalance },
+                        ].map(({ label, tip, value, note }) => (
                           <div key={label} className="bg-gray-50 rounded-lg p-3">
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">{label}</p>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-0.5">
+                              {label}<Tip>{tip}</Tip>
+                            </p>
                             {note && <p className="text-[9px] text-blue-500">{note}</p>}
                             <p className="text-base font-semibold text-gray-900 mt-0.5">₹{inr(value)}</p>
                           </div>
@@ -666,18 +738,33 @@ export default function GstReportsPage() {
                   </div>
                 ) : salesData ? (
                   <>
+                    {/* How to read Sales Register */}
+                    <details className="bg-blue-50 border border-blue-200 rounded-lg">
+                      <summary className="px-4 py-2.5 text-xs text-blue-700 cursor-pointer select-none flex items-center gap-1.5">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" /> How to read this report
+                      </summary>
+                      <div className="px-4 pb-3 pt-1 text-xs text-gray-600 space-y-1.5">
+                        <p><strong>B2B (Business-to-Business):</strong> Sales to buyers who gave their GSTIN. Each invoice is reported individually in GSTR-1 Table 4. Your buyer can claim ITC on these purchases.</p>
+                        <p><strong>B2C Large:</strong> Sales to consumers without GSTIN, but the invoice is inter-state and value exceeds ₹2.5 lakh. Reported individually in GSTR-1 Table 5.</p>
+                        <p><strong>B2C Small:</strong> All remaining consumer sales — intra-state B2C of any value, and inter-state B2C ≤₹2.5L. Consolidated by state and GST rate in GSTR-1 Table 7.</p>
+                        <p><strong>Inter-state (IGST):</strong> Buyer's state ≠ your state (Andhra Pradesh). Full GST rate as IGST. <strong>Intra-state (CGST+SGST):</strong> Buyer's state = Andhra Pradesh. Tax split equally between Centre and State.</p>
+                        <p><strong>POS (Place of Supply):</strong> The state where the supply is deemed to occur. For goods, typically where goods are delivered. Determines whether IGST or CGST+SGST applies.</p>
+                      </div>
+                    </details>
+
                     {/* Controls */}
                     <div className="flex items-center justify-between flex-wrap gap-3">
                       <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
                         {([
-                          { id: 'all',  label: `All (${salesData.totals.totalBills})` },
-                          { id: 'b2b',  label: `B2B (${salesData.totals.b2bCount})` },
-                          { id: 'b2cl', label: `B2C Large (${salesData.totals.b2clCount})` },
-                          { id: 'b2cs', label: `B2C Small (${salesData.totals.b2csCount})` },
-                        ] as { id: SalesFilter; label: string }[]).map(({ id, label }) => (
+                          { id: 'all',  label: `All (${salesData.totals.totalBills})`,          tip: 'Show all sales invoices' },
+                          { id: 'b2b',  label: `B2B (${salesData.totals.b2bCount})`,            tip: 'Sales to registered businesses with GSTIN — GSTR-1 Table 4' },
+                          { id: 'b2cl', label: `B2C Large (${salesData.totals.b2clCount})`,     tip: 'Inter-state sales >₹2.5L to unregistered buyers — GSTR-1 Table 5' },
+                          { id: 'b2cs', label: `B2C Small (${salesData.totals.b2csCount})`,     tip: 'All other consumer sales — consolidated by state+rate — GSTR-1 Table 7' },
+                        ] as { id: SalesFilter; label: string; tip: string }[]).map(({ id, label, tip }) => (
                           <button
                             key={id}
                             onClick={() => setFilter(id)}
+                            title={tip}
                             className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${filter === id ? 'bg-white text-[#1B4F8A] shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
                           >
                             {label}
@@ -703,14 +790,14 @@ export default function GstReportsPage() {
                     {/* Summary cards */}
                     <div className="grid grid-cols-5 gap-3">
                       {[
-                        { label: 'Total Bills',     value: salesData.totals.totalBills,      isCount: true },
-                        { label: 'Total Taxable',   value: salesData.totals.totalTaxable },
-                        { label: 'CGST+SGST',       value: salesData.totals.totalCgst + salesData.totals.totalSgst },
-                        { label: 'Total IGST',      value: salesData.totals.totalIgst },
-                        { label: 'Grand Total',     value: salesData.totals.totalGrandTotal },
-                      ].map(({ label, value, isCount }) => (
+                        { label: 'Total Bills',   tip: 'Total invoices issued this month across all categories (B2B + B2C Large + B2C Small).', value: salesData.totals.totalBills,      isCount: true },
+                        { label: 'Total Taxable', tip: 'Sum of taxable value across all invoices — the base amount before adding GST. This goes into GSTR-3B Section 3.1 Taxable column.', value: salesData.totals.totalTaxable },
+                        { label: 'CGST+SGST',     tip: 'Total intra-state (within AP) tax — split equally between Central (CGST) and State (SGST). These are collected from local buyers.', value: salesData.totals.totalCgst + salesData.totals.totalSgst },
+                        { label: 'Total IGST',    tip: 'Total inter-state tax collected from buyers outside Andhra Pradesh. IGST goes fully to the Centre initially, then apportioned to the destination state.', value: salesData.totals.totalIgst },
+                        { label: 'Grand Total',   tip: 'Taxable value + all taxes (CGST+SGST+IGST+CESS). This matches the invoice total your customers paid.', value: salesData.totals.totalGrandTotal },
+                      ].map(({ label, tip, value, isCount }) => (
                         <div key={label} className="bg-white rounded-xl border border-gray-200 p-4">
-                          <p className="text-xs text-gray-500">{label}</p>
+                          <p className="text-xs text-gray-500 flex items-center gap-0.5">{label}<Tip>{tip}</Tip></p>
                           <p className="text-lg font-bold text-gray-900 mt-0.5">
                             {isCount ? value : `₹${inr(value as number)}`}
                           </p>
@@ -889,9 +976,24 @@ export default function GstReportsPage() {
                   </div>
                 ) : purchData ? (
                   <>
+                    {/* How to read Purchase Register */}
+                    <details className="bg-blue-50 border border-blue-200 rounded-lg">
+                      <summary className="px-4 py-2.5 text-xs text-blue-700 cursor-pointer select-none flex items-center gap-1.5">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" /> How to read this report
+                      </summary>
+                      <div className="px-4 pb-3 pt-1 text-xs text-gray-600 space-y-1.5">
+                        <p><strong>GRN (Goods Receipt Note):</strong> The internal document created when you receive goods from a supplier and approve them. The GRN date determines which month the purchase falls in for ITC.</p>
+                        <p><strong>ITC Eligible:</strong> Tax paid on this purchase can be claimed as credit in GSTR-3B Section 4. The supplier must have filed their GSTR-1 and the invoice must appear in your GSTR-2B.</p>
+                        <p><strong>ITC Exempt:</strong> Goods are exempt or 0% rated — no GST was charged, so there is nothing to claim.</p>
+                        <p><strong>ITC Blocked (Sec 17(5)):</strong> GST was charged but you cannot claim it. Examples: motor vehicles, food &amp; beverages, club memberships, construction materials for own building. Must be disclosed in GSTR-3B Table 4D(2) but cannot be deducted.</p>
+                        <p><strong>GSTR-2B:</strong> Auto-populated ITC statement from the portal, generated on the 14th of each month. Always cross-check your eligible ITC amount against GSTR-2B before filing GSTR-3B — claim only what appears there.</p>
+                        <p><strong>Invoice No vs GRN No:</strong> Invoice No is the supplier's original bill number. GRN No is your internal receipt number. The portal requires the supplier's Invoice No.</p>
+                      </div>
+                    </details>
+
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-                        Cross-verify eligible ITC against <strong>GSTR-2B</strong> on the GST portal before filing.
+                        ⚠ Cross-verify eligible ITC against <strong>GSTR-2B</strong> on the portal (available after the 14th) before filing GSTR-3B. Claim only what appears in GSTR-2B.
                       </div>
                       <button
                         onClick={() => downloadBlob('/reports/gst/purchase-register/excel', `Purchase_Register_${MONTH_ABBR[month-1]}_${year}.xlsx`, params)}
@@ -903,13 +1005,13 @@ export default function GstReportsPage() {
 
                     <div className="grid grid-cols-4 gap-3">
                       {[
-                        { label: 'Total GRNs',     value: purchData.summary.totalPurchases, isCount: true },
-                        { label: 'Eligible ITC',   value: purchData.summary.eligibleITC },
-                        { label: 'Ineligible ITC', value: purchData.summary.ineligibleITC },
-                        { label: 'CGST+SGST ITC',  value: purchData.summary.cgstITC + purchData.summary.sgstITC },
-                      ].map(({ label, value, isCount }) => (
+                        { label: 'Total GRNs',     tip: 'Number of Goods Receipt Notes approved in this period. Each GRN = one supplier invoice received and accepted.', value: purchData.summary.totalPurchases, isCount: true },
+                        { label: 'Eligible ITC',   tip: 'Total GST you can claim as Input Tax Credit from purchases this period. Enter this in GSTR-3B Section 4 after verifying against GSTR-2B.', value: purchData.summary.eligibleITC },
+                        { label: 'Ineligible ITC', tip: 'GST paid on blocked purchases (Sec 17(5)) — vehicles, personal items, food, etc. Must be disclosed in GSTR-3B Table 4D(2) but CANNOT be claimed as credit.', value: purchData.summary.ineligibleITC },
+                        { label: 'CGST+SGST ITC',  tip: 'Portion of eligible ITC from intra-state (within AP) purchases. CGST credit offsets CGST liability; SGST credit offsets SGST liability.', value: purchData.summary.cgstITC + purchData.summary.sgstITC },
+                      ].map(({ label, tip, value, isCount }) => (
                         <div key={label} className="bg-white rounded-xl border border-gray-200 p-4">
-                          <p className="text-xs text-gray-500">{label}</p>
+                          <p className="text-xs text-gray-500 flex items-center gap-0.5">{label}<Tip>{tip}</Tip></p>
                           <p className="text-lg font-bold text-gray-900 mt-0.5">{isCount ? value : `₹${inr(value as number)}`}</p>
                         </div>
                       ))}
@@ -923,8 +1025,25 @@ export default function GstReportsPage() {
                           <table className="w-full text-xs">
                             <thead className="bg-gray-50 text-gray-500 uppercase tracking-wide">
                               <tr>
-                                {['GRN Date','GRN No','Supplier','GSTIN','Invoice No','Inter?','ITC','Taxable','CGST','SGST','IGST','CESS','Total','ITC Amt'].map((h) => (
-                                  <th key={h} className={`px-3 py-2 font-semibold ${['GRN Date','GRN No','Supplier','GSTIN','Invoice No','Inter?','ITC'].includes(h) ? 'text-left' : 'text-right'}`}>{h}</th>
+                                {([
+                                  { h: 'GRN Date',    tip: 'Date the goods were received and GRN was approved — this determines the tax period for ITC.' },
+                                  { h: 'GRN No',      tip: 'Your internal goods receipt number.' },
+                                  { h: 'Supplier',    tip: 'Name of the supplier/vendor.' },
+                                  { h: 'GSTIN',       tip: "Supplier's GST Identification Number. Must be valid for you to claim ITC. If blank, supplier is unregistered and ITC is not available." },
+                                  { h: 'Invoice No',  tip: "Supplier's original invoice number as printed on their bill. This is what appears in GSTR-2B." },
+                                  { h: 'Inter?',      tip: 'IGST = supplier is from another state (inter-state supply). CGST = supplier is from Andhra Pradesh (intra-state supply).' },
+                                  { h: 'ITC',         tip: 'ITC eligibility: Eligible = can claim credit · Exempt = 0% goods, no tax to claim · Blocked = Sec 17(5) restricted items, tax paid but cannot claim.' },
+                                  { h: 'Taxable',     tip: 'Value of goods before GST.' },
+                                  { h: 'CGST',        tip: 'Central GST on intra-state purchases. Claimable as CGST credit against CGST liability.' },
+                                  { h: 'SGST',        tip: 'State GST on intra-state purchases. Claimable as SGST credit against SGST liability.' },
+                                  { h: 'IGST',        tip: 'Integrated GST on inter-state purchases. Can be used to offset IGST, then CGST, then SGST liability in that order.' },
+                                  { h: 'CESS',        tip: 'Compensation Cess on applicable goods. Cess credit can only offset cess liability.' },
+                                  { h: 'Total',       tip: 'Taxable + all taxes = total amount paid to supplier.' },
+                                  { h: 'ITC Amt',     tip: 'Actual tax amount being claimed as ITC. Zero for blocked/exempt items.' },
+                                ] as { h: string; tip: string }[]).map(({ h, tip }) => (
+                                  <th key={h} className={`px-3 py-2 font-semibold ${['GRN Date','GRN No','Supplier','GSTIN','Invoice No','Inter?','ITC'].includes(h) ? 'text-left' : 'text-right'}`}>
+                                    <span className="inline-flex items-center gap-0.5">{h}<Tip>{tip}</Tip></span>
+                                  </th>
                                 ))}
                               </tr>
                             </thead>
@@ -990,6 +1109,20 @@ export default function GstReportsPage() {
                   </div>
                 ) : (
                   <>
+                    {/* How to read HSN tab */}
+                    <details className="bg-blue-50 border border-blue-200 rounded-lg">
+                      <summary className="px-4 py-2.5 text-xs text-blue-700 cursor-pointer select-none flex items-center gap-1.5">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" /> How to read this report
+                      </summary>
+                      <div className="px-4 pb-3 pt-1 text-xs text-gray-600 space-y-1.5">
+                        <p><strong>HSN Code (Harmonised System of Nomenclature):</strong> A globally standardised 6–8 digit product classification code. GST law requires HSN codes on invoices above ₹5 crore turnover (4-digit for ₹1.5–5 crore). Every product must have an HSN code assigned in the product master for GSTR-1 filing.</p>
+                        <p><strong>UOM (Unit of Measurement):</strong> The unit in which quantity is measured — e.g. NOS (numbers), KGS (kilograms), LTR (litres), MTR (metres). Must use GST-approved codes. GSTR-1 Table 12 requires quantity and UOM per HSN code.</p>
+                        <p><strong>UNCLASSIFIED entries:</strong> Products sold without an HSN code assigned in the product master. These are shown here for reference but EXCLUDED from the GSTR-1 JSON. Assign HSN codes to all products to fix this.</p>
+                        <p><strong>GSTR-1 JSON:</strong> The file you upload to the GST portal at gst.gov.in → Returns → GSTR-1. Schema version GST3.0.4. Fix all preflight errors before downloading — the portal will reject invalid JSON.</p>
+                        <p><strong>Filing workflow:</strong> 1) Fix all preflight errors → 2) Download GSTR-1 JSON → 3) Login to gst.gov.in → 4) Go to Returns → GSTR-1 → File Returns → Upload JSON → 5) Preview and Submit → 6) File with DSC or EVC.</p>
+                      </div>
+                    </details>
+
                     <div className="flex justify-end">
                       <button
                         onClick={() => downloadBlob('/reports/gst/sales-register/excel', `HSN_Summary_${MONTH_ABBR[month-1]}_${year}.xlsx`, params)}
@@ -1018,8 +1151,22 @@ export default function GstReportsPage() {
                           <table className="w-full text-xs">
                             <thead className="bg-gray-50 text-gray-500 uppercase tracking-wide">
                               <tr>
-                                {['HSN Code','Description','UOM','GST Rate','Total Qty','Taxable','CGST','SGST','IGST','CESS','Total Tax'].map((h) => (
-                                  <th key={h} className={`px-3 py-2 font-semibold ${['HSN Code','Description','UOM'].includes(h) ? 'text-left' : 'text-right'}`}>{h}</th>
+                                {([
+                                  { h: 'HSN Code',    tip: 'Harmonised System of Nomenclature code — globally standardised product classification. 4, 6, or 8 digits depending on your turnover slab. Assign in Product Master → Edit Product.' },
+                                  { h: 'Description', tip: 'Standard description for this HSN code as per the GST tariff schedule.' },
+                                  { h: 'UOM',         tip: 'Unit of Measure as per GST portal codes — NOS (pieces), KGS (kilograms), LTR (litres), MTR (metres), etc.' },
+                                  { h: 'GST Rate',    tip: 'GST rate slab applicable to this HSN code — 0%, 5%, 12%, 18%, or 28%. Set per product in the product master.' },
+                                  { h: 'Total Qty',   tip: 'Total quantity sold this period for this HSN+rate combination.' },
+                                  { h: 'Taxable',     tip: 'Total taxable value (before GST) for this HSN code.' },
+                                  { h: 'CGST',        tip: 'Central GST collected on intra-state sales for this HSN.' },
+                                  { h: 'SGST',        tip: 'State GST collected on intra-state sales for this HSN.' },
+                                  { h: 'IGST',        tip: 'Integrated GST collected on inter-state sales for this HSN.' },
+                                  { h: 'CESS',        tip: 'Compensation Cess collected for this HSN (usually 0 for food items).' },
+                                  { h: 'Total Tax',   tip: 'CGST + SGST + IGST + CESS — total tax component for this HSN code.' },
+                                ] as { h: string; tip: string }[]).map(({ h, tip }) => (
+                                  <th key={h} className={`px-3 py-2 font-semibold ${['HSN Code','Description','UOM'].includes(h) ? 'text-left' : 'text-right'}`}>
+                                    <span className="inline-flex items-center gap-0.5">{h}<Tip>{tip}</Tip></span>
+                                  </th>
                                 ))}
                               </tr>
                             </thead>
@@ -1099,18 +1246,33 @@ export default function GstReportsPage() {
                   </div>
                 ) : trendData ? (
                   <>
+                    {/* How to read FY Trend */}
+                    <details className="bg-blue-50 border border-blue-200 rounded-lg">
+                      <summary className="px-4 py-2.5 text-xs text-blue-700 cursor-pointer select-none flex items-center gap-1.5">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" /> How to read this dashboard
+                      </summary>
+                      <div className="px-4 pb-3 pt-1 text-xs text-gray-600 space-y-1.5">
+                        <p><strong>Financial Year (FY):</strong> April to March. E.g. FY 2025-26 = April 2025 through March 2026. This dashboard shows all 12 months of the selected FY regardless of which month you picked in the period selector.</p>
+                        <p><strong>Taxable Sales (blue bar):</strong> Total value of goods sold before GST, per month. Rising bars = growing revenue.</p>
+                        <p><strong>ITC Claimed (green bar):</strong> Eligible Input Tax Credit from purchases per month. Higher ITC means more purchases — which reduces your cash outflow to the government.</p>
+                        <p><strong>Net Payable (red line):</strong> Tax Collected − ITC = cash owed to government. When the line dips below the bars, your ITC is significantly covering your tax. When it's close to the tax collected bar, ITC is low.</p>
+                        <p><strong>Surplus (green row in table):</strong> Months where ITC exceeds your tax liability — no cash payment needed; the surplus carries forward.</p>
+                        <p><strong>FY Total row:</strong> Running totals across all 12 months. Use this for annual tax planning — compare to advance tax payments and project GSTR-9 annual return values.</p>
+                      </div>
+                    </details>
+
                     {/* FY Summary Cards */}
                     <div className="grid grid-cols-4 gap-3">
                       {([
-                        { label: 'Total Taxable Sales', value: trendData.totals.taxableOutward, wrap: 'bg-blue-50 border-blue-200',   text: 'text-blue-600',   bold: 'text-blue-800',   icon: <TrendingUp className="w-4 h-4" /> },
-                        { label: 'Total Tax Collected',  value: trendData.totals.totalTaxOut,    wrap: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-600', bold: 'text-indigo-800', icon: <TrendingUp className="w-4 h-4" /> },
-                        { label: 'Total ITC Claimed',    value: trendData.totals.eligibleITC,    wrap: 'bg-green-50 border-green-200',  text: 'text-green-600',  bold: 'text-green-800',  icon: <TrendingDown className="w-4 h-4" /> },
-                        { label: 'Total Net Payable',    value: trendData.totals.netPayable,     wrap: 'bg-red-50 border-red-200',      text: 'text-red-600',    bold: 'text-red-800',    icon: <TrendingUp className="w-4 h-4" /> },
-                      ] as const).map(({ label, value, wrap, text, bold, icon }) => (
+                        { label: 'Total Taxable Sales', tip: 'Total value of goods/services sold (before GST) across all 12 months of this financial year.', value: trendData.totals.taxableOutward, wrap: 'bg-blue-50 border-blue-200',   text: 'text-blue-600',   bold: 'text-blue-800',   icon: <TrendingUp className="w-4 h-4" /> },
+                        { label: 'Total Tax Collected',  tip: 'Total GST (CGST+SGST+IGST) collected from customers across the FY. This is your gross tax liability before deducting ITC.', value: trendData.totals.totalTaxOut,    wrap: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-600', bold: 'text-indigo-800', icon: <TrendingUp className="w-4 h-4" /> },
+                        { label: 'Total ITC Claimed',    tip: 'Total eligible Input Tax Credit from all approved purchases across the FY. Higher ITC = lower cash outflow. Only ELIGIBLE GRNs counted — Exempt and Blocked excluded.', value: trendData.totals.eligibleITC,    wrap: 'bg-green-50 border-green-200',  text: 'text-green-600',  bold: 'text-green-800',  icon: <TrendingDown className="w-4 h-4" /> },
+                        { label: 'Total Net Payable',    tip: 'Total cash paid (or to be paid) to the government across the FY = Tax Collected − ITC. This is your net GST cost for the year, useful for GSTR-9 annual return.', value: trendData.totals.netPayable,     wrap: 'bg-red-50 border-red-200',      text: 'text-red-600',    bold: 'text-red-800',    icon: <TrendingUp className="w-4 h-4" /> },
+                      ] as const).map(({ label, tip, value, wrap, text, bold, icon }) => (
                         <div key={label} className={`${wrap} border rounded-xl p-4`}>
                           <div className={`flex items-center gap-1.5 ${text} mb-1`}>
                             {icon}
-                            <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+                            <span className="text-xs font-medium uppercase tracking-wide flex items-center gap-0.5">{label}<Tip>{tip}</Tip></span>
                           </div>
                           <p className={`text-xl font-bold ${bold}`}>₹{inr(value)}</p>
                           <p className="text-xs text-gray-500 mt-0.5">{trendData.fyLabel}</p>
@@ -1157,8 +1319,18 @@ export default function GstReportsPage() {
                         <table className="w-full text-xs">
                           <thead className="bg-gray-50 text-gray-500 uppercase tracking-wide">
                             <tr>
-                              {['Month','Bills','Taxable Sales','Tax Collected','GRNs','ITC Claimed','Net Payable'].map((h) => (
-                                <th key={h} className={`px-3 py-2 font-semibold ${h === 'Month' ? 'text-left' : 'text-right'}`}>{h}</th>
+                              {([
+                                { h: 'Month',         tip: 'Return month. GST FY runs April–March.' },
+                                { h: 'Bills',         tip: 'Number of sales invoices issued in this month.' },
+                                { h: 'Taxable Sales', tip: 'Total taxable value of outward supplies (before GST) for the month.' },
+                                { h: 'Tax Collected', tip: 'Total GST collected from customers — CGST+SGST+IGST+Cess combined.' },
+                                { h: 'GRNs',          tip: 'Number of purchase receipts (Goods Receipt Notes) approved in this month.' },
+                                { h: 'ITC Claimed',   tip: 'Eligible ITC from GRNs approved this month. Only ELIGIBLE status GRNs included — Exempt and Blocked excluded.' },
+                                { h: 'Net Payable',   tip: 'Tax Collected − ITC Claimed = cash owed to government for this month. Green "Surplus" means ITC exceeded tax liability; surplus carries to next month.' },
+                              ] as { h: string; tip: string }[]).map(({ h, tip }) => (
+                                <th key={h} className={`px-3 py-2 font-semibold ${h === 'Month' ? 'text-left' : 'text-right'}`}>
+                                  <span className="inline-flex items-center gap-0.5">{h}<Tip>{tip}</Tip></span>
+                                </th>
                               ))}
                             </tr>
                           </thead>
@@ -1207,6 +1379,22 @@ export default function GstReportsPage() {
                   </div>
                 ) : inwardData ? (
                   <>
+                    {/* How to read Inward Supplies */}
+                    <details className="bg-blue-50 border border-blue-200 rounded-lg">
+                      <summary className="px-4 py-2.5 text-xs text-blue-700 cursor-pointer select-none flex items-center gap-1.5">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" /> How to read this report
+                      </summary>
+                      <div className="px-4 pb-3 pt-1 text-xs text-gray-600 space-y-1.5">
+                        <p><strong>Rate-wise rows:</strong> One GRN can have multiple rows here — one per GST rate slab. E.g., a GRN with items at 5% and 18% GST produces two rows. This matches the GSTR-2 format required by the GST portal.</p>
+                        <p><strong>Invoice Value vs Taxable Value:</strong> Invoice Value = total amount you paid to the supplier (taxable + all taxes). Taxable Value = base amount before tax. The tax = Invoice Value − Taxable Value.</p>
+                        <p><strong>Place of Supply:</strong> The state where the supply is deemed to occur. If Place of Supply = Andhra Pradesh = your state, it is intra-state (CGST+SGST applies). Otherwise it is inter-state (IGST applies).</p>
+                        <p><strong>ITC: Eligible (green):</strong> Tax on this purchase can be claimed as credit. Supplier is GST-registered, goods/services are used for business, not blocked under Sec 17(5).</p>
+                        <p><strong>ITC: Exempt (amber):</strong> Goods attract 0% GST. No tax was charged, so nothing to claim. These go into GSTR-3B Table 5 as exempt inward supplies.</p>
+                        <p><strong>ITC: Blocked (red):</strong> GST was charged but you CANNOT claim it. Section 17(5) restricts ITC on: motor vehicles &amp; transport, food/beverages, club memberships, rent-a-cab, health insurance, construction materials for own building, gifts to employees. Disclosed in GSTR-3B Table 4D(2).</p>
+                        <p><strong>GSTR-2B reconciliation:</strong> After downloading this Excel, go to gst.gov.in → Returns → GSTR-2B → Download JSON, then upload it in the GST Reconciliation page of this ERP to find mismatches.</p>
+                      </div>
+                    </details>
+
                     {/* Header + Download */}
                     <div className="flex items-center justify-between flex-wrap gap-3">
                       <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
@@ -1268,15 +1456,27 @@ export default function GstReportsPage() {
                           <table className="w-full text-xs">
                             <thead className="bg-[#1B4F8A] text-white">
                               <tr>
-                                {[
-                                  'GSTIN/UIN','Party Name','Invoice No.','Invoice Date',
-                                  'Invoice Value','Rate','Taxable Value',
-                                  'IGST','CGST','SGST','Cess','Place of Supply','ITC',
-                                ].map((h) => (
+                                {([
+                                  { h: 'GSTIN/UIN',       tip: "Supplier's GST Identification Number (15-digit). Must be valid for ITC claim. UIN = Unique Identification Number for embassies/UN bodies." },
+                                  { h: 'Party Name',      tip: "Supplier's registered business name." },
+                                  { h: 'Invoice No.',     tip: "Supplier's original invoice number. This is what gets matched against GSTR-2B. Must match exactly." },
+                                  { h: 'Invoice Date',    tip: "Date on the supplier's invoice. ITC can only be claimed in the period this GRN was received and approved." },
+                                  { h: 'Invoice Value',   tip: 'Total amount paid to supplier including all taxes (taxable + CGST + SGST + IGST + Cess).' },
+                                  { h: 'Rate',            tip: 'GST rate slab for this row — 0%, 5%, 12%, 18%, or 28%. One GRN can have multiple rows if items span multiple slabs.' },
+                                  { h: 'Taxable Value',   tip: 'Value of goods/services before adding GST. Tax = Taxable Value × (Rate/100).' },
+                                  { h: 'IGST',            tip: 'Integrated GST paid — applies when supplier is from a different state. Can offset IGST, then CGST, then SGST liability.' },
+                                  { h: 'CGST',            tip: 'Central GST paid — applies when supplier is from Andhra Pradesh (intra-state). Offsets only CGST liability.' },
+                                  { h: 'SGST',            tip: 'State GST paid — applies when supplier is from Andhra Pradesh (intra-state). Offsets only SGST liability.' },
+                                  { h: 'Cess',            tip: 'Compensation Cess paid — applicable only on specific goods. Cess credit offsets cess liability only.' },
+                                  { h: 'Place of Supply', tip: 'State where supply is deemed to occur. If = Andhra Pradesh: CGST+SGST applies. If = another state: IGST applies.' },
+                                  { h: 'ITC',             tip: 'Eligible = can claim credit | Exempt = 0% goods, no tax to claim | Blocked = Sec 17(5) restricted, cannot claim even though tax was paid.' },
+                                ] as { h: string; tip: string }[]).map(({ h, tip }) => (
                                   <th key={h} className={`px-2 py-2 font-semibold whitespace-nowrap ${
                                     ['GSTIN/UIN','Party Name','Invoice No.','Invoice Date','Place of Supply','ITC'].includes(h)
                                       ? 'text-left' : 'text-right'
-                                  }`}>{h}</th>
+                                  }`}>
+                                    <span className="inline-flex items-center gap-0.5">{h}<Tip>{tip}</Tip></span>
+                                  </th>
                                 ))}
                               </tr>
                             </thead>
