@@ -101,6 +101,27 @@ interface PurchaseData {
   };
 }
 
+interface InwardRow {
+  supplierGstin: string; supplierName: string; transactionType: string;
+  invoiceNumber: string; invoiceDate: string; invoiceValue: number;
+  gstRate: number; cessRate: number; taxableValue: number;
+  igstAmount: number; cgstAmount: number; sgstAmount: number; cessAmount: number;
+  placeOfSupply: string; itcEligibility: string; isInterState: boolean;
+}
+
+interface InwardData {
+  period: string;
+  businessGstin: string;
+  businessName: string;
+  rows: InwardRow[];
+  summary: {
+    totalGrns: number; totalRows: number;
+    eligibleGrns: number; eligibleTaxable: number; eligibleCgst: number; eligibleSgst: number; eligibleIgst: number; eligibleCess: number; eligibleITC: number;
+    exemptGrns: number; exemptTaxable: number;
+    ineligibleGrns: number; ineligibleTaxable: number; ineligibleITC: number;
+  };
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MONTHS = ['January','February','March','April','May','June',
@@ -245,7 +266,7 @@ function PreflightPanel({ data }: { data: PreflightData }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'gstr3b' | 'sales' | 'purchase' | 'hsn';
+type Tab = 'gstr3b' | 'sales' | 'purchase' | 'hsn' | 'inward';
 type SalesFilter = 'all' | 'b2b' | 'b2cl' | 'b2cs';
 
 export default function GstReportsPage() {
@@ -255,57 +276,64 @@ export default function GstReportsPage() {
   const [tab,    setTab]    = useState<Tab>('gstr3b');
   const [filter, setFilter] = useState<SalesFilter>('all');
 
-  const [loading3b,       setLoading3b]       = useState(false);
-  const [loadingSales,    setLoadingSales]     = useState(false);
-  const [loadingPurch,    setLoadingPurch]     = useState(false);
-  const [loadingPreflight, setLoadingPreflight] = useState(false);
+  const [loading3b,        setLoading3b]        = useState(false);
+  const [loadingSales,     setLoadingSales]      = useState(false);
+  const [loadingPurch,     setLoadingPurch]      = useState(false);
+  const [loadingPreflight, setLoadingPreflight]  = useState(false);
+  const [loadingInward,    setLoadingInward]     = useState(false);
 
-  const [gstr3b,    setGstr3b]    = useState<GSTR3BData | null>(null);
-  const [salesData, setSalesData] = useState<SalesData | null>(null);
-  const [purchData, setPurchData] = useState<PurchaseData | null>(null);
-  const [preflight, setPreflight] = useState<PreflightData | null>(null);
-  const [error,     setError]     = useState('');
+  const [gstr3b,     setGstr3b]     = useState<GSTR3BData | null>(null);
+  const [salesData,  setSalesData]  = useState<SalesData | null>(null);
+  const [purchData,  setPurchData]  = useState<PurchaseData | null>(null);
+  const [preflight,  setPreflight]  = useState<PreflightData | null>(null);
+  const [inwardData, setInwardData] = useState<InwardData | null>(null);
+  const [error,      setError]      = useState('');
 
   const params = { month, year };
 
   const generate = useCallback(async () => {
     setError('');
-    setGstr3b(null); setSalesData(null); setPurchData(null); setPreflight(null);
-    setLoading3b(true); setLoadingSales(true); setLoadingPurch(true); setLoadingPreflight(true);
+    setGstr3b(null); setSalesData(null); setPurchData(null); setPreflight(null); setInwardData(null);
+    setLoading3b(true); setLoadingSales(true); setLoadingPurch(true); setLoadingPreflight(true); setLoadingInward(true);
 
-    const [rPre, r3b, rSales, rPurch] = await Promise.allSettled([
-      api.get<PreflightData>('/reports/gst/preflight',        { params }),
-      api.get<GSTR3BData>('/reports/gst/gstr3b',              { params }),
-      api.get<SalesData> ('/reports/gst/sales-register',      { params }),
-      api.get<PurchaseData>('/reports/gst/purchase-register', { params }),
+    const [rPre, r3b, rSales, rPurch, rInward] = await Promise.allSettled([
+      api.get<PreflightData>('/reports/gst/preflight',           { params }),
+      api.get<GSTR3BData>('/reports/gst/gstr3b',                 { params }),
+      api.get<SalesData> ('/reports/gst/sales-register',         { params }),
+      api.get<PurchaseData>('/reports/gst/purchase-register',    { params }),
+      api.get<InwardData>('/reports/gst/inward-supplies',        { params }),
     ]);
 
-    if (rPre.status   === 'fulfilled') setPreflight(rPre.value.data);
+    if (rPre.status    === 'fulfilled') setPreflight(rPre.value.data);
     setLoadingPreflight(false);
 
-    if (r3b.status    === 'fulfilled') setGstr3b(r3b.value.data);
+    if (r3b.status     === 'fulfilled') setGstr3b(r3b.value.data);
     else setError('Failed to load GSTR-3B data');
     setLoading3b(false);
 
-    if (rSales.status === 'fulfilled') setSalesData(rSales.value.data);
+    if (rSales.status  === 'fulfilled') setSalesData(rSales.value.data);
     setLoadingSales(false);
 
-    if (rPurch.status === 'fulfilled') setPurchData(rPurch.value.data);
+    if (rPurch.status  === 'fulfilled') setPurchData(rPurch.value.data);
     setLoadingPurch(false);
+
+    if (rInward.status === 'fulfilled') setInwardData(rInward.value.data);
+    setLoadingInward(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month, year]);
 
   const yearRange = [2024, 2025, 2026, 2027];
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: 'gstr3b',   label: 'GSTR-3B Summary'  },
-    { id: 'sales',    label: 'Sales Register'    },
-    { id: 'purchase', label: 'Purchase Register' },
-    { id: 'hsn',      label: 'HSN + GSTR-1'     },
+    { id: 'gstr3b',   label: 'GSTR-3B Summary'           },
+    { id: 'sales',    label: 'Sales Register'             },
+    { id: 'purchase', label: 'Purchase Register'          },
+    { id: 'hsn',      label: 'HSN + GSTR-1'              },
+    { id: 'inward',   label: 'Inward Supplies (GSTR-2)'  },
   ];
 
-  const hasData = gstr3b || salesData || purchData;
-  const period  = gstr3b?.period ?? salesData?.period ?? purchData?.period ?? '';
+  const hasData = gstr3b || salesData || purchData || inwardData;
+  const period  = gstr3b?.period ?? salesData?.period ?? purchData?.period ?? inwardData?.period ?? '';
 
   return (
     <>
@@ -353,10 +381,10 @@ export default function GstReportsPage() {
             </div>
             <button
               onClick={generate}
-              disabled={loading3b || loadingSales || loadingPurch}
+              disabled={loading3b || loadingSales || loadingPurch || loadingInward}
               className="px-5 py-2 bg-[#1B4F8A] text-white text-sm font-semibold rounded-lg hover:bg-[#163f6e] disabled:opacity-60 transition-colors flex items-center gap-2"
             >
-              {(loading3b || loadingSales || loadingPurch) && <Loader2 className="w-4 h-4 animate-spin" />}
+              {(loading3b || loadingSales || loadingPurch || loadingInward) && <Loader2 className="w-4 h-4 animate-spin" />}
               Generate Reports
             </button>
             {period && (
@@ -988,6 +1016,156 @@ export default function GstReportsPage() {
                       />
                     </div>
                   </>
+                )}
+              </div>
+            )}
+            {/* ── TAB 5: Inward Supplies (GSTR-2) ─────────────────────────── */}
+            {tab === 'inward' && (
+              <div className="space-y-4">
+                {loadingInward ? (
+                  <div className="flex items-center justify-center py-12 text-gray-400">
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading Inward Supplies…
+                  </div>
+                ) : inwardData ? (
+                  <>
+                    {/* Header + Download */}
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                        One row per GST rate slab per invoice — matches <strong>GSTR-2 Inward Supplies</strong> format.
+                        Cross-verify ITC with <strong>GSTR-2B</strong> before filing.
+                      </div>
+                      <button
+                        onClick={() => downloadBlob(
+                          '/reports/gst/inward-supplies/excel',
+                          `GSTR2_Inward_Supplies_${MONTH_ABBR[month-1]}_${year}.xlsx`,
+                          params
+                        )}
+                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#1B4F8A] rounded-lg hover:bg-[#163f6e]"
+                      >
+                        <Download className="w-4 h-4" /> Download GSTR-2 Excel
+                      </button>
+                    </div>
+
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                        <p className="text-xs font-medium text-green-700 uppercase tracking-wide">Eligible ITC</p>
+                        <p className="text-xs text-green-600 mt-0.5">{inwardData.summary.eligibleGrns} GRNs · GSTR-3B Table 4</p>
+                        <p className="text-xl font-bold text-green-800 mt-1">₹{inr(inwardData.summary.eligibleITC)}</p>
+                        <p className="text-xs text-green-600 mt-0.5">Taxable: ₹{inr(inwardData.summary.eligibleTaxable)}</p>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Exempt / Nil-Rated</p>
+                        <p className="text-xs text-amber-600 mt-0.5">{inwardData.summary.exemptGrns} GRNs · GSTR-3B Table 5</p>
+                        <p className="text-xl font-bold text-amber-800 mt-1">₹{inr(inwardData.summary.exemptTaxable)}</p>
+                        <p className="text-xs text-amber-600 mt-0.5">No ITC — exempted goods</p>
+                      </div>
+                      <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                        <p className="text-xs font-medium text-red-700 uppercase tracking-wide">Ineligible — Sec 17(5)</p>
+                        <p className="text-xs text-red-600 mt-0.5">{inwardData.summary.ineligibleGrns} GRNs · GSTR-3B Table 4D2</p>
+                        <p className="text-xl font-bold text-red-800 mt-1">₹{inr(inwardData.summary.ineligibleITC)}</p>
+                        <p className="text-xs text-red-600 mt-0.5">Blocked ITC · disclosure only</p>
+                      </div>
+                    </div>
+
+                    {/* Inward Supplies Table */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-800">
+                            Inward Supplies Register — {inwardData.period}
+                          </h3>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {inwardData.summary.totalGrns} GRNs · {inwardData.summary.totalRows} rate-wise rows
+                          </p>
+                        </div>
+                        <span className="text-xs text-gray-400 font-mono">{inwardData.businessGstin}</span>
+                      </div>
+
+                      {inwardData.rows.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-8">No approved GRNs for this period.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead className="bg-[#1B4F8A] text-white">
+                              <tr>
+                                {[
+                                  'GSTIN/UIN','Party Name','Invoice No.','Invoice Date',
+                                  'Invoice Value','Rate','Taxable Value',
+                                  'IGST','CGST','SGST','Cess','Place of Supply','ITC',
+                                ].map((h) => (
+                                  <th key={h} className={`px-2 py-2 font-semibold whitespace-nowrap ${
+                                    ['GSTIN/UIN','Party Name','Invoice No.','Invoice Date','Place of Supply','ITC'].includes(h)
+                                      ? 'text-left' : 'text-right'
+                                  }`}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {inwardData.rows.map((r, i) => (
+                                <tr key={i} className={`hover:bg-gray-50 ${
+                                  r.itcEligibility === 'EXEMPT' ? 'bg-amber-50' :
+                                  r.itcEligibility === 'NOT_ELIGIBLE' ? 'bg-red-50' : ''
+                                }`}>
+                                  <td className="px-2 py-2 font-mono text-gray-500 text-[10px]">{r.supplierGstin || '—'}</td>
+                                  <td className="px-2 py-2 text-gray-800 max-w-[120px] truncate">{r.supplierName}</td>
+                                  <td className="px-2 py-2 font-mono text-gray-900">{r.invoiceNumber}</td>
+                                  <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{r.invoiceDate}</td>
+                                  <td className="px-2 py-2 text-right tabular-nums">{inr(r.invoiceValue)}</td>
+                                  <td className="px-2 py-2 text-right font-semibold">
+                                    {r.gstRate === 0 ? <span className="text-amber-600">0%</span> : `${r.gstRate}%`}
+                                  </td>
+                                  <td className="px-2 py-2 text-right tabular-nums">{inr(r.taxableValue)}</td>
+                                  <td className="px-2 py-2 text-right tabular-nums">{inr(r.igstAmount)}</td>
+                                  <td className="px-2 py-2 text-right tabular-nums">{inr(r.cgstAmount)}</td>
+                                  <td className="px-2 py-2 text-right tabular-nums">{inr(r.sgstAmount)}</td>
+                                  <td className="px-2 py-2 text-right tabular-nums">{inr(r.cessAmount)}</td>
+                                  <td className="px-2 py-2 text-gray-600 max-w-[100px] truncate">{r.placeOfSupply}</td>
+                                  <td className="px-2 py-2">
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                                      r.itcEligibility === 'ELIGIBLE'     ? 'bg-green-100 text-green-700' :
+                                      r.itcEligibility === 'EXEMPT'       ? 'bg-amber-100 text-amber-700' :
+                                                                             'bg-red-100 text-red-600'
+                                    }`}>
+                                      {r.itcEligibility === 'ELIGIBLE' ? 'Eligible' :
+                                       r.itcEligibility === 'EXEMPT'   ? 'Exempt' : 'Blocked'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-gray-50 font-semibold text-xs text-gray-700 border-t border-gray-200">
+                              <tr>
+                                <td colSpan={4} className="px-2 py-2">Total ({inwardData.summary.totalRows} rows)</td>
+                                <td className="px-2 py-2 text-right tabular-nums">
+                                  {inr(inwardData.rows.reduce((s,r)=>s+r.invoiceValue,0))}
+                                </td>
+                                <td />
+                                <td className="px-2 py-2 text-right tabular-nums">
+                                  {inr(inwardData.rows.reduce((s,r)=>s+r.taxableValue,0))}
+                                </td>
+                                <td className="px-2 py-2 text-right tabular-nums">
+                                  {inr(inwardData.rows.reduce((s,r)=>s+r.igstAmount,0))}
+                                </td>
+                                <td className="px-2 py-2 text-right tabular-nums">
+                                  {inr(inwardData.rows.reduce((s,r)=>s+r.cgstAmount,0))}
+                                </td>
+                                <td className="px-2 py-2 text-right tabular-nums">
+                                  {inr(inwardData.rows.reduce((s,r)=>s+r.sgstAmount,0))}
+                                </td>
+                                <td className="px-2 py-2 text-right tabular-nums">
+                                  {inr(inwardData.rows.reduce((s,r)=>s+r.cessAmount,0))}
+                                </td>
+                                <td colSpan={2} />
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-400 text-center py-8">No inward supplies data.</p>
                 )}
               </div>
             )}
