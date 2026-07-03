@@ -67,8 +67,8 @@ function GstPublicContent() {
               <p className="text-blue-200 text-xs">Shared read-only view · Valid 30 days from generation</p>
             </div>
           </div>
-          {gstr3b && (
-            <span className="text-sm text-blue-100 font-mono">{gstr3b.businessGstin ?? ''}</span>
+          {inward?.businessGstin && (
+            <span className="text-sm text-blue-100 font-mono">{inward.businessGstin}</span>
           )}
         </div>
       </div>
@@ -88,7 +88,7 @@ function GstPublicContent() {
             <label className="block text-xs text-gray-500 mb-1">Year</label>
             <select value={year} onChange={(e) => setYear(Number(e.target.value))}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none">
-              {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
+              {(() => { const cy = new Date().getFullYear(); return [cy-1, cy, cy+1]; })().map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
           <button onClick={load} disabled={loading}
@@ -182,15 +182,15 @@ function GstPublicContent() {
                   </button>
                 </div>
                 <div className="grid grid-cols-3 divide-x divide-gray-100">
-                  {[
-                    { label: 'Eligible ITC',      sub: 'GSTR-3B Table 4',     value: inward.summary?.eligibleITC,      grns: inward.summary?.eligibleGrns,    color: 'green' },
-                    { label: 'Exempt / Nil-Rated', sub: 'GSTR-3B Table 5',     value: inward.summary?.exemptTaxable,    grns: inward.summary?.exemptGrns,      color: 'amber' },
-                    { label: 'Ineligible — 17(5)', sub: 'Table 4D(2) disclose', value: inward.summary?.ineligibleITC,   grns: inward.summary?.ineligibleGrns,  color: 'red'   },
-                  ].map(({ label, sub, value, grns, color }) => (
+                  {([
+                    { label: 'Eligible ITC',       sub: 'GSTR-3B Table 4',      value: inward.summary?.eligibleITC,   grns: inward.summary?.eligibleGrns,   head: 'text-green-700', amt: 'text-green-800' },
+                    { label: 'Exempt / Nil-Rated', sub: 'GSTR-3B Table 5',      value: inward.summary?.exemptTaxable, grns: inward.summary?.exemptGrns,     head: 'text-amber-700', amt: 'text-amber-800' },
+                    { label: 'Ineligible — 17(5)', sub: 'Table 4D(2) disclose', value: inward.summary?.ineligibleITC, grns: inward.summary?.ineligibleGrns, head: 'text-red-700',   amt: 'text-red-800'   },
+                  ] as const).map(({ label, sub, value, grns, head, amt }) => (
                     <div key={label} className="p-5">
-                      <p className={`text-xs font-semibold text-${color}-700 uppercase tracking-wide`}>{label}</p>
+                      <p className={`text-xs font-semibold ${head} uppercase tracking-wide`}>{label}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{sub} · {grns} GRNs</p>
-                      <p className={`text-xl font-bold text-${color}-800 mt-2`}>₹{inr(value ?? 0)}</p>
+                      <p className={`text-xl font-bold ${amt} mt-2`}>₹{inr(value ?? 0)}</p>
                     </div>
                   ))}
                 </div>

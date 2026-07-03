@@ -5,6 +5,7 @@ import { Download, FileJson, Loader2, AlertCircle, Info, CheckCircle, AlertTrian
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
+import toast from 'react-hot-toast';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine,
@@ -353,14 +354,15 @@ export default function GstReportsPage() {
   async function handleShare() {
     try {
       const res = await api.post('/reports/gst/share-link', { expiryDays: 30 });
-      const { token, expiresAt } = res.data;
+      const { token } = res.data;
       const url = `${window.location.origin}/gst-public?token=${token}&month=${month}&year=${year}`;
       setShareLink(url);
       await navigator.clipboard.writeText(url);
       setShareCopied(true);
+      toast.success('Link copied to clipboard — valid 30 days');
       setTimeout(() => setShareCopied(false), 3000);
     } catch {
-      alert('Failed to generate share link. Please try again.');
+      toast.error('Failed to generate share link. Please try again.');
     }
   }
 
@@ -424,10 +426,10 @@ export default function GstReportsPage() {
             </div>
             <button
               onClick={generate}
-              disabled={loading3b || loadingSales || loadingPurch || loadingInward}
+              disabled={loading3b || loadingSales || loadingPurch || loadingInward || loadingTrend || loadingPreflight}
               className="px-5 py-2 bg-[#1B4F8A] text-white text-sm font-semibold rounded-lg hover:bg-[#163f6e] disabled:opacity-60 transition-colors flex items-center gap-2"
             >
-              {(loading3b || loadingSales || loadingPurch || loadingInward) && <Loader2 className="w-4 h-4 animate-spin" />}
+              {(loading3b || loadingSales || loadingPurch || loadingInward || loadingTrend || loadingPreflight) && <Loader2 className="w-4 h-4 animate-spin" />}
               Generate Reports
             </button>
             {hasData && (
@@ -1099,18 +1101,18 @@ export default function GstReportsPage() {
                   <>
                     {/* FY Summary Cards */}
                     <div className="grid grid-cols-4 gap-3">
-                      {[
-                        { label: 'Total Taxable Sales',  value: trendData.totals.taxableOutward, color: 'blue',  icon: <TrendingUp className="w-4 h-4" /> },
-                        { label: 'Total Tax Collected',  value: trendData.totals.totalTaxOut,    color: 'indigo', icon: <TrendingUp className="w-4 h-4" /> },
-                        { label: 'Total ITC Claimed',    value: trendData.totals.eligibleITC,    color: 'green',  icon: <TrendingDown className="w-4 h-4" /> },
-                        { label: 'Total Net Payable',    value: trendData.totals.netPayable,     color: 'red',    icon: <TrendingUp className="w-4 h-4" /> },
-                      ].map(({ label, value, color, icon }) => (
-                        <div key={label} className={`bg-${color}-50 border border-${color}-200 rounded-xl p-4`}>
-                          <div className={`flex items-center gap-1.5 text-${color}-600 mb-1`}>
+                      {([
+                        { label: 'Total Taxable Sales', value: trendData.totals.taxableOutward, wrap: 'bg-blue-50 border-blue-200',   text: 'text-blue-600',   bold: 'text-blue-800',   icon: <TrendingUp className="w-4 h-4" /> },
+                        { label: 'Total Tax Collected',  value: trendData.totals.totalTaxOut,    wrap: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-600', bold: 'text-indigo-800', icon: <TrendingUp className="w-4 h-4" /> },
+                        { label: 'Total ITC Claimed',    value: trendData.totals.eligibleITC,    wrap: 'bg-green-50 border-green-200',  text: 'text-green-600',  bold: 'text-green-800',  icon: <TrendingDown className="w-4 h-4" /> },
+                        { label: 'Total Net Payable',    value: trendData.totals.netPayable,     wrap: 'bg-red-50 border-red-200',      text: 'text-red-600',    bold: 'text-red-800',    icon: <TrendingUp className="w-4 h-4" /> },
+                      ] as const).map(({ label, value, wrap, text, bold, icon }) => (
+                        <div key={label} className={`${wrap} border rounded-xl p-4`}>
+                          <div className={`flex items-center gap-1.5 ${text} mb-1`}>
                             {icon}
                             <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
                           </div>
-                          <p className={`text-xl font-bold text-${color}-800`}>₹{inr(value)}</p>
+                          <p className={`text-xl font-bold ${bold}`}>₹{inr(value)}</p>
                           <p className="text-xs text-gray-500 mt-0.5">{trendData.fyLabel}</p>
                         </div>
                       ))}

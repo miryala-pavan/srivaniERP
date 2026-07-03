@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
+import * as crypto from 'crypto';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1522,7 +1523,7 @@ export class GstReportsService {
 
   async getGstTrend(businessId: string, fyYear: number) {
     const fyStart = new Date(fyYear, 3, 1);           // Apr 1
-    const fyEnd   = new Date(fyYear + 1, 2, 31, 23, 59, 59); // Mar 31
+    const fyEnd   = new Date(fyYear + 1, 2, 31, 23, 59, 59, 999); // Mar 31 end-of-day
 
     const [bills, purchases] = await Promise.all([
       this.prisma.salesBill.findMany({
@@ -1582,7 +1583,7 @@ export class GstReportsService {
       const key = d.getFullYear() * 100 + (d.getMonth() + 1);
       const e   = monthMap.get(key);
       if (!e) continue;
-      if (p.itcEligibility !== 'NOT_ELIGIBLE') {
+      if (p.itcEligibility === 'ELIGIBLE') {
         e.eligibleITC = r2(e.eligibleITC + Number(p.cgstTotal ?? 0) + Number(p.sgstTotal ?? 0) + Number(p.igstTotal ?? 0) + Number(p.cessTotal ?? 0));
       }
       e.grnCount++;
@@ -1609,27 +1610,41 @@ export class GstReportsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   generateShareLink(businessId: string, expiryDays = 30): { token: string; expiresAt: string } {
-    const crypto  = require('crypto');
+    const secret = process.env.JWT_SECRET;
+    if (!secret) throw new Error('JWT_SECRET env var is not set — cannot generate share link');
     const expiry  = Date.now() + expiryDays * 86400_000;
     const payload = JSON.stringify({ businessId, expiry, t: 'gst-share' });
-    const secret  = process.env.JWT_SECRET || 'gst-share-secret';
-    const sig     = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-    const token   = Buffer.from(payload).toString('base64url') + '.' + sig;
-    return { token, expiresAt: new Date(expiry).toISOString() };
+    const enc     = Buffer.from(payload).toString('base64url');
+    const sig     = crypto.createHmac('sha256', secret).update(enc).digest('hex');
+    return { token: `${enc}.${sig}`, expiresAt: new Date(expiry).toISOString() };
   }
 
   verifyShareToken(token: string): string {
-    const crypto = require('crypto');
-    const parts  = token.split('.');
-    if (parts.length !== 2) throw new Error('Invalid token');
-    const [enc, sig] = parts;
-    const payload    = Buffer.from(enc, 'base64url').toString();
-    const secret     = process.env.JWT_SECRET || 'gst-share-secret';
-    const expected   = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-    if (sig !== expected) throw new Error('Invalid signature');
-    const { businessId, expiry, t } = JSON.parse(payload);
-    if (t !== 'gst-share') throw new Error('Wrong token type');
-    if (Date.now() > expiry)  throw new Error('Token expired');
+    const secret = process.env.JWT_SECRET;
+    if (!secret) throw new UnauthorizedException('Server misconfiguration');
+
+    // Split on last `.` — sig is always 64 hex chars
+    const dot = token.lastIndexOf('.');
+    if (dot < 1) throw new UnauthorizedException('Invalid share token');
+    const enc      = token.slice(0, dot);
+    const sig      = token.slice(dot + 1);
+    const expected = crypto.createHmac('sha256', secret).update(enc).digest('hex');
+
+    // Constant-time comparison to prevent timing attacks
+    const sigBuf      = Buffer.from(sig.padEnd(64, '0'));
+    const expectedBuf = Buffer.from(expected);
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+      throw new UnauthorizedException('Invalid share token');
+    }
+
+    let parsed: any;
+    try { parsed = JSON.parse(Buffer.from(enc, 'base64url').toString()); }
+    catch { throw new UnauthorizedException('Malformed share token'); }
+
+    const { businessId, expiry, t } = parsed;
+    if (t !== 'gst-share')     throw new UnauthorizedException('Invalid share token');
+    if (Date.now() > expiry)   throw new UnauthorizedException('Share link has expired');
+    if (!businessId)           throw new UnauthorizedException('Invalid share token');
     return businessId as string;
   }
 }
