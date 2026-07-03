@@ -84,6 +84,16 @@ model Business {
   repackSessions      RepackSession[]
   purchaseOrders      PurchaseOrder[]
 
+  // IT Accounting Module
+  itProfile           ItProfile?
+  fixedAssets         FixedAsset[]
+  capitalAccounts     CapitalAccount[]
+  businessLoans       BusinessLoan[]
+  tdsEntries          TdsEntry[]
+  advanceTaxPayments  AdvanceTaxPayment[]
+  itReturns           ItReturn[]
+  itFilingRecords     ItFilingRecord[]
+
   @@map("business")
 }
 
@@ -1920,4 +1930,574 @@ model PurchaseOrderItem {
   @@index([poId])
   @@index([productId])
   @@map("purchase_order_item")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IT ACCOUNTING MODULE
+// Covers: All Indian entity types, both tax regimes, full compliance
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── ENUMS ──────────────────────────────────────────────────────────
+
+enum EntityType {
+  PROPRIETORSHIP
+  PARTNERSHIP
+  LLP
+  HUF
+  PRIVATE_LTD   // v2 — schema ready, computation not yet built
+  PUBLIC_LTD    // v2
+}
+
+enum TaxRegimePreference {
+  OLD
+  NEW
+  COMPUTE_BOTH  // system computes both and recommends lower
+}
+
+enum AssetClass {
+  PLANT_MACHINERY      // 15% IT Act depreciation
+  FURNITURE_FITTINGS   // 10%
+  COMPUTER_SOFTWARE    // 40%
+  VEHICLE_COMMERCIAL   // 30%
+  VEHICLE_PERSONAL     // 15%
+  BUILDING_RESIDENTIAL // 5%
+  BUILDING_COMMERCIAL  // 10%
+  ELECTRICAL           // 15%
+  INTANGIBLE           // 25%
+  OTHER                // manual rate
+}
+
+enum AssetStatus {
+  ACTIVE
+  DISPOSED
+  WRITTEN_OFF
+}
+
+enum CapitalTxnType {
+  INTRODUCED          // owner brings in cash/assets
+  WITHDRAWAL          // drawings
+  INTEREST_CREDITED   // interest on capital per partnership deed
+  SALARY_CREDITED     // partner salary per deed
+  PROFIT_SHARE        // year-end profit allocation
+  LOSS_SHARE          // year-end loss allocation
+}
+
+enum LoanType {
+  BANK_TERM
+  CASH_CREDIT         // CC account
+  OVERDRAFT           // OD account
+  VEHICLE_LOAN
+  PROPERTY_LOAN
+  PERSONAL_LOAN       // from individual/family
+  NBFC
+  OTHER
+}
+
+enum LoanStatus {
+  ACTIVE
+  CLOSED
+  NPA
+}
+
+enum TdsSection {
+  S192    // Salary
+  S194A   // Interest (not securities)
+  S194C   // Contractors/sub-contractors
+  S194D   // Insurance commission
+  S194H   // Commission/brokerage
+  S194I   // Rent (plant/machinery/land/building)
+  S194IB  // Rent >50k/month by individual/HUF
+  S194J   // Professional/technical fees
+  S194LA  // Compensation on transfer of immovable property
+  S194M   // Payment to contractor/professional by individual/HUF
+  S194N   // Cash withdrawal >1Cr from bank
+  S194Q   // Purchase of goods >50L
+  OTHER
+}
+
+enum TdsStatus {
+  PENDING_DEPOSIT
+  DEPOSITED
+  OVERDUE
+  WAIVED             // below threshold, no obligation
+}
+
+enum AdvanceTaxInstallment {
+  Q1_JUNE_15         // 15% by 15 June
+  Q2_SEP_15          // 45% cumulative by 15 Sep
+  Q3_DEC_15          // 75% cumulative by 15 Dec
+  Q4_MAR_15          // 100% cumulative by 15 Mar
+}
+
+enum ItReturnStatus {
+  DRAFT
+  DATA_COLLECTION
+  CA_REVIEW
+  OWNER_RESPONSE_PENDING
+  READY_TO_FILE
+  FILED
+  PROCESSED_REFUND
+  PROCESSED_DEMAND
+  REVISED
+}
+
+enum CaIssueSeverity {
+  CRITICAL     // must fix before filing
+  WARNING      // should fix, CA judgement call
+  INFO         // FYI, no action needed
+}
+
+enum CaIssueStatus {
+  OPEN
+  OWNER_RESPONDED
+  CA_VERIFIED
+  RESOLVED
+  WAIVED
+}
+
+enum Form26ASSection {
+  PART_A      // TDS on salary
+  PART_A1     // TDS on income other than salary where TDS is less
+  PART_A2     // TDS on sale of immovable property
+  PART_B      // TCS
+  PART_C      // Tax paid (advance/self-assessment)
+  PART_D      // Paid refunds
+  PART_E      // SFT — high value transactions
+  PART_F      // TDS on sale/rent of immovable property
+  PART_G      // TDS defaults
+  OTHER
+}
+
+// ─── ENTITY / IT PROFILE ────────────────────────────────────────────
+// 1:1 with Business. Stores IT-specific fields that vary per entity type.
+
+model ItProfile {
+  id                   String               @id @default(cuid())
+  businessId           String               @unique
+  entityType           EntityType           @default(PROPRIETORSHIP)
+  taxRegimePref        TaxRegimePreference  @default(COMPUTE_BOTH)
+
+  // Proprietorship — same PAN as owner, stored in Business.pan
+  // Partnership / LLP — firm PAN in Business.pan, TAN in Business.tan
+  // HUF — HUF PAN separate from karta's individual PAN
+  hufKartaName         String?
+  hufKartaPan          String?
+
+  // Books of accounts method
+  booksMethod          String  @default("MERCANTILE") // MERCANTILE | CASH
+
+  // Audit flags (auto-computed, stored for quick reference)
+  isTaxAuditRequired   Boolean @default(false)  // turnover > 1Cr (or 10Cr digital)
+  isGstAuditRequired   Boolean @default(false)  // turnover > 2Cr
+
+  // ERI integration (future)
+  eriRegistered        Boolean @default(false)
+  eriToken             String?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business   Business          @relation(fields: [businessId], references: [id])
+  partners   BusinessPartner[]
+
+  @@map("it_profile")
+}
+
+// ─── PARTNERS / MEMBERS ─────────────────────────────────────────────
+// For Partnership, LLP, HUF co-parceners
+
+model BusinessPartner {
+  id              String    @id @default(cuid())
+  itProfileId     String
+  name            String
+  pan             String?
+  designation     String?   // "Managing Partner", "Karta", "Designated Partner"
+  profitSharePct  Decimal   @db.Decimal(5, 2)  // e.g. 50.00
+  lossSharePct    Decimal   @db.Decimal(5, 2)
+  interestOnCapPct Decimal  @db.Decimal(5, 2) @default(0) // % per annum per deed
+  salaryPerYear   Decimal   @db.Decimal(15, 2) @default(0)
+  joiningDate     DateTime?
+  exitDate        DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  itProfile       ItProfile @relation(fields: [itProfileId], references: [id])
+
+  @@index([itProfileId])
+  @@map("business_partner")
+}
+
+// ─── FIXED ASSET REGISTER ───────────────────────────────────────────
+
+model FixedAsset {
+  id                String      @id @default(cuid())
+  businessId        String
+  assetCode         String?     // internal code e.g. "FA-001"
+  name              String
+  description       String?
+  assetClass        AssetClass
+  customDepnRate    Decimal?    @db.Decimal(5, 2)  // overrides class rate when assetClass=OTHER
+  location          String?     // branch/store location
+
+  purchaseDate      DateTime
+  invoiceNo         String?
+  vendorName        String?
+  originalCost      Decimal     @db.Decimal(15, 2)
+  openingWDV        Decimal?    @db.Decimal(15, 2)  // WDV when first entered if mid-life asset
+  openingFY         String?     // FY from which we start tracking e.g. "2024-25"
+
+  status            AssetStatus @default(ACTIVE)
+  disposalDate      DateTime?
+  disposalValue     Decimal?    @db.Decimal(15, 2)
+  disposalReason    String?
+
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  business          Business              @relation(fields: [businessId], references: [id])
+  depreciations     AssetDepreciation[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@map("fixed_asset")
+}
+
+// Auto-computed each FY. One row per asset per FY.
+model AssetDepreciation {
+  id              String    @id @default(cuid())
+  assetId         String
+  financialYear   String    // "2024-25"
+  openingWDV      Decimal   @db.Decimal(15, 2)
+  additions       Decimal   @db.Decimal(15, 2) @default(0)   // purchased during year
+  disposals       Decimal   @db.Decimal(15, 2) @default(0)   // WDV of disposed assets
+  depreciationPct Decimal   @db.Decimal(5, 2)
+  depreciationAmt Decimal   @db.Decimal(15, 2)
+  closingWDV      Decimal   @db.Decimal(15, 2)
+
+  // IT Act special: 50% depreciation in year of purchase if bought after 3 Oct
+  halfYearRule    Boolean   @default(false)
+
+  asset           FixedAsset @relation(fields: [assetId], references: [id])
+
+  @@unique([assetId, financialYear])
+  @@index([assetId])
+  @@map("asset_depreciation")
+}
+
+// ─── CAPITAL ACCOUNTS ───────────────────────────────────────────────
+// One account per owner / partner. Tracks all capital movements.
+
+model CapitalAccount {
+  id            String    @id @default(cuid())
+  businessId    String
+  ownerName     String
+  pan           String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  business      Business          @relation(fields: [businessId], references: [id])
+  transactions  CapitalTransaction[]
+
+  @@index([businessId])
+  @@map("capital_account")
+}
+
+model CapitalTransaction {
+  id               String          @id @default(cuid())
+  capitalAccountId String
+  financialYear    String
+  date             DateTime
+  type             CapitalTxnType
+  amount           Decimal         @db.Decimal(15, 2)
+  description      String?
+  bankTxnId        String?         // link to BankTransaction if paid via bank
+  createdAt        DateTime        @default(now())
+
+  account          CapitalAccount  @relation(fields: [capitalAccountId], references: [id])
+
+  @@index([capitalAccountId])
+  @@index([capitalAccountId, financialYear])
+  @@map("capital_transaction")
+}
+
+// ─── LOANS & LIABILITIES ────────────────────────────────────────────
+
+model BusinessLoan {
+  id                String     @id @default(cuid())
+  businessId        String
+  lenderName        String
+  loanType          LoanType
+  accountNumber     String?
+  sanctionedAmount  Decimal    @db.Decimal(15, 2)
+  disbursedDate     DateTime
+  maturityDate      DateTime?
+  interestRatePct   Decimal    @db.Decimal(5, 2)   // annual rate
+  interestType      String     @default("REDUCING")  // REDUCING | FLAT
+  moratoriumMonths  Int        @default(0)
+  currentBalance    Decimal    @db.Decimal(15, 2)
+  status            LoanStatus @default(ACTIVE)
+  collateral        String?
+  notes             String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  business          Business       @relation(fields: [businessId], references: [id])
+  repayments        LoanRepayment[]
+
+  @@index([businessId])
+  @@map("business_loan")
+}
+
+model LoanRepayment {
+  id            String    @id @default(cuid())
+  loanId        String
+  date          DateTime
+  principalPaid Decimal   @db.Decimal(15, 2)
+  interestPaid  Decimal   @db.Decimal(15, 2)
+  penaltyPaid   Decimal   @db.Decimal(15, 2) @default(0)
+  totalPaid     Decimal   @db.Decimal(15, 2)
+  balanceAfter  Decimal   @db.Decimal(15, 2)
+  bankTxnId     String?   // link to BankTransaction
+  challanRef    String?
+  createdAt     DateTime  @default(now())
+
+  loan          BusinessLoan @relation(fields: [loanId], references: [id])
+
+  @@index([loanId])
+  @@map("loan_repayment")
+}
+
+// ─── TDS MANAGEMENT ─────────────────────────────────────────────────
+// Auto-created when a qualifying payment is made. Manual deposit tracking.
+
+model TdsEntry {
+  id                String     @id @default(cuid())
+  businessId        String
+  financialYear     String
+  section           TdsSection
+  deducteeName      String
+  deducteePan       String?
+  deducteeTan       String?    // for TDS on rent (194I)
+  paymentDate       DateTime
+  paymentAmount     Decimal    @db.Decimal(15, 2)
+  tdsRatePct        Decimal    @db.Decimal(5, 2)
+  tdsAmount         Decimal    @db.Decimal(15, 2)
+  surcharge         Decimal    @db.Decimal(15, 2) @default(0)
+  cess              Decimal    @db.Decimal(15, 2) @default(0)
+  totalTdsAmount    Decimal    @db.Decimal(15, 2)
+  depositDueDate    DateTime   // 7th of following month (Apr 30 for March)
+  status            TdsStatus  @default(PENDING_DEPOSIT)
+  depositedDate     DateTime?
+  bsrCode           String?    // bank branch serial code
+  challanSerial     String?
+  challanAmount     Decimal?   @db.Decimal(15, 2)
+
+  // Source tracking — which payment triggered this
+  sourceType        String?    // SUPPLIER_PAYMENT | EXPENSE | BANK_TXN
+  sourceId          String?
+
+  remarks           String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  business          Business   @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, financialYear])
+  @@index([businessId, status])
+  @@index([businessId, section])
+  @@map("tds_entry")
+}
+
+// ─── ADVANCE TAX ────────────────────────────────────────────────────
+
+model AdvanceTaxPayment {
+  id                String                  @id @default(cuid())
+  businessId        String
+  financialYear     String
+  installment       AdvanceTaxInstallment
+  dueDate           DateTime
+  estimatedTaxFY    Decimal                 @db.Decimal(15, 2)  // total tax estimated for year
+  cumulativePctDue  Decimal                 @db.Decimal(5, 2)   // 15/45/75/100
+  amountDue         Decimal                 @db.Decimal(15, 2)  // cumulative due
+  amountPaid        Decimal                 @db.Decimal(15, 2)  @default(0)
+  shortfall         Decimal                 @db.Decimal(15, 2)  @default(0)
+  interest234C      Decimal                 @db.Decimal(15, 2)  @default(0)  // 1%/month on shortfall
+  paidDate          DateTime?
+  bsrCode           String?                 // manual entry — no IT portal API
+  challanSerial     String?
+  challanAmount     Decimal?                @db.Decimal(15, 2)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  business          Business                @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, financialYear, installment])
+  @@index([businessId, financialYear])
+  @@map("advance_tax_payment")
+}
+
+// ─── INCOME TAX RETURN ──────────────────────────────────────────────
+
+model ItReturn {
+  id                  String          @id @default(cuid())
+  businessId          String
+  financialYear       String          // "2024-25"
+  assessmentYear      String          // "2025-26"
+  itrForm             String          // "ITR-3" | "ITR-4" | "ITR-5"
+
+  // P&L snapshot (auto-computed from ERP)
+  grossTurnover       Decimal?        @db.Decimal(15, 2)
+  gstTurnover         Decimal?        @db.Decimal(15, 2)  // from GSTR
+  turnoverDiff        Decimal?        @db.Decimal(15, 2)  // gst vs books diff
+  grossProfit         Decimal?        @db.Decimal(15, 2)
+  totalExpenses       Decimal?        @db.Decimal(15, 2)
+  netProfitBooks      Decimal?        @db.Decimal(15, 2)
+
+  // IT Act adjustments
+  depreciationBooks   Decimal?        @db.Decimal(15, 2)
+  depreciationItAct   Decimal?        @db.Decimal(15, 2)
+  disallowances40a3   Decimal?        @db.Decimal(15, 2)  // cash payments >10k
+  otherAddbacks       Decimal?        @db.Decimal(15, 2)
+  otherDeductions     Decimal?        @db.Decimal(15, 2)
+  taxableIncomeBusiness Decimal?      @db.Decimal(15, 2)
+
+  // Presumptive option (44AD/44ADA)
+  presumptiveTaxable  Decimal?        @db.Decimal(15, 2)  // 6% or 8% of turnover
+  usePresumptive      Boolean         @default(false)
+
+  // Tax computation
+  regimeOld           Json?           // full old regime breakdown
+  regimeNew           Json?           // full new regime breakdown
+  chosenRegime        String?         // "OLD" | "NEW"
+  taxableIncomeFinal  Decimal?        @db.Decimal(15, 2)
+  taxBeforeCess       Decimal?        @db.Decimal(15, 2)
+  surcharge           Decimal?        @db.Decimal(15, 2)
+  cess                Decimal?        @db.Decimal(15, 2)   // 4%
+  totalTaxPayable     Decimal?        @db.Decimal(15, 2)
+  tdsCreditFrom26as   Decimal?        @db.Decimal(15, 2)
+  advanceTaxPaid      Decimal?        @db.Decimal(15, 2)
+  selfAssessmentTax   Decimal?        @db.Decimal(15, 2)
+  interest234A        Decimal?        @db.Decimal(15, 2)   // late filing
+  interest234B        Decimal?        @db.Decimal(15, 2)   // advance tax shortfall
+  interest234C        Decimal?        @db.Decimal(15, 2)   // installment shortfall
+  netPayable          Decimal?        @db.Decimal(15, 2)
+  refundDue           Decimal?        @db.Decimal(15, 2)
+
+  // Filing details
+  status              ItReturnStatus  @default(DRAFT)
+  filedDate           DateTime?
+  ackNumber           String?         // ITR-V acknowledgment — manual entry
+  filedByName         String?         // CA name who filed
+  itrJson             String?         @db.Text  // generated ITR JSON ready for upload
+  priorItrJson        String?         @db.Text  // uploaded prior year ITR for reference
+
+  // Audit
+  taxAuditRequired    Boolean         @default(false)
+  form3cdData         Json?           // auto-filled Form 3CD clause data
+
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  business            Business        @relation(fields: [businessId], references: [id])
+  caIssues            CaIssueFlag[]
+  form26asUploads     Form26ASUpload[]
+
+  @@unique([businessId, financialYear])
+  @@index([businessId])
+  @@map("it_return")
+}
+
+// ─── CA REVIEW FLAGS ────────────────────────────────────────────────
+
+model CaIssueFlag {
+  id            String          @id @default(cuid())
+  itReturnId    String
+  caUserId      String          // User.id of the CA who raised it
+  caName        String
+  area          String          // "P&L" | "TDS" | "26AS" | "Depreciation" | "Capital" | "Loans" | "Turnover"
+  severity      CaIssueSeverity
+  issue         String          @db.Text
+  details       String?         @db.Text  // supporting numbers / references
+  ownerReply    String?         @db.Text
+  caVerifyNote  String?         @db.Text
+  status        CaIssueStatus   @default(OPEN)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  resolvedAt    DateTime?
+
+  itReturn      ItReturn        @relation(fields: [itReturnId], references: [id])
+
+  @@index([itReturnId])
+  @@index([itReturnId, status])
+  @@map("ca_issue_flag")
+}
+
+// ─── FORM 26AS / AIS UPLOAD ─────────────────────────────────────────
+
+model Form26ASUpload {
+  id              String    @id @default(cuid())
+  itReturnId      String
+  businessId      String
+  financialYear   String
+  uploadedAt      DateTime  @default(now())
+  fileType        String    // "JSON" | "XML" | "PDF"
+  totalTdsCredit  Decimal   @db.Decimal(15, 2) @default(0)
+  totalTcsCredit  Decimal   @db.Decimal(15, 2) @default(0)
+  matchedCount    Int       @default(0)
+  unmatchedCount  Int       @default(0)
+
+  itReturn        ItReturn          @relation(fields: [itReturnId], references: [id])
+  entries         Form26ASEntry[]
+
+  @@index([itReturnId])
+  @@map("form_26as_upload")
+}
+
+model Form26ASEntry {
+  id              String          @id @default(cuid())
+  uploadId        String
+  section         Form26ASSection
+  deductorName    String
+  deductorTan     String?
+  pan             String?
+  transactionDate DateTime?
+  grossAmount     Decimal         @db.Decimal(15, 2)
+  tdsAmount       Decimal         @db.Decimal(15, 2)
+  matched         Boolean         @default(false)
+  matchedTdsId    String?         // TdsEntry.id if matched
+  discrepancy     Decimal?        @db.Decimal(15, 2)
+  notes           String?
+
+  upload          Form26ASUpload  @relation(fields: [uploadId], references: [id])
+
+  @@index([uploadId])
+  @@map("form_26as_entry")
+}
+
+// ─── IT RETURN FILING HISTORY ───────────────────────────────────────
+// For multi-year dashboard — one row per filed return
+
+model ItFilingRecord {
+  id              String    @id @default(cuid())
+  businessId      String
+  financialYear   String
+  assessmentYear  String
+  itrForm         String
+  filedDate       DateTime
+  ackNumber       String
+  grossIncome     Decimal   @db.Decimal(15, 2)
+  taxPaid         Decimal   @db.Decimal(15, 2)
+  refundClaimed   Decimal   @db.Decimal(15, 2) @default(0)
+  demandRaised    Decimal   @db.Decimal(15, 2) @default(0)
+  processingStatus String   @default("FILED") // FILED | PROCESSED | DEMAND | REFUND_ISSUED
+  demandNoticeNo  String?
+  refundDate      DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+
+  business        Business  @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, financialYear])
+  @@index([businessId])
+  @@map("it_filing_record")
 }
