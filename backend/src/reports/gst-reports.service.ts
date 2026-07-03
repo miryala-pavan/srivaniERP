@@ -1515,4 +1515,121 @@ export class GstReportsService {
       _meta,
     };
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // TREND DASHBOARD — 12-month FY summary
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async getGstTrend(businessId: string, fyYear: number) {
+    const fyStart = new Date(fyYear, 3, 1);           // Apr 1
+    const fyEnd   = new Date(fyYear + 1, 2, 31, 23, 59, 59); // Mar 31
+
+    const [bills, purchases] = await Promise.all([
+      this.prisma.salesBill.findMany({
+        where: {
+          businessId,
+          billDate: { gte: fyStart, lte: fyEnd },
+          status:   'FINAL'    as any,
+          isVoided: false,
+          billType: { in: ['TAX_INVOICE', 'RETAIL_INVOICE'] },
+        },
+        select: { billDate: true, taxableAmount: true, cgstTotal: true, sgstTotal: true, igstTotal: true, cessTotal: true, grandTotal: true },
+      }),
+      this.prisma.purchase.findMany({
+        where: {
+          businessId,
+          status:         'APPROVED' as any,
+          excludeFromGst: false,
+          invoiceDate:    { gte: fyStart, lte: fyEnd },
+        },
+        select: { invoiceDate: true, cgstTotal: true, sgstTotal: true, igstTotal: true, cessTotal: true, itcEligibility: true },
+      }),
+    ]);
+
+    type MonthEntry = {
+      month: number; year: number; period: string; shortPeriod: string;
+      taxableOutward: number; totalTaxOut: number; billCount: number;
+      eligibleITC: number; grnCount: number; netPayable: number;
+    };
+
+    const monthMap = new Map<number, MonthEntry>();
+    for (let i = 0; i < 12; i++) {
+      const d  = new Date(fyYear, 3 + i, 1);
+      const m  = d.getMonth() + 1;
+      const y  = d.getFullYear();
+      const key = y * 100 + m;
+      monthMap.set(key, {
+        month: m, year: y,
+        period:      `${MONTH_NAMES[m - 1]} ${y}`,
+        shortPeriod: `${MONTH_NAMES[m - 1].slice(0, 3)} ${String(y).slice(2)}`,
+        taxableOutward: 0, totalTaxOut: 0, billCount: 0,
+        eligibleITC: 0, grnCount: 0, netPayable: 0,
+      });
+    }
+
+    for (const b of bills) {
+      const d   = new Date(b.billDate);
+      const key = d.getFullYear() * 100 + (d.getMonth() + 1);
+      const e   = monthMap.get(key);
+      if (!e) continue;
+      e.taxableOutward = r2(e.taxableOutward + Number(b.taxableAmount ?? 0));
+      e.totalTaxOut    = r2(e.totalTaxOut + Number(b.cgstTotal ?? 0) + Number(b.sgstTotal ?? 0) + Number(b.igstTotal ?? 0) + Number(b.cessTotal ?? 0));
+      e.billCount++;
+    }
+
+    for (const p of purchases) {
+      const d   = new Date(p.invoiceDate);
+      const key = d.getFullYear() * 100 + (d.getMonth() + 1);
+      const e   = monthMap.get(key);
+      if (!e) continue;
+      if (p.itcEligibility !== 'NOT_ELIGIBLE') {
+        e.eligibleITC = r2(e.eligibleITC + Number(p.cgstTotal ?? 0) + Number(p.sgstTotal ?? 0) + Number(p.igstTotal ?? 0) + Number(p.cessTotal ?? 0));
+      }
+      e.grnCount++;
+    }
+
+    const months = Array.from(monthMap.values())
+      .sort((a, b) => (a.year * 100 + a.month) - (b.year * 100 + b.month))
+      .map((e) => ({ ...e, netPayable: r2(Math.max(0, e.totalTaxOut - e.eligibleITC)) }));
+
+    const totals = {
+      taxableOutward: r2(months.reduce((s, m) => s + m.taxableOutward, 0)),
+      totalTaxOut:    r2(months.reduce((s, m) => s + m.totalTaxOut, 0)),
+      eligibleITC:    r2(months.reduce((s, m) => s + m.eligibleITC, 0)),
+      netPayable:     r2(months.reduce((s, m) => s + m.netPayable, 0)),
+      billCount:      months.reduce((s, m) => s + m.billCount, 0),
+      grnCount:       months.reduce((s, m) => s + m.grnCount, 0),
+    };
+
+    return { fyYear, fyLabel: `FY ${fyYear}–${(fyYear + 1).toString().slice(2)}`, months, totals };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SHARE LINK — HMAC-signed token for auditor / CA access
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  generateShareLink(businessId: string, expiryDays = 30): { token: string; expiresAt: string } {
+    const crypto  = require('crypto');
+    const expiry  = Date.now() + expiryDays * 86400_000;
+    const payload = JSON.stringify({ businessId, expiry, t: 'gst-share' });
+    const secret  = process.env.JWT_SECRET || 'gst-share-secret';
+    const sig     = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    const token   = Buffer.from(payload).toString('base64url') + '.' + sig;
+    return { token, expiresAt: new Date(expiry).toISOString() };
+  }
+
+  verifyShareToken(token: string): string {
+    const crypto = require('crypto');
+    const parts  = token.split('.');
+    if (parts.length !== 2) throw new Error('Invalid token');
+    const [enc, sig] = parts;
+    const payload    = Buffer.from(enc, 'base64url').toString();
+    const secret     = process.env.JWT_SECRET || 'gst-share-secret';
+    const expected   = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    if (sig !== expected) throw new Error('Invalid signature');
+    const { businessId, expiry, t } = JSON.parse(payload);
+    if (t !== 'gst-share') throw new Error('Wrong token type');
+    if (Date.now() > expiry)  throw new Error('Token expired');
+    return businessId as string;
+  }
 }

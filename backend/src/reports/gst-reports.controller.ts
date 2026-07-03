@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Query, Req, Res, UseGuards, ParseIntPipe,
+  Controller, Get, Post, Body, Query, Req, Res, UseGuards, ParseIntPipe,
   UseInterceptors, UploadedFile, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -154,5 +154,25 @@ export class GstReportsController {
     @Query('year',  ParseIntPipe) year:  number,
   ) {
     return this.gstReports.getGSTR1Json(req.user.businessId, month, year);
+  }
+
+  // ─── Trend Dashboard ──────────────────────────────────────────────────────
+
+  @Get('trend')
+  getTrend(
+    @Req() req: any,
+    @Query('fyYear', ParseIntPipe) fyYear: number,
+  ) {
+    return this.gstReports.getGstTrend(req.user.businessId, fyYear);
+  }
+
+  // ─── Share Link ───────────────────────────────────────────────────────────
+
+  @Post('share-link')
+  generateShareLink(
+    @Req()  req: any,
+    @Body() body: { expiryDays?: number },
+  ) {
+    return this.gstReports.generateShareLink(req.user.businessId, body.expiryDays ?? 30);
   }
 }

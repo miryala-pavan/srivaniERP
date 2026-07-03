@@ -1,10 +1,14 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Download, FileJson, Loader2, AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Download, FileJson, Loader2, AlertCircle, Info, CheckCircle, AlertTriangle, Share2, Copy, TrendingUp, TrendingDown } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer, ReferenceLine,
+} from 'recharts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -120,6 +124,17 @@ interface InwardData {
     exemptGrns: number; exemptTaxable: number;
     ineligibleGrns: number; ineligibleTaxable: number; ineligibleITC: number;
   };
+}
+
+interface TrendMonth {
+  month: number; year: number; period: string; shortPeriod: string;
+  taxableOutward: number; totalTaxOut: number; billCount: number;
+  eligibleITC: number; grnCount: number; netPayable: number;
+}
+interface TrendData {
+  fyYear: number; fyLabel: string;
+  months: TrendMonth[];
+  totals: { taxableOutward: number; totalTaxOut: number; eligibleITC: number; netPayable: number; billCount: number; grnCount: number };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -266,7 +281,7 @@ function PreflightPanel({ data }: { data: PreflightData }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'gstr3b' | 'sales' | 'purchase' | 'hsn' | 'inward';
+type Tab = 'gstr3b' | 'sales' | 'purchase' | 'hsn' | 'inward' | 'trend';
 type SalesFilter = 'all' | 'b2b' | 'b2cl' | 'b2cs';
 
 export default function GstReportsPage() {
@@ -281,27 +296,37 @@ export default function GstReportsPage() {
   const [loadingPurch,     setLoadingPurch]      = useState(false);
   const [loadingPreflight, setLoadingPreflight]  = useState(false);
   const [loadingInward,    setLoadingInward]     = useState(false);
+  const [loadingTrend,     setLoadingTrend]      = useState(false);
 
   const [gstr3b,     setGstr3b]     = useState<GSTR3BData | null>(null);
   const [salesData,  setSalesData]  = useState<SalesData | null>(null);
   const [purchData,  setPurchData]  = useState<PurchaseData | null>(null);
   const [preflight,  setPreflight]  = useState<PreflightData | null>(null);
   const [inwardData, setInwardData] = useState<InwardData | null>(null);
+  const [trendData,  setTrendData]  = useState<TrendData | null>(null);
   const [error,      setError]      = useState('');
+  const [shareLink,  setShareLink]  = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const params = { month, year };
 
+  // FY year: if month >= 4, fy = year; else fy = year-1  (Apr 2026 = FY2026)
+  const fyYear = month >= 4 ? year : year - 1;
+
   const generate = useCallback(async () => {
     setError('');
-    setGstr3b(null); setSalesData(null); setPurchData(null); setPreflight(null); setInwardData(null);
-    setLoading3b(true); setLoadingSales(true); setLoadingPurch(true); setLoadingPreflight(true); setLoadingInward(true);
+    setGstr3b(null); setSalesData(null); setPurchData(null); setPreflight(null);
+    setInwardData(null); setTrendData(null); setShareLink(null);
+    setLoading3b(true); setLoadingSales(true); setLoadingPurch(true);
+    setLoadingPreflight(true); setLoadingInward(true); setLoadingTrend(true);
 
-    const [rPre, r3b, rSales, rPurch, rInward] = await Promise.allSettled([
+    const [rPre, r3b, rSales, rPurch, rInward, rTrend] = await Promise.allSettled([
       api.get<PreflightData>('/reports/gst/preflight',           { params }),
       api.get<GSTR3BData>('/reports/gst/gstr3b',                 { params }),
       api.get<SalesData> ('/reports/gst/sales-register',         { params }),
       api.get<PurchaseData>('/reports/gst/purchase-register',    { params }),
       api.get<InwardData>('/reports/gst/inward-supplies',        { params }),
+      api.get<TrendData>('/reports/gst/trend',                   { params: { fyYear } }),
     ]);
 
     if (rPre.status    === 'fulfilled') setPreflight(rPre.value.data);
@@ -319,8 +344,25 @@ export default function GstReportsPage() {
 
     if (rInward.status === 'fulfilled') setInwardData(rInward.value.data);
     setLoadingInward(false);
+
+    if (rTrend.status  === 'fulfilled') setTrendData(rTrend.value.data);
+    setLoadingTrend(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month, year]);
+
+  async function handleShare() {
+    try {
+      const res = await api.post('/reports/gst/share-link', { expiryDays: 30 });
+      const { token, expiresAt } = res.data;
+      const url = `${window.location.origin}/gst-public?token=${token}&month=${month}&year=${year}`;
+      setShareLink(url);
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 3000);
+    } catch {
+      alert('Failed to generate share link. Please try again.');
+    }
+  }
 
   const yearRange = [2024, 2025, 2026, 2027];
 
@@ -330,9 +372,10 @@ export default function GstReportsPage() {
     { id: 'purchase', label: 'Purchase Register'          },
     { id: 'hsn',      label: 'HSN + GSTR-1'              },
     { id: 'inward',   label: 'Inward Supplies (GSTR-2)'  },
+    { id: 'trend',    label: 'FY Trend Dashboard'         },
   ];
 
-  const hasData = gstr3b || salesData || purchData || inwardData;
+  const hasData = gstr3b || salesData || purchData || inwardData || trendData;
   const period  = gstr3b?.period ?? salesData?.period ?? purchData?.period ?? inwardData?.period ?? '';
 
   return (
@@ -387,6 +430,15 @@ export default function GstReportsPage() {
               {(loading3b || loadingSales || loadingPurch || loadingInward) && <Loader2 className="w-4 h-4 animate-spin" />}
               Generate Reports
             </button>
+            {hasData && (
+              <button
+                onClick={handleShare}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
+              >
+                {shareCopied ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Share2 className="w-4 h-4" />}
+                {shareCopied ? 'Link Copied!' : 'Share with CA'}
+              </button>
+            )}
             {period && (
               <span className="text-sm text-gray-500 ml-2">
                 Period: <span className="font-medium text-gray-800">{period}</span>
@@ -409,6 +461,23 @@ export default function GstReportsPage() {
           </div>
         )}
         {preflight && <PreflightPanel data={preflight} />}
+
+        {/* Share link banner */}
+        {shareLink && (
+          <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-green-800">Share link generated — valid 30 days</p>
+              <p className="text-xs text-green-600 truncate mt-0.5">{shareLink}</p>
+            </div>
+            <button
+              onClick={async () => { await navigator.clipboard.writeText(shareLink); setShareCopied(true); setTimeout(() => setShareCopied(false), 2000); }}
+              className="flex items-center gap-1 text-xs text-green-700 border border-green-300 rounded px-2 py-1 hover:bg-green-100 shrink-0"
+            >
+              <Copy className="w-3 h-3" /> Copy
+            </button>
+          </div>
+        )}
 
         {!hasData && !loading3b && !loadingSales && !loadingPurch && !loadingPreflight && (
           <div className="text-center py-16 text-gray-400 text-sm">
@@ -1019,6 +1088,114 @@ export default function GstReportsPage() {
                 )}
               </div>
             )}
+            {/* ── TAB 6: FY Trend Dashboard ───────────────────────────────── */}
+            {tab === 'trend' && (
+              <div className="space-y-4">
+                {loadingTrend ? (
+                  <div className="flex items-center justify-center py-12 text-gray-400">
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading trend data…
+                  </div>
+                ) : trendData ? (
+                  <>
+                    {/* FY Summary Cards */}
+                    <div className="grid grid-cols-4 gap-3">
+                      {[
+                        { label: 'Total Taxable Sales',  value: trendData.totals.taxableOutward, color: 'blue',  icon: <TrendingUp className="w-4 h-4" /> },
+                        { label: 'Total Tax Collected',  value: trendData.totals.totalTaxOut,    color: 'indigo', icon: <TrendingUp className="w-4 h-4" /> },
+                        { label: 'Total ITC Claimed',    value: trendData.totals.eligibleITC,    color: 'green',  icon: <TrendingDown className="w-4 h-4" /> },
+                        { label: 'Total Net Payable',    value: trendData.totals.netPayable,     color: 'red',    icon: <TrendingUp className="w-4 h-4" /> },
+                      ].map(({ label, value, color, icon }) => (
+                        <div key={label} className={`bg-${color}-50 border border-${color}-200 rounded-xl p-4`}>
+                          <div className={`flex items-center gap-1.5 text-${color}-600 mb-1`}>
+                            {icon}
+                            <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+                          </div>
+                          <p className={`text-xl font-bold text-${color}-800`}>₹{inr(value)}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{trendData.fyLabel}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Chart */}
+                    <div className="bg-white rounded-xl border border-gray-200 p-5">
+                      <div className="mb-4">
+                        <h3 className="font-semibold text-gray-900">Month-wise GST Trend — {trendData.fyLabel}</h3>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Bars: Taxable sales (blue) · ITC (green) · Line: Net payable (red)
+                        </p>
+                      </div>
+                      <ResponsiveContainer width="100%" height={320}>
+                        <ComposedChart data={trendData.months} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="shortPeriod" tick={{ fontSize: 11 }} />
+                          <YAxis
+                            yAxisId="left"
+                            tick={{ fontSize: 11 }}
+                            tickFormatter={(v) => `₹${v >= 100000 ? `${(v/100000).toFixed(1)}L` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}`}
+                          />
+                          <Tooltip
+                            formatter={(value: any, name: any) => [`₹${inr(Number(value))}`, String(name)]}
+                            labelStyle={{ fontWeight: 600 }}
+                          />
+                          <Legend />
+                          <ReferenceLine yAxisId="left" y={0} stroke="#ccc" />
+                          <Bar yAxisId="left" dataKey="taxableOutward" name="Taxable Sales"  fill="#1B4F8A" opacity={0.85} radius={[3,3,0,0]} />
+                          <Bar yAxisId="left" dataKey="eligibleITC"    name="ITC Claimed"    fill="#10B981" opacity={0.85} radius={[3,3,0,0]} />
+                          <Line yAxisId="left" type="monotone" dataKey="netPayable" name="Net Payable" stroke="#EF4444" strokeWidth={2.5} dot={{ r: 4, fill: '#EF4444' }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Month-wise table */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-gray-100">
+                        <h3 className="text-sm font-semibold text-gray-800">Month-wise Breakdown</h3>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-gray-50 text-gray-500 uppercase tracking-wide">
+                            <tr>
+                              {['Month','Bills','Taxable Sales','Tax Collected','GRNs','ITC Claimed','Net Payable'].map((h) => (
+                                <th key={h} className={`px-3 py-2 font-semibold ${h === 'Month' ? 'text-left' : 'text-right'}`}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {trendData.months.map((m) => (
+                              <tr key={m.period} className={`hover:bg-gray-50 ${m.netPayable > 0 ? '' : 'bg-green-50'}`}>
+                                <td className="px-3 py-2 font-medium text-gray-800">{m.period}</td>
+                                <td className="px-3 py-2 text-right text-gray-600">{m.billCount}</td>
+                                <td className="px-3 py-2 text-right tabular-nums">{inr(m.taxableOutward)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums">{inr(m.totalTaxOut)}</td>
+                                <td className="px-3 py-2 text-right text-gray-600">{m.grnCount}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-green-600">{inr(m.eligibleITC)}</td>
+                                <td className={`px-3 py-2 text-right tabular-nums font-semibold ${m.netPayable > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                  {m.netPayable > 0 ? `₹${inr(m.netPayable)}` : 'Surplus'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-gray-100 font-bold text-xs text-gray-700 border-t-2 border-gray-200">
+                            <tr>
+                              <td className="px-3 py-2">FY Total</td>
+                              <td className="px-3 py-2 text-right">{trendData.totals.billCount}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{inr(trendData.totals.taxableOutward)}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{inr(trendData.totals.totalTaxOut)}</td>
+                              <td className="px-3 py-2 text-right">{trendData.totals.grnCount}</td>
+                              <td className="px-3 py-2 text-right tabular-nums text-green-600">{inr(trendData.totals.eligibleITC)}</td>
+                              <td className="px-3 py-2 text-right tabular-nums text-red-600">{inr(trendData.totals.netPayable)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-400 text-center py-8">No trend data available.</p>
+                )}
+              </div>
+            )}
+
             {/* ── TAB 5: Inward Supplies (GSTR-2) ─────────────────────────── */}
             {tab === 'inward' && (
               <div className="space-y-4">
