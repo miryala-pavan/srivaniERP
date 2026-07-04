@@ -12,6 +12,15 @@ const config: Config = {
         background: "var(--background)",
         foreground: "var(--foreground)",
       },
+      keyframes: {
+        'slide-in-right': {
+          '0%':   { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+      },
+      animation: {
+        'slide-in-right': 'slide-in-right 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+      },
     },
   },
   plugins: [],

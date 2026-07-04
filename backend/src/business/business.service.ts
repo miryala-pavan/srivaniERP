@@ -1,11 +1,15 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { OnboardingService } from '../platform/onboarding/onboarding.service';
 import { SetupDto } from './dto/setup.dto';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 
 @Injectable()
 export class BusinessService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private onboarding: OnboardingService,
+  ) {}
 
   async getSetupStatus() {
     const count = await this.prisma.business.count();
@@ -66,6 +70,9 @@ export class BusinessService {
         isActive: true,
       },
     });
+
+    // Seed CoA, fiscal period, number series, and feature flags for this new business
+    await this.onboarding.runForBusiness(business.id);
 
     return { business, branch, financialYear: fy, message: 'Business setup complete' };
   }

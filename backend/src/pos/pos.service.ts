@@ -19,6 +19,7 @@ import { CloseShiftDto } from './dto/close-shift.dto';
 import { CreateBillDto, PaymentModeEnum } from './dto/create-bill.dto';
 import { BillQueryDto } from './dto/bill-query.dto';
 import { CreateHoldDto } from './dto/create-hold.dto';
+import { JournalBridgeService } from '../platform/journal-bridge/journal-bridge.service';
 
 // ─── Valid GST rates per Indian GST law ───────────────
 const VALID_GST_RATES = new Set([0, 0.1, 0.25, 1.5, 3, 5, 6, 12, 18, 28]);
@@ -70,6 +71,7 @@ export class PosService {
     private auditLog: AuditLogService,
     private shopCache: ShopCacheService,
     private purchaseOrders: PurchaseOrdersService,
+    private journalBridge: JournalBridgeService,
   ) {}
 
   // ─── COUNTER ──────────────────────────────────────────
@@ -763,6 +765,28 @@ export class PosService {
     if (marginWarnings.length > 0) {
       (bill as any).warnings = marginWarnings;
     }
+
+    // Auto-post journal entry — fire-and-forget, never blocks the response
+    if (bill && !isEstimate) {
+      this.journalBridge.postSaleJournal({
+        id:            (bill as any).id,
+        businessId,
+        billNumber:    (bill as any).billNumber,
+        grandTotal:    (bill as any).grandTotal,
+        taxableAmount: (bill as any).taxableAmount,
+        cgstTotal:     (bill as any).cgstTotal,
+        sgstTotal:     (bill as any).sgstTotal,
+        igstTotal:     (bill as any).igstTotal,
+        paymentMode:   (bill as any).paymentMode,
+        saleType:      (bill as any).saleType,
+        paidAmount:    (bill as any).paidAmount,
+        balanceAmount: (bill as any).balanceAmount,
+        cashAmount:    (bill as any).cashAmount,
+        upiAmount:     (bill as any).upiAmount,
+        cardAmount:    (bill as any).cardAmount,
+      }).catch(() => {});
+    }
+
     return bill;
   }
 

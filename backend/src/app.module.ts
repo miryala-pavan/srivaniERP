@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 // Platform Core modules (Phase 0)
+import { HelpModule } from './platform/help/help.module';
 import { ClockModule } from './platform/clock/clock.module';
 import { AuditModule } from './platform/audit/audit.module';
 import { PlatformEventsModule } from './platform/events/events.module';
@@ -47,6 +48,9 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { VolumePricingModule } from './volume-pricing/volume-pricing.module';
 import { RepackModule } from './repack/repack.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
+import { GstModule } from './gst/gst.module';
+import { TdsModule } from './tds/tds.module';
+import { LedgerApiModule } from './ledger/ledger-api.module';
 
 @Module({
   controllers: [AppController],
@@ -85,8 +89,12 @@ import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
     VolumePricingModule,
     RepackModule,
     PurchaseOrdersModule,
+    GstModule,
+    TdsModule,
+    LedgerApiModule,
 
     // Platform Core (Phase 0)
+    HelpModule,
     ClockModule,
     AuditModule,
     PlatformEventsModule,

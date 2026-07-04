@@ -4,6 +4,7 @@ import Breadcrumbs from '@/components/Breadcrumbs';
 import ProductGrid from '@/components/ProductGrid';
 import Pagination from '@/components/Pagination';
 import EmptyState from '@/components/EmptyState';
+import MobileSearchInput from '@/components/MobileSearchInput';
 
 const PAGE_SIZE = 24;
 
@@ -37,16 +38,15 @@ export default async function SearchPage({ searchParams }: Props) {
         />
 
         <p className="eyebrow">Search results</p>
-        {q ? (
-          <h2 style={{ marginBottom: '8px' }}>
-            Results for <em>&ldquo;{q}&rdquo;</em>
-          </h2>
-        ) : (
-          <h2 style={{ marginBottom: '8px' }}>Search products</h2>
-        )}
+        <h2 style={{ marginBottom: '16px' }}>
+          {q ? <>Results for <em>&ldquo;{q}&rdquo;</em></> : 'Search products'}
+        </h2>
+
+        {/* Search input — always visible, essential on mobile where header bar is hidden */}
+        <MobileSearchInput initialQuery={q} />
 
         {q && (
-          <p style={{ marginBottom: '28px', color: 'var(--ink-soft)', fontSize: '14px' }}>
+          <p style={{ marginBottom: '20px', color: 'var(--ink-soft)', fontSize: '14px' }}>
             {result.total > 0
               ? `${result.total} product${result.total !== 1 ? 's' : ''} found`
               : 'No products found'}
@@ -57,7 +57,7 @@ export default async function SearchPage({ searchParams }: Props) {
           <EmptyState
             icon="🔎"
             heading="What are you looking for?"
-            body="Type a product name, brand, or code into the search bar above."
+            body="Type above to search for rice, dal, oil, masala, and thousands more products."
             actions={[
               { label: 'Browse All Products', href: '/products' },
               { label: 'View Deals', href: '/deals' },

@@ -174,9 +174,10 @@ model User {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
-  business   Business   @relation(fields: [businessId], references: [id])
-  posShifts  PosShift[]
-  salesBills SalesBill[]
+  business    Business                 @relation(fields: [businessId], references: [id])
+  posShifts   PosShift[]
+  salesBills  SalesBill[]
+  memberships UserBusinessMembership[]
 
   @@unique([businessId, username])
   @@map("user")
@@ -1385,17 +1386,63 @@ model ProductPlu {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  product   Product         @relation(fields: [productId], references: [id])
-  business  Business        @relation(fields: [businessId], references: [id])
-  barcodes  ProductBarcode[]
-  asBulk    PluBundle[]     @relation("BulkPlu")
-  asSingle  PluBundle[]     @relation("SinglePlu")
+  product      Product            @relation(fields: [productId], references: [id])
+  business     Business           @relation(fields: [businessId], references: [id])
+  barcodes     ProductBarcode[]
+  asBulk       PluBundle[]        @relation("BulkPlu")
+  asSingle     PluBundle[]        @relation("SinglePlu")
+  priceHistory PluPriceHistory[]
 
   @@unique([businessId, pluCode])
   @@index([productId])
   @@index([businessId])
   @@index([pluCode])
   @@map("product_plu")
+}
+
+// ─── PLU PRICE HISTORY ────────────────────────────────
+// Full before/after audit trail for every PLU price/status change.
+// changeSource: GRN_APPROVAL | PLU_CREATE | MANUAL_UPDATE | SET_DEFAULT | DEACTIVATE
+model PluPriceHistory {
+  id           String   @id @default(cuid())
+  businessId   String
+  productPluId String
+  productId    String
+  changeSource String   // GRN_APPROVAL | PLU_CREATE | MANUAL_UPDATE | SET_DEFAULT | DEACTIVATE
+  grnId        String?
+  changedBy    String?  // username or 'System'
+  effectiveDate DateTime // business date: GRN invoiceDate, or transaction date
+  recordedAt   DateTime @default(now())
+
+  // Before
+  costPriceBefore    Decimal? @db.Decimal(15, 2)
+  basicCostBefore    Decimal? @db.Decimal(15, 2)
+  mrpBefore          Decimal? @db.Decimal(15, 2)
+  sellingPriceBefore Decimal? @db.Decimal(15, 2)
+  gstRateBefore      Decimal? @db.Decimal(5, 2)
+  hsnCodeBefore      String?
+  isDefaultBefore    Boolean?
+  isActiveBefore     Boolean?
+
+  // After
+  costPriceAfter    Decimal? @db.Decimal(15, 2)
+  basicCostAfter    Decimal? @db.Decimal(15, 2)
+  mrpAfter          Decimal? @db.Decimal(15, 2)
+  sellingPriceAfter Decimal? @db.Decimal(15, 2)
+  gstRateAfter      Decimal? @db.Decimal(5, 2)
+  hsnCodeAfter      String?
+  isDefaultAfter    Boolean?
+  isActiveAfter     Boolean?
+
+  notes String?
+
+  plu ProductPlu @relation(fields: [productPluId], references: [id])
+
+  @@index([productPluId, recordedAt(sort: Desc)])
+  @@index([productId, recordedAt(sort: Desc)])
+  @@index([businessId, effectiveDate(sort: Desc)])
+  @@index([grnId])
+  @@map("plu_price_history")
 }
 
 // ─── SUPPLIER ITEM ALIAS ──────────────────────────────
@@ -2532,15 +2579,60 @@ model ItFilingRecord {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── P0.1  TENANT (formal multi-tenancy foundation) ─────────────────────
-model Tenant {
-  id         String   @id @default(cuid())
-  businessId String   @unique
-  plan       String   @default("STARTER")
-  status     String   @default("ACTIVE")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+enum PlanStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  CANCELLED
+}
 
-  business   Business @relation(fields: [businessId], references: [id])
+model Tenant {
+  id         String     @id @default(cuid())
+  businessId String     @unique
+
+  // ── Subscription / Plan ───────────────────────────────────────────────────
+  // plan: FREE | STARTER | PROFESSIONAL | ENTERPRISE
+  plan          String     @default("STARTER")
+  planStatus    PlanStatus @default(ACTIVE)
+  planStartedAt DateTime   @default(now())
+  // planExpiresAt: null = perpetual (manual/enterprise). Set for annual plans.
+  planExpiresAt DateTime?
+  trialEndsAt   DateTime?
+
+  // ── Legal Entity Classification ───────────────────────────────────────────
+  // legalEntityType: PROPRIETORSHIP | PARTNERSHIP | LLP | PVT_LTD | PUBLIC_LTD | TRUST | HUF
+  legalEntityType   String?
+  // industryCode: NIC 2008 code (e.g. "4711" = supermarket)
+  industryCode      String?
+  employeeCount     Int?
+  // annualRevenueBand: <10L | 10L-1Cr | 1Cr-10Cr | 10Cr+ (for plan tier and benchmarking)
+  annualRevenueBand String?
+
+  // ── Franchise / Group Company Hierarchy ──────────────────────────────────
+  parentTenantId String?
+  parentTenant   Tenant?  @relation("TenantHierarchy", fields: [parentTenantId], references: [id])
+  childTenants   Tenant[] @relation("TenantHierarchy")
+
+  // ── Onboarding & Health ───────────────────────────────────────────────────
+  // onboardingStatus: PENDING | IN_PROGRESS | COMPLETE
+  onboardingStatus String   @default("PENDING")
+  // healthScore: computed periodically (0–100). Null until first computation.
+  healthScore      Decimal? @db.Decimal(5, 2)
+
+  // ── JSONB Feature Blobs (feature-ready, never null) ──────────────────────
+  // featureFlags: per-tenant feature flag overrides { "ADVANCED_GST": true }
+  featureFlags Json @default("{}")
+  // integrations: which external systems are connected { "RAZORPAY": true }
+  integrations Json @default("{}")
+  // aiConfig: AI preferences and monthly budget { "enabled": true, "monthlyBudgetInr": 500 }
+  aiConfig     Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business    Business                 @relation(fields: [businessId], references: [id])
+  memberships UserBusinessMembership[]
 
   @@map("Tenant")
 }
@@ -2883,4 +2975,156 @@ model ComputationJob {
   @@index([businessId])
   @@index([businessId, jobType])
   @@map("ComputationJob")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1 — GST & TDS MODULES
+// ═══════════════════════════════════════════════════════════════════════════
+
+model GstReturn {
+  id              String    @id @default(cuid())
+  businessId      String
+  returnType      String    // GSTR1 | GSTR3B | GSTR2A | GSTR9
+  financialYear   String
+  taxPeriod       String    // YYYY-MM or Q1-2025-26
+  status          String    @default("DRAFT")
+  b2bTaxable      Decimal   @db.Decimal(19, 4) @default(0)
+  b2bTax          Decimal   @db.Decimal(19, 4) @default(0)
+  b2cTaxable      Decimal   @db.Decimal(19, 4) @default(0)
+  b2cTax          Decimal   @db.Decimal(19, 4) @default(0)
+  exportTaxable   Decimal   @db.Decimal(19, 4) @default(0)
+  nilExempt       Decimal   @db.Decimal(19, 4) @default(0)
+  totalLiability  Decimal   @db.Decimal(19, 4) @default(0)
+  itcCgst         Decimal   @db.Decimal(19, 4) @default(0)
+  itcSgst         Decimal   @db.Decimal(19, 4) @default(0)
+  itcIgst         Decimal   @db.Decimal(19, 4) @default(0)
+  netPayableCgst  Decimal   @db.Decimal(19, 4) @default(0)
+  netPayableSgst  Decimal   @db.Decimal(19, 4) @default(0)
+  netPayableIgst  Decimal   @db.Decimal(19, 4) @default(0)
+  // Feature-ready
+  arn             String?
+  evcOtp          String?
+  apiFilingStatus String?
+  computationJobId String?
+  filedAt         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([businessId, returnType, taxPeriod])
+  @@index([businessId])
+  @@index([businessId, taxPeriod])
+  @@map("GstReturn")
+}
+
+model ItcLedger {
+  id              String   @id @default(cuid())
+  businessId      String
+  taxPeriod       String
+  sourceType      String   // PURCHASE_INVOICE | DEBIT_NOTE | ITC_CLAIM
+  sourceId        String
+  cgst            Decimal  @db.Decimal(19, 4) @default(0)
+  sgst            Decimal  @db.Decimal(19, 4) @default(0)
+  igst            Decimal  @db.Decimal(19, 4) @default(0)
+  isReversed      Boolean  @default(false)
+  reversalReason  String?
+  itcCategoryType String?  // ITC-1 | ITC-2 | ITC-3 (feature-ready)
+  createdAt       DateTime @default(now())
+
+  @@index([businessId, taxPeriod])
+  @@index([sourceId])
+  @@map("ItcLedger")
+}
+
+model GstChallan {
+  id          String    @id @default(cuid())
+  businessId  String
+  taxPeriod   String
+  cgstPaid    Decimal   @db.Decimal(19, 4) @default(0)
+  sgstPaid    Decimal   @db.Decimal(19, 4) @default(0)
+  igstPaid    Decimal   @db.Decimal(19, 4) @default(0)
+  interest    Decimal   @db.Decimal(19, 4) @default(0)
+  lateFee     Decimal   @db.Decimal(19, 4) @default(0)
+  totalPaid   Decimal   @db.Decimal(19, 4) @default(0)
+  cpin        String?
+  bsrCode     String?
+  paidAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([businessId, taxPeriod])
+  @@map("GstChallan")
+}
+
+model GstReconRun {
+  id          String   @id @default(cuid())
+  businessId  String
+  uploadedBy  String?
+  fileName    String
+  period      String   // human label e.g. "Jun 2026"
+  runAt       DateTime @default(now())
+  window      Json     // { from: ISO|null, to: ISO|null }
+  summary     Json     // reconciliation summary numbers
+  matched     Json     // Row[]
+  mismatch    Json     // Row[]
+  onlyIn2B    Json     // Row[]
+  onlyInBooks Json     // Row[]
+
+  @@index([businessId, runAt(sort: Desc)])
+  @@map("GstReconRun")
+}
+
+model TdsChallan {
+  id               String    @id @default(cuid())
+  businessId       String
+  financialYear    String
+  quarter          String    // Q1 | Q2 | Q3 | Q4
+  section          String
+  amountDeducted   Decimal   @db.Decimal(19, 4) @default(0)
+  amountDeposited  Decimal   @db.Decimal(19, 4) @default(0)
+  interest         Decimal   @db.Decimal(19, 4) @default(0)
+  lateFee          Decimal   @db.Decimal(19, 4) @default(0)
+  bsrCode          String?
+  challanSerial    String?
+  depositedAt      DateTime?
+  // Feature-ready: TRACES 2.0
+  ackNumber        String?
+  filingMode       String    @default("OFFLINE")
+  provisionalReceipt String?
+  createdAt        DateTime  @default(now())
+
+  @@index([businessId, financialYear])
+  @@index([businessId, section])
+  @@map("TdsChallan")
+}
+
+// ─── P0.1  USER-BUSINESS MEMBERSHIP ─────────────────────────────────────────
+// Fine-grained per-user access control per business.
+// The legacy User.businessId FK stays (for existing queries). This table adds
+// role + scopes + branchId for proper multi-tenant RBAC enforcement.
+model UserBusinessMembership {
+  id         String    @id @default(cuid())
+  userId     String
+  businessId String
+  tenantId   String
+
+  // role: OWNER | ACCOUNTANT | CASHIER | CA | VIEWER | BRANCH_MANAGER | AUDITOR
+  role     String
+  // scopes: fine-grained permissions e.g. ["SALES:READ","SALES:WRITE","REPORTS:READ"]
+  scopes   String[]  @default([])
+  // branchId: null = access to all branches; set to restrict to one branch
+  branchId String?
+
+  // status: ACTIVE | SUSPENDED | INVITED | EXPIRED
+  status    String    @default("ACTIVE")
+  invitedBy String?
+  joinedAt  DateTime  @default(now())
+  // expiresAt: for time-bound access (e.g. CA during audit season)
+  expiresAt DateTime?
+
+  user   User   @relation(fields: [userId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([userId, businessId])
+  @@index([businessId])
+  @@index([tenantId])
+  @@map("UserBusinessMembership")
 }

@@ -1,23 +1,63 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Upload, FileCheck2, AlertTriangle, FileX2, FileQuestion, CheckCircle2,
   X, Loader2, ShieldAlert, ChevronDown, ChevronUp, Download,
-  ExternalLink, Info, BookOpen, HelpCircle,
+  ExternalLink, Info, BookOpen, HelpCircle, History, Clock, Trash2, PlusCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
 
+function getMismatchReason(r: Row): { badge: string; color: string; hint: string } {
+  const td = r.taxableDiff ?? 0;
+  const tx = r.taxDiff ?? 0;
+  const tdOff = Math.abs(td) >= 0.5;
+  const txOff = Math.abs(tx) >= 0.5;
+
+  if (tdOff && txOff) {
+    return {
+      badge: 'Both differ',
+      color: 'bg-orange-100 text-orange-700',
+      hint: 'Both taxable value and tax differ. Compare the physical bill against the amounts in GSTR-2B for each line item.',
+    };
+  }
+  if (tdOff) {
+    return {
+      badge: 'Taxable diff',
+      color: 'bg-amber-100 text-amber-700',
+      hint: td < 0
+        ? `2B taxable is ₹${Math.abs(td).toFixed(2)} higher than books. Common cause: supplier's invoice includes exempt or zero-rated goods that your GRN did not record separately.`
+        : `Book taxable is ₹${Math.abs(td).toFixed(2)} higher than GSTR-2B. Check if the GRN was entered with excess quantity, wrong rate, or the supplier amended the invoice.`,
+    };
+  }
+  return {
+    badge: 'Tax diff',
+    color: 'bg-yellow-100 text-yellow-700',
+    hint: tx < 0
+      ? `2B tax is ₹${Math.abs(tx).toFixed(2)} higher than books. Check if the correct GST rate was applied in the GRN.`
+      : `Book tax is ₹${Math.abs(tx).toFixed(2)} higher than GSTR-2B. Verify the CGST/SGST/IGST amounts on the physical bill.`,
+  };
+}
+
 const inr = (v: number) => {
   const n = Number(v ?? 0);
-  const abs = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(Math.abs(n));
+  const abs = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n));
   return n < 0 ? `-₹${abs}` : `₹${abs}`;
 };
 const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+interface PastRun {
+  id: string;
+  fileName: string;
+  period: string;
+  runAt: string;
+  uploadedBy: string | null;
+  summary: Result['summary'];
+}
 
 interface Row {
   gstin: string; supplierName: string; invoiceNo: string; invoiceDate: string | null;
@@ -26,6 +66,7 @@ interface Row {
   taxableDiff?: number; taxDiff?: number;
 }
 interface Result {
+  runId?: string;
   fileName: string;
   window: { from: string | null; to: string | null };
   summary: {
@@ -141,8 +182,8 @@ const TAB_CONFIG: Record<TabKey, {
     shortLabel: 'Mismatches',
     tone: 'text-amber-700', bgTone: 'bg-amber-50', borderTone: 'border-amber-200',
     icon: AlertTriangle,
-    action: 'These invoices exist in both GSTR-2B and your books, but the amounts differ beyond the ₹2 / 0.5% tolerance. This usually means a data entry error in the GRN, or the supplier filed a different amount.',
-    detail: 'Action: Compare each invoice with the physical bill. If the GSTR-2B amount is correct, update the GRN value. Claim ITC only on the amount shown in GSTR-2B, not your book amount.',
+    action: 'These invoices exist in both GSTR-2B and your books, but the amounts differ beyond the ₹2 / 0.5% tolerance. Hover the "Reason" badge on each row for a specific explanation.',
+    detail: 'Action: Compare each invoice against the physical bill. Claim ITC only on the amount shown in GSTR-2B. Common cause — suppliers include exempt/zero-rated goods in the same invoice; your GRN may only have recorded the taxable portion.',
     emptyMsg: 'No amount mismatches — all matched invoices have consistent values.',
   },
   onlyIn2B: {
@@ -165,12 +206,23 @@ const TAB_CONFIG: Record<TabKey, {
 
 export default function GstReconciliationPage() {
   const router = useRouter();
-  const [file, setFile]         = useState<File | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState<Result | null>(null);
-  const [tab, setTab]           = useState<TabKey>('onlyInBooks');
+  const [file, setFile]           = useState<File | null>(null);
+  const [loading, setLoading]     = useState(false);
+  const [result, setResult]       = useState<Result | null>(null);
+  const [tab, setTab]             = useState<TabKey>('onlyInBooks');
   const [guideOpen, setGuideOpen] = useState(false);
+  const [pastRuns, setPastRuns]     = useState<PastRun[]>([]);
+  const [runsOpen, setRunsOpen]     = useState(false);
+  const [loadingRun, setLoadingRun] = useState<string | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [deletingRun, setDeletingRun] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    api.get('/reports/gst/recon-runs')
+      .then((r) => setPastRuns(r.data))
+      .catch(() => {});
+  }, []);
 
   async function runReconcile(f: File) {
     setLoading(true);
@@ -182,13 +234,60 @@ export default function GstReconciliationPage() {
       });
       const data: Result = res.data;
       setResult(data);
+      setActiveRunId(data.runId ?? null);
       const s = data.summary;
       setTab(s.onlyInBooks > 0 ? 'onlyInBooks' : s.mismatch > 0 ? 'mismatch' : s.onlyIn2B > 0 ? 'onlyIn2B' : 'matched');
-      toast.success('Reconciliation complete');
+      toast.success('Reconciliation complete — saved to history');
+      api.get('/reports/gst/recon-runs').then((r) => setPastRuns(r.data)).catch(() => {});
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Reconciliation failed');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadRun(runId: string) {
+    if (activeRunId === runId) return;
+    setLoadingRun(runId);
+    try {
+      const res = await api.get(`/reports/gst/recon-runs/${runId}`);
+      const run = res.data;
+      const data: Result = {
+        runId: run.id,
+        fileName: run.fileName,
+        window: run.window,
+        summary: run.summary,
+        matched: run.matched,
+        mismatch: run.mismatch,
+        onlyIn2B: run.onlyIn2B,
+        onlyInBooks: run.onlyInBooks,
+      };
+      setResult(data);
+      setFile(null);
+      setActiveRunId(runId);
+      const s = data.summary;
+      setTab(s.onlyInBooks > 0 ? 'onlyInBooks' : s.mismatch > 0 ? 'mismatch' : s.onlyIn2B > 0 ? 'onlyIn2B' : 'matched');
+    } catch {
+      toast.error('Could not load this run');
+    } finally {
+      setLoadingRun(null);
+    }
+  }
+
+  async function deleteRun(e: React.MouseEvent, runId: string) {
+    e.stopPropagation();
+    if (deletingRun) return;
+    if (!confirm('Delete this reconciliation run? This cannot be undone.')) return;
+    setDeletingRun(runId);
+    try {
+      await api.delete(`/reports/gst/recon-runs/${runId}`);
+      setPastRuns(prev => prev.filter(r => r.id !== runId));
+      if (activeRunId === runId) { setResult(null); setActiveRunId(null); }
+      toast.success('Run deleted');
+    } catch {
+      toast.error('Could not delete run');
+    } finally {
+      setDeletingRun(null);
     }
   }
 
@@ -201,6 +300,7 @@ export default function GstReconciliationPage() {
   function reset() {
     setFile(null);
     setResult(null);
+    setActiveRunId(null);
   }
 
   const s = result?.summary;
@@ -259,6 +359,98 @@ export default function GstReconciliationPage() {
           )}
         </div>
 
+        {/* Past Runs — always visible when runs exist */}
+        {pastRuns.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setRunsOpen(!runsOpen)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-2 text-gray-700">
+                <History size={15} className="text-[#1B4F8A]" />
+                <span className="font-medium">Past Reconciliation Runs</span>
+                <span className="text-xs text-gray-400">({pastRuns.length})</span>
+                {activeRunId && (
+                  <span className="text-xs bg-[#1B4F8A]/10 text-[#1B4F8A] px-2 py-0.5 rounded font-medium">viewing one</span>
+                )}
+              </div>
+              {runsOpen
+                ? <ChevronUp size={15} className="text-gray-400" />
+                : <ChevronDown size={15} className="text-gray-400" />}
+            </button>
+            {runsOpen && (
+              <div className="border-t border-gray-100">
+                {/* New Upload button — shown when viewing a past run */}
+                {result && (
+                  <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <button
+                      onClick={reset}
+                      className="flex items-center gap-1.5 text-xs text-[#1B4F8A] font-medium hover:underline"
+                    >
+                      <PlusCircle size={13} /> New upload / clear result
+                    </button>
+                  </div>
+                )}
+                {pastRuns.map((run) => {
+                  const s = run.summary;
+                  const isLoading = loadingRun === run.id;
+                  const isDeleting = deletingRun === run.id;
+                  const isActive = activeRunId === run.id;
+                  return (
+                    <div
+                      key={run.id}
+                      className={`flex items-center justify-between px-4 py-3 border-b border-gray-50 last:border-b-0 transition-colors ${
+                        isActive ? 'bg-blue-50 border-l-2 border-l-[#1B4F8A]' : 'hover:bg-blue-50/40'
+                      }`}
+                    >
+                      <button
+                        onClick={() => loadRun(run.id)}
+                        disabled={isLoading || isActive}
+                        className="flex items-center gap-3 flex-1 text-left min-w-0"
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isActive ? 'bg-[#1B4F8A]/20' : 'bg-[#1B4F8A]/10'}`}>
+                          {isLoading
+                            ? <Loader2 size={14} className="text-[#1B4F8A] animate-spin" />
+                            : <Clock size={14} className="text-[#1B4F8A]" />}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-gray-800 truncate">
+                            {run.period}
+                            {isActive && <span className="ml-2 text-[10px] bg-[#1B4F8A] text-white px-1.5 py-0.5 rounded font-bold">CURRENT</span>}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-0.5 truncate">
+                            {new Date(run.runAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            {run.uploadedBy && <> · {run.uploadedBy}</>}
+                          </div>
+                        </div>
+                      </button>
+                      <div className="flex items-center gap-2 shrink-0 text-xs ml-2">
+                        {s.mismatch > 0 && (
+                          <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium">{s.mismatch} mismatch</span>
+                        )}
+                        {s.onlyInBooks > 0 && (
+                          <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-medium">{s.onlyInBooks} at risk</span>
+                        )}
+                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">{s.matched} matched</span>
+                        <button
+                          onClick={(e) => deleteRun(e, run.id)}
+                          disabled={!!deletingRun}
+                          title="Delete this run"
+                          className="p-1.5 text-gray-300 hover:text-red-500 transition-colors rounded"
+                        >
+                          {isDeleting
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <Trash2 size={13} />}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Upload area */}
         {!result && (
           <div
@@ -302,8 +494,13 @@ export default function GstReconciliationPage() {
               <div className="flex items-center gap-3 flex-wrap text-sm">
                 <div className="flex items-center gap-1.5 text-green-700">
                   <CheckCircle2 size={15} />
-                  <span className="font-medium text-gray-800">{file?.name}</span>
+                  <span className="font-medium text-gray-800">{result.fileName}</span>
                 </div>
+                {!file && result.runId && (
+                  <span className="text-xs text-gray-400 flex items-center gap-1">
+                    <History size={11} /> saved run
+                  </span>
+                )}
                 {result.window.from && (
                   <span className="bg-gray-100 px-2.5 py-0.5 rounded-full text-xs font-mono text-gray-600">
                     {fmtDate(result.window.from)} – {fmtDate(result.window.to)}
@@ -446,6 +643,7 @@ export default function GstReconciliationPage() {
                           <>
                             <th className="text-right px-4 py-2.5 font-semibold text-amber-700 cursor-help" title="Book Taxable − 2B Taxable. Positive = your book value is higher than GSTR-2B">Taxable Diff</th>
                             <th className="text-right px-4 py-2.5 font-semibold text-amber-700 cursor-help" title="Book Tax − 2B Tax. Positive = your book tax is higher than GSTR-2B. Claim only the 2B amount.">Tax Diff</th>
+                            <th className="text-left px-4 py-2.5 font-semibold text-amber-700" title="Why this invoice is mismatched">Reason</th>
                           </>
                         )}
                       </tr>
@@ -475,20 +673,20 @@ export default function GstReconciliationPage() {
                           </td>
                           {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyIn2B') && (
                             <>
-                              <td className="px-4 py-2.5 text-right text-gray-700">
+                              <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">
                                 {r.b2bTaxable != null ? inr(r.b2bTaxable) : '—'}
                               </td>
-                              <td className="px-4 py-2.5 text-right text-gray-700">
+                              <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">
                                 {r.b2bTax != null ? inr(r.b2bTax) : '—'}
                               </td>
                             </>
                           )}
                           {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyInBooks') && (
                             <>
-                              <td className="px-4 py-2.5 text-right text-gray-700">
+                              <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">
                                 {r.bookTaxable != null ? inr(r.bookTaxable) : '—'}
                               </td>
-                              <td className="px-4 py-2.5 text-right text-gray-700">
+                              <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">
                                 {r.bookTax != null ? inr(r.bookTax) : '—'}
                               </td>
                             </>
@@ -496,13 +694,22 @@ export default function GstReconciliationPage() {
                           {tab === 'mismatch' && (() => {
                             const td = r.taxableDiff ?? 0;
                             const tx = r.taxDiff ?? 0;
+                            const reason = getMismatchReason(r);
                             return (
                               <>
-                                <td className={`px-4 py-2.5 text-right font-medium ${Math.abs(td) > 0.5 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                <td className={`px-4 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${Math.abs(td) > 0.5 ? 'text-amber-600' : 'text-gray-400'}`}>
                                   {td > 0 ? '+' : ''}{inr(td)}
                                 </td>
-                                <td className={`px-4 py-2.5 text-right font-medium ${Math.abs(tx) > 0.5 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                <td className={`px-4 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${Math.abs(tx) > 0.5 ? 'text-amber-600' : 'text-gray-400'}`}>
                                   {tx > 0 ? '+' : ''}{inr(tx)}
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span
+                                    className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium cursor-help ${reason.color}`}
+                                    title={reason.hint}
+                                  >
+                                    {reason.badge}
+                                  </span>
                                 </td>
                               </>
                             );

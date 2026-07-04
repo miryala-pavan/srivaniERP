@@ -395,15 +395,14 @@ export default function CheckoutClient() {
           <h1 style={{ fontSize: '22px', fontWeight: 800 }}>Checkout</h1>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: '24px', alignItems: 'start' }}
-          className="checkout-grid">
+        <div className="checkout-grid">
 
           {/* ── Left column ─────────────────────────────────────────────── */}
           <div>
 
             {/* 1. Contact */}
             <Card title="1. Contact Details">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }} className="form-2col">
+              <div className="form-2col">
                 <Field label="Full Name" required>
                   <input
                     style={inp}
@@ -498,7 +497,7 @@ export default function CheckoutClient() {
                     <input style={inp} value={addrLine2} onChange={(e) => setAddrLine2(e.target.value)}
                       placeholder="eg. Near Sangareddy Bus Stand" title="Landmark or area" autoComplete="address-line2" />
                   </Field>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }} className="form-2col">
+                  <div className="form-2col">
                     <Field label="City" required>
                       <input style={inp} value={addrCity} onChange={(e) => setAddrCity(e.target.value)}
                         placeholder="Sangareddy" title="Your city" autoComplete="address-level2" />

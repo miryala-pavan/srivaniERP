@@ -1,22 +1,20 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Printer, ArrowDownCircle, ArrowUpCircle, Wallet } from 'lucide-react';
+import { RefreshCw, ArrowDownCircle, ArrowUpCircle, Wallet } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { BackButton } from '@/components/shared/BackButton';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
+import SortableTh from '@/components/reports/SortableTh';
+import ColumnToggle from '@/components/reports/ColumnToggle';
+import ExportBtn from '@/components/reports/ExportBtn';
+import { useReportParams } from '@/hooks/useReportParams';
+import { useSortable } from '@/hooks/useSortable';
+import { useColumnToggle } from '@/hooks/useColumnToggle';
+import { inr, fmtTime, fmtDate, today } from '@/lib/report-format';
 import api from '@/lib/api';
 import { getErrorMessage } from '@/lib/errors';
 import toast from 'react-hot-toast';
-
-const inr = (n: number) =>
-  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-
-const fmtTime = (d: string) =>
-  new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-
-const fmtDate = (d: string) =>
-  new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
 interface Entry {
   time: string; type: 'SALE' | 'RECEIPT' | 'EXPENSE' | 'SUPPLIER_PAYMENT';
@@ -43,10 +41,23 @@ const TYPE_LABEL: Record<Entry['type'], string> = {
   SALE: 'Sale', RECEIPT: 'Receipt', EXPENSE: 'Expense', SUPPLIER_PAYMENT: 'Supplier',
 };
 
+const COLUMNS = [
+  { key: 'time',        label: 'Time' },
+  { key: 'type',        label: 'Type' },
+  { key: 'reference',   label: 'Reference' },
+  { key: 'particulars', label: 'Particulars' },
+  { key: 'mode',        label: 'Mode' },
+  { key: 'moneyIn',     label: 'Money In' },
+  { key: 'moneyOut',    label: 'Money Out' },
+];
+
 export default function DayBookPage() {
-  const [data, setData]       = useState<DayBookData | null>(null);
+  const params = useReportParams();
+  const { isVisible, toggle, showAll } = useColumnToggle(COLUMNS.map(c => c.key));
+
+  const [data,    setData]    = useState<DayBookData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [date, setDate]       = useState(() => new Date().toISOString().split('T')[0]);
+  const [date,    setDate]    = useState(() => params.get('date', today()));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +73,13 @@ export default function DayBookPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  function handleDate(val: string) {
+    setDate(val);
+    params.set({ date: val });
+  }
+
+  const { sorted, sort, dir, handleSort } = useSortable(data?.entries ?? [], 'time', 'asc');
+
   const db = data?.dayBook;
   const cb = data?.cashBook;
 
@@ -70,17 +88,20 @@ export default function DayBookPage() {
       <Header title="Day Book & Cash Book" />
       <div className="max-w-6xl mx-auto px-4 py-5">
         <Breadcrumbs items={[{ label: 'Reports', href: '/dashboard/reports' }, { label: 'Day Book' }]} />
-        <div className="flex items-center justify-between mt-2 mb-4">
+
+        {/* ── Toolbar ── */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-2 mb-4">
           <BackButton />
-          <div className="flex items-center gap-3">
-            <input type="date" value={date} onChange={e => setDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-[#1B4F8A]" />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date" value={date} onChange={e => handleDate(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-[#1B4F8A]"
+            />
             <button onClick={load} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
-            <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[#1B4F8A] text-white rounded-lg hover:bg-[#163d6e]">
-              <Printer className="w-3.5 h-3.5" /> Print
-            </button>
+            <ColumnToggle columns={COLUMNS} isVisible={isVisible} onToggle={toggle} onShowAll={showAll} />
+            <ExportBtn onPrint={() => window.print()} />
           </div>
         </div>
 
@@ -114,7 +135,9 @@ export default function DayBookPage() {
         {/* ── Day Book entries ── */}
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-800">Day Book — all transactions</h2>
+            <h2 className="text-sm font-semibold text-gray-800">
+              Day Book — {sorted.length} transactions
+            </h2>
             <div className="text-xs text-gray-500">
               In <span className="text-green-700 font-semibold">₹{inr(db?.totalIn ?? 0)}</span>
               {' · '}Out <span className="text-red-700 font-semibold">₹{inr(db?.totalOut ?? 0)}</span>
@@ -124,27 +147,29 @@ export default function DayBookPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 text-xs text-gray-500 bg-gray-50">
-                  <th className="px-4 py-2.5 text-left font-medium">Time</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Type</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Reference</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Particulars</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Mode</th>
-                  <th className="px-4 py-2.5 text-right font-medium">In</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Out</th>
+                  {isVisible('time')        && <SortableTh column="time"        label="Time"        sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof Entry)} />}
+                  {isVisible('type')        && <SortableTh column="type"        label="Type"        sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof Entry)} />}
+                  {isVisible('reference')   && <SortableTh column="reference"   label="Reference"   sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof Entry)} />}
+                  {isVisible('particulars') && <SortableTh column="particulars" label="Particulars" sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof Entry)} />}
+                  {isVisible('mode')        && <SortableTh column="mode"        label="Mode"        sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof Entry)} />}
+                  {isVisible('moneyIn')     && <SortableTh column="moneyIn"     label="In ₹"        sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof Entry)} align="right" />}
+                  {isVisible('moneyOut')    && <SortableTh column="moneyOut"    label="Out ₹"       sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof Entry)} align="right" />}
                 </tr>
               </thead>
               <tbody>
-                {data?.entries.map((e, i) => (
+                {sorted.map((e, i) => (
                   <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{fmtTime(e.time)}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_BADGE[e.type]}`}>{TYPE_LABEL[e.type]}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-600">{e.reference}</td>
-                    <td className="px-4 py-2.5 text-gray-700">{e.particulars}</td>
-                    <td className="px-4 py-2.5 text-gray-500">{e.mode}</td>
-                    <td className="px-4 py-2.5 text-right text-green-700 font-medium">{e.moneyIn > 0 ? inr(e.moneyIn) : '—'}</td>
-                    <td className="px-4 py-2.5 text-right text-red-700 font-medium">{e.moneyOut > 0 ? inr(e.moneyOut) : '—'}</td>
+                    {isVisible('time')        && <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{fmtTime(e.time)}</td>}
+                    {isVisible('type')        && (
+                      <td className="px-4 py-2.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_BADGE[e.type]}`}>{TYPE_LABEL[e.type]}</span>
+                      </td>
+                    )}
+                    {isVisible('reference')   && <td className="px-4 py-2.5 text-gray-600">{e.reference}</td>}
+                    {isVisible('particulars') && <td className="px-4 py-2.5 text-gray-700">{e.particulars}</td>}
+                    {isVisible('mode')        && <td className="px-4 py-2.5 text-gray-500">{e.mode}</td>}
+                    {isVisible('moneyIn')     && <td className="px-4 py-2.5 text-right text-green-700 font-medium">{e.moneyIn > 0 ? inr(e.moneyIn) : '—'}</td>}
+                    {isVisible('moneyOut')    && <td className="px-4 py-2.5 text-right text-red-700 font-medium">{e.moneyOut > 0 ? inr(e.moneyOut) : '—'}</td>}
                   </tr>
                 ))}
                 {data && data.entries.length === 0 && !loading && (
@@ -158,8 +183,8 @@ export default function DayBookPage() {
                 <tfoot>
                   <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold text-gray-800">
                     <td className="px-4 py-3" colSpan={5}>Total</td>
-                    <td className="px-4 py-3 text-right text-green-700">₹{inr(db!.totalIn)}</td>
-                    <td className="px-4 py-3 text-right text-red-700">₹{inr(db!.totalOut)}</td>
+                    {isVisible('moneyIn')  && <td className="px-4 py-3 text-right text-green-700">₹{inr(db!.totalIn)}</td>}
+                    {isVisible('moneyOut') && <td className="px-4 py-3 text-right text-red-700">₹{inr(db!.totalOut)}</td>}
                   </tr>
                 </tfoot>
               )}
@@ -167,8 +192,8 @@ export default function DayBookPage() {
           </div>
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          Day Book lists all money movements (sales, customer receipts, expenses, supplier payments).
-          Cash Book reflects cash-only flow. Opening cash is the sum of shift opening floats for the day.
+          Day Book lists all money movements. Cash Book reflects cash-only flow.
+          Opening cash is the sum of shift opening floats. URL is shareable — paste it to open the same date.
         </p>
       </div>
     </div>

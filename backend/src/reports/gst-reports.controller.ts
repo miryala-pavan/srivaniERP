@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Body, Query, Req, Res, UseGuards, ParseIntPipe,
+  Controller, Get, Post, Delete, Body, Query, Req, Res, Param, UseGuards, ParseIntPipe,
   UseInterceptors, UploadedFile, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -142,7 +142,22 @@ export class GstReportsController {
   }))
   reconcile2B(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
-    return this.gstReports.reconcile2B(req.user.businessId, file);
+    return this.gstReports.reconcile2B(req.user.businessId, file, req.user.username);
+  }
+
+  @Get('recon-runs')
+  listReconRuns(@Req() req: any) {
+    return this.gstReports.listReconRuns(req.user.businessId);
+  }
+
+  @Get('recon-runs/:id')
+  getReconRun(@Req() req: any, @Param('id') id: string) {
+    return this.gstReports.getReconRun(req.user.businessId, id);
+  }
+
+  @Delete('recon-runs/:id')
+  deleteReconRun(@Req() req: any, @Param('id') id: string) {
+    return this.gstReports.deleteReconRun(req.user.businessId, id);
   }
 
   // ─── GSTR-1 JSON ──────────────────────────────────────────────────────────

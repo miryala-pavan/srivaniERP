@@ -14,6 +14,7 @@ import { GrnQueryDto } from './dto/grn-query.dto';
 import { BankService } from '../bank/bank.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ShopCacheService } from '../shop/shop-cache.service';
+import { JournalBridgeService } from '../platform/journal-bridge/journal-bridge.service';
 
 @Injectable()
 export class GrnService {
@@ -26,6 +27,7 @@ export class GrnService {
     private bankService: BankService,
     private audit: AuditLogService,
     private shopCache: ShopCacheService,
+    private journalBridge: JournalBridgeService,
   ) {}
 
   private r2(n: number) { return Math.round(n * 100) / 100; }
@@ -420,6 +422,22 @@ export class GrnService {
     if (actor) {
       this.audit.log({ ...actor, businessId }, { action: 'CREATE', entity: 'GRN', entityId: purchase.id, entityRef: purchase.grnNumber ?? purchase.id, description: `GRN created for supplier ${supplier.name}` }).catch(() => {});
     }
+
+    // Auto-post journal entry — fire-and-forget, never blocks the response
+    if (!isDraft) {
+      this.journalBridge.postGrnJournal({
+        id:            purchase.id,
+        businessId,
+        grnNumber:     purchase.grnNumber,
+        grandTotal:    Number(purchase.grandTotal),
+        taxableAmount: Number((purchase as any).taxableAmount ?? 0),
+        cgstTotal:     Number((purchase as any).cgstTotal ?? 0),
+        sgstTotal:     Number((purchase as any).sgstTotal ?? 0),
+        igstTotal:     Number((purchase as any).igstTotal ?? 0),
+        isMsmeSupplier: !!(supplier as any).udyamRegistration,
+      }).catch(() => {});
+    }
+
     return { ...purchase, warning };
   }
 
@@ -674,7 +692,12 @@ export class GrnService {
         }
       }
 
-      await this.syncPluOnApproval(tx, businessId, id, purchase.items, approverName ?? 'System', String((purchase as any).taxType ?? 'TAX_EXCLUSIVE'));
+      await this.syncPluOnApproval(
+        tx, businessId, id, purchase.items,
+        approverName ?? 'System',
+        String((purchase as any).taxType ?? 'TAX_EXCLUSIVE'),
+        (purchase as any).invoiceDate ? new Date((purchase as any).invoiceDate) : new Date(),
+      );
     }, { timeout: 60000 });
 
     this.handleRestockNotifications(businessId, purchase.branchId, purchase.items, purchase.grnNumber ?? '').catch(() => {});
@@ -714,6 +737,7 @@ export class GrnService {
     items: any[],
     approverName: string,
     taxType: string = 'TAX_EXCLUSIVE',
+    invoiceDate: Date = new Date(),
   ) {
     const isInclusive = taxType === 'TAX_INCLUSIVE';
 
@@ -784,6 +808,7 @@ export class GrnService {
             isActive:    true,
           },
         });
+        // No price change — no history record needed for stock-only top-ups
       } else {
         // STEP 2B: New MRP batch or cost changed — create a new PLU.
         // Enforce margin on the new selling price (only when an SP was entered).
@@ -814,6 +839,8 @@ export class GrnService {
         const makeDefault = !existingDefault || !!(activePlu && activePlu.id === existingDefault.id);
         thisLineIsDefault = makeDefault;
 
+        const newGstRate = itemGstRate || Number(product.gstRatePercent ?? 0);
+
         if (activePlu) {
           // Cost changed on same MRP batch — keep the existing PLU record but update cost.
           // (Don't create a duplicate PLU for same MRP; just update prices and add stock.)
@@ -831,6 +858,33 @@ export class GrnService {
               isDefault:    makeDefault,
             },
           });
+          await tx.pluPriceHistory.create({
+            data: {
+              businessId,
+              productPluId:      activePlu.id,
+              productId:         item.productId,
+              changeSource:      'GRN_APPROVAL',
+              grnId,
+              changedBy:         approverName,
+              effectiveDate:     invoiceDate,
+              costPriceBefore:   activePlu.costPrice,
+              basicCostBefore:   activePlu.basicCost,
+              mrpBefore:         activePlu.mrp,
+              sellingPriceBefore: activePlu.sellingPrice,
+              gstRateBefore:     activePlu.gstRate,
+              hsnCodeBefore:     activePlu.hsnCode,
+              isDefaultBefore:   activePlu.isDefault,
+              isActiveBefore:    activePlu.isActive,
+              costPriceAfter:    itemCost,
+              basicCostAfter:    itemBasicCost,
+              mrpAfter:          itemMrp,
+              sellingPriceAfter: itemSp || null,
+              gstRateAfter:      newGstRate,
+              hsnCodeAfter:      product.hsnCode,
+              isDefaultAfter:    makeDefault,
+              isActiveAfter:     true,
+            },
+          });
           // If the old default was a different PLU (different MRP), leave it as default
           // — this batch is a secondary batch.
         } else {
@@ -843,7 +897,7 @@ export class GrnService {
             });
           }
 
-          await tx.productPlu.create({
+          const newPlu = await tx.productPlu.create({
             data: {
               businessId,
               productId:      item.productId,
@@ -854,7 +908,7 @@ export class GrnService {
               sellingPrice:   itemSp,
               wholesalePrice: null,
               minSellingPrice: 0,
-              gstRate:        itemGstRate || Number(product.gstRatePercent ?? 0),
+              gstRate:        newGstRate,
               hsnCode:        product.hsnCode,
               cessRate:       itemCessRate,
               taxInclusive:   isInclusive,
@@ -866,12 +920,34 @@ export class GrnService {
               isDefault:      makeDefault,
               isActive:       true,
               isArchived:     false,
-              effectiveFrom:  new Date(),
+              effectiveFrom:  invoiceDate,
+              receivedDate:   invoiceDate,
               grnId,
               batchNumber:        (item as any).batchNumber        ?? null,
               manufacturingDate:  (item as any).manufacturingDate  ?? null,
               expiryDate:         (item as any).expiryDate         ?? null,
               createdByName:  approverName,
+            },
+          });
+          await tx.pluPriceHistory.create({
+            data: {
+              businessId,
+              productPluId:   newPlu.id,
+              productId:      item.productId,
+              changeSource:   'PLU_CREATE',
+              grnId,
+              changedBy:      approverName,
+              effectiveDate:  invoiceDate,
+              // No "before" — this is a new PLU
+              costPriceAfter:    itemCost,
+              basicCostAfter:    itemBasicCost,
+              mrpAfter:          itemMrp,
+              sellingPriceAfter: itemSp || null,
+              gstRateAfter:      newGstRate,
+              hsnCodeAfter:      product.hsnCode,
+              isDefaultAfter:    makeDefault,
+              isActiveAfter:     true,
+              notes:             'New PLU created from GRN',
             },
           });
         } // end else (new MRP batch)

@@ -183,7 +183,7 @@ export default function AddressesPage() {
                 value={form.line1} onChange={e => setForm(f => ({ ...f, line1: e.target.value }))} />
               <input style={inp} placeholder="Address line 2 — landmark, area (optional)"
                 value={form.line2} onChange={e => setForm(f => ({ ...f, line2: e.target.value }))} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div className="form-2col" style={{ gap: '10px' }}>
                 <input style={inp} placeholder="City *"
                   value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
                 <input style={inp} placeholder="Pincode *" inputMode="numeric" maxLength={6}

@@ -1770,6 +1770,35 @@ export class ProductsService {
         ...(body.isLoose            !== undefined ? { isLoose:      body.isLoose }                : {}),
       },
     });
+
+    // Write price history only when a financial field changed
+    const priceFieldChanged = body.mrp !== undefined || body.sellingPrice !== undefined ||
+      body.gstRate !== undefined || body.cessRate !== undefined || body.wholesalePrice !== undefined;
+    if (priceFieldChanged) {
+      this.prisma.pluPriceHistory.create({
+        data: {
+          businessId,
+          productPluId:      pluId,
+          productId,
+          changeSource:      'MANUAL_UPDATE',
+          effectiveDate:     new Date(),
+          costPriceBefore:   plu.costPrice,
+          mrpBefore:         plu.mrp,
+          sellingPriceBefore: plu.sellingPrice,
+          gstRateBefore:     plu.gstRate,
+          hsnCodeBefore:     plu.hsnCode,
+          isDefaultBefore:   plu.isDefault,
+          isActiveBefore:    plu.isActive,
+          costPriceAfter:    updated.costPrice,
+          mrpAfter:          body.mrp          !== undefined ? updated.mrp          : plu.mrp,
+          sellingPriceAfter: body.sellingPrice !== undefined ? updated.sellingPrice : plu.sellingPrice,
+          gstRateAfter:      body.gstRate      !== undefined ? updated.gstRate      : plu.gstRate,
+          hsnCodeAfter:      updated.hsnCode,
+          isDefaultAfter:    updated.isDefault,
+          isActiveAfter:     updated.isActive,
+        },
+      }).catch(() => {});
+    }
     // Keep product master prices in sync with its default PLU
     if (updated.isDefault) {
       await this.prisma.product.update({
@@ -1803,6 +1832,9 @@ export class ProductsService {
       where: { id: pluId, productId, businessId, isActive: true },
     });
     if (!plu) throw new NotFoundException('PLU not found or inactive');
+    const oldDefault = await this.prisma.productPlu.findFirst({
+      where: { productId, businessId, isDefault: true },
+    });
     await this.prisma.$transaction([
       this.prisma.productPlu.updateMany({ where: { productId, businessId, isDefault: true }, data: { isDefault: false } }),
       this.prisma.productPlu.update({ where: { id: pluId }, data: { isDefault: true } }),
@@ -1817,6 +1849,38 @@ export class ProductsService {
         },
       }),
     ]);
+
+    // History: record default switch for the promoted PLU (and demoted one if it existed)
+    const now = new Date();
+    if (oldDefault && oldDefault.id !== pluId) {
+      this.prisma.pluPriceHistory.create({
+        data: {
+          businessId, productPluId: oldDefault.id, productId,
+          changeSource: 'SET_DEFAULT', effectiveDate: now,
+          isDefaultBefore: true, isActiveBefore: oldDefault.isActive,
+          mrpBefore: oldDefault.mrp, sellingPriceBefore: oldDefault.sellingPrice,
+          costPriceBefore: oldDefault.costPrice, gstRateBefore: oldDefault.gstRate,
+          isDefaultAfter: false, isActiveAfter: oldDefault.isActive,
+          mrpAfter: oldDefault.mrp, sellingPriceAfter: oldDefault.sellingPrice,
+          costPriceAfter: oldDefault.costPrice, gstRateAfter: oldDefault.gstRate,
+          notes: `Demoted: new default set to PLU ${pluId}`,
+        },
+      }).catch(() => {});
+    }
+    this.prisma.pluPriceHistory.create({
+      data: {
+        businessId, productPluId: pluId, productId,
+        changeSource: 'SET_DEFAULT', effectiveDate: now,
+        isDefaultBefore: plu.isDefault, isActiveBefore: plu.isActive,
+        mrpBefore: plu.mrp, sellingPriceBefore: plu.sellingPrice,
+        costPriceBefore: plu.costPrice, gstRateBefore: plu.gstRate,
+        isDefaultAfter: true, isActiveAfter: plu.isActive,
+        mrpAfter: plu.mrp, sellingPriceAfter: plu.sellingPrice,
+        costPriceAfter: plu.costPrice, gstRateAfter: plu.gstRate,
+        notes: 'Promoted to default',
+      },
+    }).catch(() => {});
+
     try {
       this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
         pluId, productId, pluCode: plu.pluCode,
@@ -1842,6 +1906,22 @@ export class ProductsService {
         ...(plu.isDefault ? { isDefault: false } : {}),
       },
     });
+
+    this.prisma.pluPriceHistory.create({
+      data: {
+        businessId, productPluId: pluId, productId,
+        changeSource: 'DEACTIVATE', effectiveDate: new Date(),
+        isDefaultBefore: plu.isDefault, isActiveBefore: true,
+        mrpBefore: plu.mrp, sellingPriceBefore: plu.sellingPrice,
+        costPriceBefore: plu.costPrice, gstRateBefore: plu.gstRate,
+        hsnCodeBefore: plu.hsnCode,
+        isDefaultAfter: false, isActiveAfter: false,
+        mrpAfter: plu.mrp, sellingPriceAfter: plu.sellingPrice,
+        costPriceAfter: plu.costPrice, gstRateAfter: plu.gstRate,
+        hsnCodeAfter: plu.hsnCode,
+        notes: reason ?? null,
+      },
+    }).catch(() => {});
 
     if (plu.isDefault) {
       const next = await this.prisma.productPlu.findFirst({

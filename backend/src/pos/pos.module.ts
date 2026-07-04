@@ -6,9 +6,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { EventsModule } from '../events/events.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { PurchaseOrdersModule } from '../purchase-orders/purchase-orders.module';
+import { JournalBridgeModule } from '../platform/journal-bridge/journal-bridge.module';
 
 @Module({
-  imports: [ProductsModule, NotificationsModule, EventsModule, AuditLogModule, PurchaseOrdersModule],
+  imports: [ProductsModule, NotificationsModule, EventsModule, AuditLogModule, PurchaseOrdersModule, JournalBridgeModule],
   providers: [PosService],
   controllers: [PosController],
 })

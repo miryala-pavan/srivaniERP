@@ -1294,6 +1294,25 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
   50%       { opacity: .55; }
 }
 
+/* ─── Cart / Checkout two-column layout ──────────────────────────────────── */
+.cart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 28px;
+  align-items: start;
+}
+.checkout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+.form-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 860px) {
   .hero-top { flex-direction: column; gap: 26px; align-items: center; }
@@ -1312,7 +1331,15 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
 @media (max-width: 560px) {
   .bar .search-form { display: none; }
 }
+@media (max-width: 700px) {
+  .cart-grid, .checkout-grid { grid-template-columns: 1fr; gap: 16px; }
+  .form-2col { grid-template-columns: 1fr; }
+}
 @media (max-width: 480px) {
   .products-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
   .seal { width: 190px; height: 190px; }
+}
+@media (max-width: 375px) {
+  .seal { width: 155px; height: 155px; }
+  .mega-panel { display: none; }
 }

@@ -1008,4 +1008,307 @@ export class ReportsService {
 
     return { date: start.toISOString(), entries, dayBook, cashBook };
   }
+
+  // ─── 9. SALES BY CATEGORY ─────────────────────────────
+
+  async getSalesByCategory(businessId: string, query: DateRangeDto) {
+    const end   = query.endDate   ? new Date(query.endDate)   : new Date();
+    const start = query.startDate ? new Date(query.startDate) : new Date(end.getTime() - 29 * 86400000);
+
+    type CatRow = {
+      category_name: string;
+      bill_count:    bigint;
+      total_qty:     string;
+      total_revenue: string;
+    };
+
+    const rows = await this.prisma.$queryRaw<CatRow[]>(Prisma.sql`
+      SELECT
+        COALESCE(c.name, 'Uncategorized')   AS category_name,
+        COUNT(DISTINCT sb.id)               AS bill_count,
+        COALESCE(SUM(si.quantity), 0)::text AS total_qty,
+        COALESCE(SUM(si."totalAmount"), 0)::text AS total_revenue
+      FROM sales_item si
+      JOIN sales_bill sb ON si."billId"    = sb.id
+      JOIN product     p  ON si."productId" = p.id
+      LEFT JOIN category c ON p."categoryId" = c.id
+      WHERE sb."businessId" = ${businessId}
+        AND sb.status       = 'FINAL'
+        AND sb."billDate"  >= ${dayStart(start)}
+        AND sb."billDate"  <= ${dayEnd(end)}
+      GROUP BY COALESCE(c.name, 'Uncategorized')
+      ORDER BY SUM(si."totalAmount") DESC
+    `);
+
+    const totalRevenue = rows.reduce((s, r) => s + n(r.total_revenue), 0);
+
+    const categories = rows.map((r) => ({
+      categoryName: r.category_name,
+      billCount:    n(r.bill_count),
+      totalQty:     n(r.total_qty),
+      totalRevenue: n(r.total_revenue),
+      revenuePct:   totalRevenue > 0 ? r2((n(r.total_revenue) / totalRevenue) * 100) : 0,
+    }));
+
+    return {
+      categories,
+      summary: { totalRevenue: r2(totalRevenue), categoryCount: rows.length },
+      dateRange: { startDate: start, endDate: end },
+    };
+  }
+
+  // ─── 10. SALES BY PAYMENT MODE ────────────────────────
+
+  async getSalesByPaymentMode(businessId: string, query: DateRangeDto) {
+    const end   = query.endDate   ? new Date(query.endDate)   : new Date();
+    const start = query.startDate ? new Date(query.startDate) : new Date(end.getTime() - 29 * 86400000);
+
+    type ModeRow = {
+      payment_mode: string;
+      bill_count:   bigint;
+      total_amount: string;
+    };
+
+    const rows = await this.prisma.$queryRaw<ModeRow[]>(Prisma.sql`
+      SELECT
+        COALESCE("paymentMode", 'CASH') AS payment_mode,
+        COUNT(*)                         AS bill_count,
+        COALESCE(SUM("grandTotal"), 0)::text AS total_amount
+      FROM sales_bill
+      WHERE "businessId" = ${businessId}
+        AND status       = 'FINAL'
+        AND "billDate"  >= ${dayStart(start)}
+        AND "billDate"  <= ${dayEnd(end)}
+      GROUP BY "paymentMode"
+      ORDER BY SUM("grandTotal") DESC
+    `);
+
+    const totalAmount = rows.reduce((s, r) => s + n(r.total_amount), 0);
+    const totalBills  = rows.reduce((s, r) => s + n(r.bill_count),   0);
+
+    const modes = rows.map((r) => ({
+      paymentMode:  r.payment_mode,
+      billCount:    n(r.bill_count),
+      totalAmount:  n(r.total_amount),
+      pct:          totalAmount > 0 ? r2((n(r.total_amount) / totalAmount) * 100) : 0,
+    }));
+
+    return {
+      modes,
+      summary: { totalAmount: r2(totalAmount), totalBills },
+      dateRange: { startDate: start, endDate: end },
+    };
+  }
+
+  // ─── 11. PURCHASE REGISTER ────────────────────────────
+
+  async getPurchaseRegister(businessId: string, query: DateRangeDto & { supplierId?: string; status?: string }) {
+    const end   = query.endDate   ? new Date(query.endDate)   : new Date();
+    const start = query.startDate ? new Date(query.startDate) : new Date(end.getTime() - 29 * 86400000);
+
+    const extraFilters: Prisma.Sql[] = [];
+    if (query.supplierId) extraFilters.push(Prisma.sql`p."supplierId" = ${query.supplierId}`);
+    if (query.status)     extraFilters.push(Prisma.sql`p.status = ${query.status}`);
+
+    const extra = extraFilters.length > 0
+      ? Prisma.sql` AND ${Prisma.join(extraFilters, ' AND ')}`
+      : Prisma.sql``;
+
+    type PurchRow = {
+      id: string;
+      purchase_number: string | null;
+      invoice_number:  string;
+      invoice_date:    Date;
+      status:          string;
+      supplier_id:     string;
+      supplier_name:   string;
+      taxable_amount:  string;
+      total_tax:       string;
+      grand_total:     string;
+      item_count:      bigint;
+      payment_mode:    string | null;
+    };
+
+    const rows = await this.prisma.$queryRaw<PurchRow[]>(Prisma.sql`
+      SELECT
+        p.id,
+        p."purchaseNumber"                AS purchase_number,
+        p."invoiceNumber"                 AS invoice_number,
+        p."invoiceDate"                   AS invoice_date,
+        p.status,
+        s.id                              AS supplier_id,
+        s.name                            AS supplier_name,
+        COALESCE(p."taxableAmount", 0)::text  AS taxable_amount,
+        COALESCE(p."cgstTotal" + p."sgstTotal" + p."igstTotal", 0)::text AS total_tax,
+        COALESCE(p."grandTotal", 0)::text AS grand_total,
+        COUNT(pi.id)                      AS item_count,
+        p."paymentMode"                   AS payment_mode
+      FROM purchase p
+      JOIN supplier s ON p."supplierId" = s.id
+      LEFT JOIN purchase_item pi ON pi."purchaseId" = p.id
+      WHERE p."businessId" = ${businessId}
+        AND p."invoiceDate" >= ${dayStart(start)}
+        AND p."invoiceDate" <= ${dayEnd(end)}
+        ${extra}
+      GROUP BY p.id, s.id, s.name
+      ORDER BY p."invoiceDate" DESC
+    `);
+
+    const purchases = rows.map((r) => ({
+      id:             r.id,
+      grnNumber:      r.purchase_number,
+      invoiceNumber:  r.invoice_number,
+      invoiceDate:    r.invoice_date,
+      status:         r.status,
+      supplierId:     r.supplier_id,
+      supplierName:   r.supplier_name,
+      taxableAmount:  n(r.taxable_amount),
+      totalTax:       n(r.total_tax),
+      grandTotal:     n(r.grand_total),
+      itemCount:      n(r.item_count),
+      paymentMode:    r.payment_mode,
+    }));
+
+    const summary = {
+      count:          purchases.length,
+      totalTaxable:   r2(purchases.reduce((s, p) => s + p.taxableAmount, 0)),
+      totalTax:       r2(purchases.reduce((s, p) => s + p.totalTax,      0)),
+      grandTotal:     r2(purchases.reduce((s, p) => s + p.grandTotal,    0)),
+      approved:       purchases.filter((p) => p.status === 'APPROVED').length,
+      pending:        purchases.filter((p) => p.status === 'PENDING_APPROVAL').length,
+    };
+
+    return { purchases, summary, dateRange: { startDate: start, endDate: end } };
+  }
+
+  // ─── 12. EXPENSE REPORT ───────────────────────────────
+
+  async getExpenseReport(businessId: string, query: DateRangeDto) {
+    const end   = query.endDate   ? new Date(query.endDate)   : new Date();
+    const start = query.startDate ? new Date(query.startDate) : new Date(end.getTime() - 29 * 86400000);
+
+    type ExpRow = {
+      id:           string;
+      expense_date: Date;
+      category:     string | null;
+      vendor:       string | null;
+      description:  string | null;
+      amount:       string;
+      payment_mode: string;
+    };
+
+    const rows = await this.prisma.$queryRaw<ExpRow[]>(Prisma.sql`
+      SELECT
+        id,
+        "expenseDate" AS expense_date,
+        category,
+        "vendorName"  AS vendor,
+        description,
+        amount::text,
+        "paymentMode" AS payment_mode
+      FROM expense
+      WHERE "businessId" = ${businessId}
+        AND "expenseDate" >= ${dayStart(start)}
+        AND "expenseDate" <= ${dayEnd(end)}
+      ORDER BY "expenseDate" DESC
+    `);
+
+    const expenses = rows.map((r) => ({
+      id:          r.id,
+      expenseDate: r.expense_date,
+      category:    r.category ?? 'Uncategorized',
+      vendor:      r.vendor,
+      description: r.description,
+      amount:      n(r.amount),
+      paymentMode: r.payment_mode,
+    }));
+
+    // Category summary
+    const byCat = new Map<string, number>();
+    for (const e of expenses) byCat.set(e.category, (byCat.get(e.category) ?? 0) + e.amount);
+    const byCategory = Array.from(byCat.entries())
+      .map(([category, total]) => ({ category, total: r2(total) }))
+      .sort((a, b) => b.total - a.total);
+
+    const totalAmount = r2(expenses.reduce((s, e) => s + e.amount, 0));
+
+    return {
+      expenses,
+      byCategory,
+      summary: { totalAmount, count: expenses.length },
+      dateRange: { startDate: start, endDate: end },
+    };
+  }
+
+  // ─── 13. SLOW MOVING STOCK ────────────────────────────
+
+  async getSlowMovingStock(businessId: string, days = 30) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+
+    type SlowRow = {
+      id:              string;
+      product_name:    string;
+      product_code:    string | null;
+      hsn_code:        string | null;
+      category_name:   string | null;
+      unit_of_measure: string;
+      current_stock:   string;
+      last_sale_date:  Date | null;
+      days_since_sale: bigint | null;
+      cost_price:      string | null;
+    };
+
+    const rows = await this.prisma.$queryRaw<SlowRow[]>(Prisma.sql`
+      SELECT
+        p.id,
+        p.name                                AS product_name,
+        p."productCode"                       AS product_code,
+        p."hsnCode"                           AS hsn_code,
+        c.name                                AS category_name,
+        p."unitOfMeasure"                     AS unit_of_measure,
+        COALESCE(SUM(sl.quantity), 0)::text   AS current_stock,
+        MAX(sb."billDate")                    AS last_sale_date,
+        EXTRACT(DAY FROM NOW() - MAX(sb."billDate"))::bigint AS days_since_sale,
+        p."costPrice"::text                   AS cost_price
+      FROM product p
+      LEFT JOIN category c       ON p."categoryId"  = c.id
+      LEFT JOIN stock_ledger sl  ON sl."productId"  = p.id
+      LEFT JOIN sales_item si    ON si."productId"  = p.id
+      LEFT JOIN sales_bill sb    ON sb.id = si."billId" AND sb."businessId" = ${businessId} AND sb.status = 'FINAL'
+      WHERE p."businessId" = ${businessId}
+        AND p."isActive"   = true
+      GROUP BY p.id, p.name, p."productCode", p."hsnCode", c.name,
+               p."unitOfMeasure", p."costPrice"
+      HAVING COALESCE(SUM(sl.quantity), 0) > 0
+         AND (MAX(sb."billDate") IS NULL OR MAX(sb."billDate") < ${cutoff})
+      ORDER BY days_since_sale DESC NULLS FIRST, current_stock DESC
+    `);
+
+    const products = rows.map((r) => {
+      const stock = n(r.current_stock);
+      const cost  = n(r.cost_price);
+      return {
+        id:            r.id,
+        productName:   r.product_name,
+        productCode:   r.product_code,
+        hsnCode:       r.hsn_code,
+        categoryName:  r.category_name,
+        unitOfMeasure: r.unit_of_measure,
+        currentStock:  stock,
+        lastSaleDate:  r.last_sale_date,
+        daysSinceLastSale: r.days_since_sale !== null ? Number(r.days_since_sale) : null,
+        stockValue:    r2(stock * cost),
+        neverSold:     r.last_sale_date === null,
+      };
+    });
+
+    const summary = {
+      count:          products.length,
+      neverSold:      products.filter((p) => p.neverSold).length,
+      totalStockValue: r2(products.reduce((s, p) => s + p.stockValue, 0)),
+    };
+
+    return { products, summary, days };
+  }
 }

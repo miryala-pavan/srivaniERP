@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { JournalBridgeService } from '../platform/journal-bridge/journal-bridge.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { ExpenseQueryDto } from './dto/expense-query.dto';
 
@@ -11,10 +12,13 @@ const DEFAULT_CATEGORIES = [
 
 @Injectable()
 export class ExpensesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private journalBridge: JournalBridgeService,
+  ) {}
 
   async create(businessId: string, dto: CreateExpenseDto) {
-    return this.prisma.expense.create({
+    const expense = await this.prisma.expense.create({
       data: {
         businessId,
         branchId:    dto.branchId,
@@ -28,6 +32,17 @@ export class ExpensesService {
         remarks:     dto.remarks,
       },
     });
+
+    // Auto-post journal entry — fire-and-forget, never blocks the response
+    this.journalBridge.postExpenseJournal({
+      id:          expense.id,
+      businessId,
+      amount:      Number(expense.amount),
+      category:    expense.category,
+      paymentMode: expense.paymentMode,
+    }).catch(() => {});
+
+    return expense;
   }
 
   async findAll(businessId: string, query: ExpenseQueryDto) {

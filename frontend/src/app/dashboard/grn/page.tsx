@@ -16,6 +16,8 @@ import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
 import { useWebSocket } from '@/providers/WebSocketProvider';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { Tabs } from '@/components/shared/Tabs';
+import { LinkedGrn } from '@/components/linked/LinkedGrn';
+import { LinkedSupplier } from '@/components/linked/LinkedSupplier';
 
 type GrnStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 type TabKey = 'ALL' | 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CREDIT_NOTES';
@@ -833,25 +835,13 @@ export default function GrnPage() {
                         <tr className="group-hover:bg-gray-50 transition-colors">
                           <td className="px-4 pt-3 pb-0.5">
                             {g.grnNumber ? (
-                              <button
-                                onClick={() => router.push(`/dashboard/grn/${g.id}`)}
-                                className="font-mono font-medium text-[#1B4F8A] hover:underline text-left"
-                                title="Open GRN"
-                              >
-                                {g.grnNumber}
-                              </button>
+                              <LinkedGrn id={g.id} label={g.grnNumber} className="font-medium" />
                             ) : (
                               <span className="font-mono font-medium text-gray-400 italic">Draft</span>
                             )}
                           </td>
                           <td className="px-4 pt-3 pb-0.5">
-                            <button
-                              onClick={() => router.push(`/dashboard/suppliers/${g.supplierId}`)}
-                              className="font-medium text-[#1B4F8A] hover:underline text-left"
-                              title="Open supplier dashboard"
-                            >
-                              {g.supplierName}
-                            </button>
+                            <LinkedSupplier id={g.supplierId} name={g.supplierName} className="font-medium" />
                           </td>
                           <td className="px-4 pt-3 pb-0.5 hidden md:table-cell">
                             <button

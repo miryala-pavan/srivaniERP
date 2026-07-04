@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import {
   TrendingUp, Package, IndianRupee, AlertTriangle, Download,
-  RefreshCw, Calendar, BarChart2, ShoppingCart, FileText,
+  RefreshCw, Calendar, BarChart2, ShoppingCart, FileText, ExternalLink,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
@@ -143,6 +143,21 @@ function PeriodBar({ active, onChange, custom, onCustom }: {
   );
 }
 
+// ── Quick links to standalone report pages ────────────────────────────────────
+
+const REPORT_LINKS = [
+  { label: 'Purchase Register',  desc: 'All GRNs by date, supplier, status',   href: '/dashboard/reports/purchases',          icon: FileText },
+  { label: 'Sales by Category',  desc: 'Revenue breakdown by product category', href: '/dashboard/reports/sales-by-category',  icon: ShoppingCart },
+  { label: 'Payment Modes',      desc: 'Cash / UPI / card split with pie chart', href: '/dashboard/reports/payment-modes',     icon: IndianRupee },
+  { label: 'Expense Report',     desc: 'Expenses by category with chart',       href: '/dashboard/reports/expenses',           icon: Download },
+  { label: 'Slow-Moving Stock',  desc: 'Products in stock but not selling',     href: '/dashboard/reports/slow-moving',        icon: AlertTriangle },
+  { label: 'Day Book',           desc: 'All money in/out for a single day',     href: '/dashboard/reports/day-book',           icon: BarChart2 },
+  { label: 'Receivables Ageing', desc: 'Outstanding credit bills by customer',  href: '/dashboard/reports/ageing',             icon: AlertTriangle },
+  { label: 'Supplier Payables',  desc: 'Amounts owed to suppliers by age',      href: '/dashboard/reports/payables',           icon: IndianRupee },
+  { label: 'GST Reports',        desc: 'GSTR-1, 3B, HSN, ITC registers',        href: '/dashboard/reports/gst',                icon: FileText },
+  { label: 'CA Export',          desc: 'Excel export for your chartered accountant', href: '/dashboard/reports/ca-export',      icon: Download },
+];
+
 // ── TABS ──────────────────────────────────────────────────────────────────────
 
 type Tab = 'sales' | 'products' | 'inventory' | 'profit' | 'gst' | 'receivables' | 'daybook';
@@ -221,6 +236,29 @@ export default function ReportsPage() {
     <>
       <Header title="Reports" />
       <main className="flex-1 p-6 space-y-4">
+
+        {/* Quick report links */}
+        <div className="mb-5">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <ExternalLink className="w-3 h-3" /> Standalone Reports
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+            {REPORT_LINKS.map(({ label, desc, href, icon: Icon }) => (
+              <Link key={href} href={href}
+                className="bg-white border border-gray-200 rounded-xl p-3 hover:border-[#1B4F8A] hover:shadow-sm transition-all flex items-start gap-2.5 group">
+                <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#1B4F8A] flex items-center justify-center shrink-0 group-hover:bg-[#1B4F8A] group-hover:text-white transition-colors">
+                  <Icon className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-gray-800 leading-tight">{label}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{desc}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <hr className="border-gray-200 mb-5" />
 
         {/* Tab bar */}
         <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 w-fit">

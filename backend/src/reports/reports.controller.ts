@@ -107,6 +107,49 @@ export class ReportsController {
     return this.reportsService.getReorderSuggestions(req.user.businessId);
   }
 
+  // ─── SALES BY CATEGORY ────────────────────────────────
+
+  @Roles(...MANAGER_ROLES)
+  @Get('sales/by-category')
+  getSalesByCategory(@Request() req: any, @Query() query: DateRangeDto) {
+    return this.reportsService.getSalesByCategory(req.user.businessId, query);
+  }
+
+  // ─── SALES BY PAYMENT MODE ────────────────────────────
+
+  @Roles(...MANAGER_ROLES)
+  @Get('sales/by-payment-mode')
+  getSalesByPaymentMode(@Request() req: any, @Query() query: DateRangeDto) {
+    return this.reportsService.getSalesByPaymentMode(req.user.businessId, query);
+  }
+
+  // ─── PURCHASE REGISTER ────────────────────────────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'PURCHASE_CHECKER')
+  @Get('purchases')
+  getPurchaseRegister(
+    @Request() req: any,
+    @Query() query: DateRangeDto & { supplierId?: string; status?: string },
+  ) {
+    return this.reportsService.getPurchaseRegister(req.user.businessId, query);
+  }
+
+  // ─── EXPENSE REPORT ───────────────────────────────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON')
+  @Get('expenses')
+  getExpenseReport(@Request() req: any, @Query() query: DateRangeDto) {
+    return this.reportsService.getExpenseReport(req.user.businessId, query);
+  }
+
+  // ─── SLOW MOVING STOCK ────────────────────────────────
+
+  @Roles(...MANAGER_ROLES)
+  @Get('inventory/slow-moving')
+  getSlowMovingStock(@Request() req: any, @Query('days') days?: string) {
+    return this.reportsService.getSlowMovingStock(req.user.businessId, days ? Number(days) : 30);
+  }
+
   // ─── CA EXPORT ────────────────────────────────────────
 
   @Roles('SUPER_ADMIN', 'ACCOUNTS_PERSON', 'BRANCH_MANAGER', 'CA')

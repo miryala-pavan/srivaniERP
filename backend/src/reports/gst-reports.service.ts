@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
 import * as crypto from 'crypto';
@@ -705,7 +705,7 @@ export class GstReportsService {
   // approved purchases (GRNs) in the books, to verify ITC eligibility.
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async reconcile2B(businessId: string, file: { buffer: Buffer; originalname: string }) {
+  async reconcile2B(businessId: string, file: { buffer: Buffer; originalname: string }, uploadedBy?: string) {
     if (!file?.buffer?.length) throw new BadRequestException('No file uploaded');
 
     const entries = this.parse2B(file);
@@ -735,9 +735,15 @@ export class GstReportsService {
     const keyOf = (gstin: string, inv: string) => `${(gstin ?? '').toUpperCase()}|${normInv(inv)}`;
 
     const booksMap = new Map<string, (typeof purchases)[number]>();
+    // GSTIN → supplier name from ERP books — portal JSON has no trdnm, so fall back here
+    const gstinToName = new Map<string, string>();
     for (const p of purchases) {
       const effectiveGstin = p.supplierGstin ?? p.supplier?.gstin ?? null;
-      if (effectiveGstin) booksMap.set(keyOf(effectiveGstin, p.invoiceNumber), p);
+      if (effectiveGstin) {
+        booksMap.set(keyOf(effectiveGstin, p.invoiceNumber), p);
+        if (p.supplierName && !gstinToName.has(effectiveGstin.toUpperCase()))
+          gstinToName.set(effectiveGstin.toUpperCase(), p.supplierName);
+      }
     }
 
     const matched: any[] = [];
@@ -768,7 +774,8 @@ export class GstReportsService {
         (ok ? matched : mismatch).push(row);
       } else {
         onlyIn2B.push({
-          gstin: e.gstin, supplierName: e.supplierName,
+          gstin: e.gstin,
+          supplierName: e.supplierName || gstinToName.get((e.gstin ?? '').toUpperCase()) || '',
           invoiceNo: e.invoiceNo, invoiceDate: e.invoiceDate?.toISOString() ?? null,
           b2bTaxable: r2(e.taxable), b2bTax: e2bTax,
         });
@@ -792,22 +799,64 @@ export class GstReportsService {
 
     const sum = (arr: any[], k: string) => r2(arr.reduce((s, x) => s + (Number(x[k]) || 0), 0));
 
-    return {
-      fileName: file.originalname,
-      window: { from: minDt?.toISOString() ?? null, to: maxDt?.toISOString() ?? null },
-      summary: {
-        b2bInvoices: entries.length,
-        matched: matched.length,
-        mismatch: mismatch.length,
-        onlyIn2B: onlyIn2B.length,
-        onlyInBooks: onlyInBooks.length,
-        itcIn2B:     sum([...matched, ...mismatch, ...onlyIn2B], 'b2bTax'),
-        itcMatched:  sum(matched, 'b2bTax'),
-        itcAtRisk:   sum(onlyInBooks, 'bookTax'),   // claimed in books, supplier hasn't filed
-        itcUnbooked: sum(onlyIn2B, 'b2bTax'),       // in 2B, not recorded in books
-      },
-      matched, mismatch, onlyIn2B, onlyInBooks,
+    const window   = { from: minDt?.toISOString() ?? null, to: maxDt?.toISOString() ?? null };
+    const summary  = {
+      b2bInvoices: entries.length,
+      matched: matched.length,
+      mismatch: mismatch.length,
+      onlyIn2B: onlyIn2B.length,
+      onlyInBooks: onlyInBooks.length,
+      itcIn2B:     sum([...matched, ...mismatch, ...onlyIn2B], 'b2bTax'),
+      itcMatched:  sum(matched, 'b2bTax'),
+      itcAtRisk:   sum(onlyInBooks, 'bookTax'),
+      itcUnbooked: sum(onlyIn2B, 'b2bTax'),
     };
+
+    // Derive a human-readable period label from the date window
+    const periodLabel = minDt
+      ? minDt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+      : file.originalname;
+
+    // Auto-deduplicate: delete any existing run for the same period so re-uploads replace cleanly
+    await this.prisma.gstReconRun.deleteMany({
+      where: { businessId, period: periodLabel },
+    });
+
+    const run = await this.prisma.gstReconRun.create({
+      data: {
+        businessId,
+        uploadedBy: uploadedBy ?? null,   // stores username (display name)
+        fileName: file.originalname,
+        period: periodLabel,
+        window, summary, matched, mismatch, onlyIn2B, onlyInBooks,
+      },
+    });
+
+    return { runId: run.id, fileName: file.originalname, window, summary, matched, mismatch, onlyIn2B, onlyInBooks };
+  }
+
+  async listReconRuns(businessId: string) {
+    return this.prisma.gstReconRun.findMany({
+      where: { businessId },
+      select: { id: true, fileName: true, period: true, runAt: true, summary: true, uploadedBy: true },
+      orderBy: { runAt: 'desc' },
+      take: 36,
+    });
+  }
+
+  async getReconRun(businessId: string, runId: string) {
+    const run = await this.prisma.gstReconRun.findFirst({
+      where: { id: runId, businessId },
+    });
+    if (!run) throw new NotFoundException('Reconciliation run not found');
+    return run;
+  }
+
+  async deleteReconRun(businessId: string, runId: string) {
+    const run = await this.prisma.gstReconRun.findFirst({ where: { id: runId, businessId } });
+    if (!run) throw new NotFoundException('Reconciliation run not found');
+    await this.prisma.gstReconRun.delete({ where: { id: runId } });
+    return { deleted: true };
   }
 
   // Detect JSON vs Excel and route to the right parser
