@@ -836,11 +836,20 @@ export class GstReportsService {
     const dd = json?.data?.docdata ?? json?.docdata ?? json?.data ?? json;
     const out: any[] = [];
 
-    // Sum a tax field from inv.items[] (2B), falling back to inv-level (2A) names
-    const grab = (doc: any, k2b: string, kAlt: string) =>
-      Array.isArray(doc.items)
-        ? doc.items.reduce((s: number, it: any) => s + Number(it[k2b] ?? it[kAlt] ?? 0), 0)
-        : Number(doc[k2b] ?? doc[kAlt] ?? 0);
+    // Sum a tax field from the invoice object.
+    // Official GSTR-2B JSON uses itms[].itm_det (NOT items[]), so check that first.
+    // Some third-party exports use a flat items[] — kept as second fallback.
+    const grab = (doc: any, k2b: string, kAlt: string): number => {
+      if (Array.isArray(doc.itms) && doc.itms.length > 0) {
+        return doc.itms.reduce((s: number, it: any) =>
+          s + Number(it?.itm_det?.[k2b] ?? it?.itm_det?.[kAlt] ?? 0), 0);
+      }
+      if (Array.isArray(doc.items) && doc.items.length > 0) {
+        return doc.items.reduce((s: number, it: any) =>
+          s + Number(it[k2b] ?? it[kAlt] ?? 0), 0);
+      }
+      return Number(doc[k2b] ?? doc[kAlt] ?? 0);
+    };
 
     const push = (sup: any, doc: any, invField: string) => {
       out.push({

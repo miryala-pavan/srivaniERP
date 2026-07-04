@@ -19,6 +19,7 @@ const SECTIONS = [
   { id: 'gst-hsn',        label: 'HSN + GSTR-1 Filing',      te: 'HSN + GSTR-1 ఫైలింగ్' },
   { id: 'gst-inward',     label: 'Inward Supplies (GSTR-2)', te: 'ఇన్వార్డ్ సప్లైస్' },
   { id: 'gst-trend',      label: 'FY Trend Dashboard',       te: 'FY ట్రెండ్ డాష్‌బోర్డ్' },
+  { id: 'gst-recon2b',    label: 'Reconciliation Tool',      te: 'రికన్సిలియేషన్ టూల్' },
   { id: 'gst-ca',         label: 'Share with CA',            te: 'CA తో షేర్ చేయండి' },
   { id: 'gst-checklist',  label: 'Monthly Checklist',        te: 'నెలవారీ చెక్‌లిస్ట్' },
   { id: 'gst-mistakes',   label: 'Common Mistakes',          te: 'సాధారణ తప్పులు' },
@@ -42,7 +43,7 @@ export default function GSTModule({ onBack }: { onBack: () => void }) {
             <h1 className="text-xl font-bold">GST Reports Guide</h1>
           </div>
           <p className="text-emerald-200 text-sm" style={te}>GST రిపోర్ట్‌లు గైడ్</p>
-          <p className="text-emerald-300 text-xs mt-1.5">Srivani Stores ERP · Tax & Compliance Guide · July 2026</p>
+          <p className="text-emerald-300 text-xs mt-1.5">ERP Platform · Tax & Compliance Guide · July 2026</p>
         </div>
       </div>
 

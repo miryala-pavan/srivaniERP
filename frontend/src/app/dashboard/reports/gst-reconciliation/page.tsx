@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Upload, FileCheck2, AlertTriangle, FileX2, FileQuestion, CheckCircle2,
   X, Loader2, ShieldAlert, ChevronDown, ChevronUp, Download,
-  ExternalLink, Info, BookOpen,
+  ExternalLink, Info, BookOpen, HelpCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
@@ -36,6 +36,51 @@ interface Result {
 }
 
 type TabKey = 'matched' | 'mismatch' | 'onlyIn2B' | 'onlyInBooks';
+
+function downloadAllCsv(result: Result) {
+  const parts: string[] = [];
+  const row = (vals: (string | number | null | undefined)[]) =>
+    vals.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',');
+
+  const sections: { key: TabKey; label: string; cols: string[]; getData: (r: Row) => (string | number | null | undefined)[] }[] = [
+    {
+      key: 'onlyInBooks', label: `ITC AT RISK — ${result.onlyInBooks.length} invoice(s) (supplier not filed)`,
+      cols: ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', 'GRN No', 'Book Taxable (₹)', 'Book Tax (₹)'],
+      getData: (r) => [r.supplierName, r.gstin, r.invoiceNo, fmtDate(r.invoiceDate), r.grnNumber ?? '', r.bookTaxable ?? 0, r.bookTax ?? 0],
+    },
+    {
+      key: 'mismatch', label: `MISMATCHES — ${result.mismatch.length} invoice(s) (amounts differ)`,
+      cols: ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', 'GRN No', '2B Taxable (₹)', '2B Tax (₹)', 'Book Taxable (₹)', 'Book Tax (₹)', 'Taxable Diff (₹)', 'Tax Diff (₹)'],
+      getData: (r) => [r.supplierName, r.gstin, r.invoiceNo, fmtDate(r.invoiceDate), r.grnNumber ?? '', r.b2bTaxable ?? 0, r.b2bTax ?? 0, r.bookTaxable ?? 0, r.bookTax ?? 0, r.taxableDiff ?? 0, r.taxDiff ?? 0],
+    },
+    {
+      key: 'onlyIn2B', label: `NOT IN BOOKS — ${result.onlyIn2B.length} invoice(s) (no GRN entered)`,
+      cols: ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', '2B Taxable (₹)', '2B Tax (₹)'],
+      getData: (r) => [r.supplierName, r.gstin, r.invoiceNo, fmtDate(r.invoiceDate), r.b2bTaxable ?? 0, r.b2bTax ?? 0],
+    },
+    {
+      key: 'matched', label: `MATCHED — ${result.matched.length} invoice(s) (safe to claim)`,
+      cols: ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', 'GRN No', '2B Taxable (₹)', '2B Tax (₹)', 'Book Taxable (₹)', 'Book Tax (₹)'],
+      getData: (r) => [r.supplierName, r.gstin, r.invoiceNo, fmtDate(r.invoiceDate), r.grnNumber ?? '', r.b2bTaxable ?? 0, r.b2bTax ?? 0, r.bookTaxable ?? 0, r.bookTax ?? 0],
+    },
+  ];
+
+  for (const sec of sections) {
+    const rows = result[sec.key];
+    parts.push(row([`=== ${sec.label} ===`]));
+    parts.push(row(sec.cols));
+    rows.forEach((r) => parts.push(row(sec.getData(r))));
+    parts.push('');
+  }
+
+  const blob = new Blob(['﻿' + parts.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `GSTR2B_Recon_ALL_${result.fileName.replace(/\.[^.]+$/, '')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function downloadCsv(rows: Row[], tab: TabKey, fileName: string) {
   let headers: string[];
@@ -176,18 +221,26 @@ export default function GstReconciliationPage() {
 
         {/* How to get the file */}
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <button
-            onClick={() => setGuideOpen(!guideOpen)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <BookOpen size={15} className="text-[#1B4F8A]" />
-              <span className="font-medium text-[#1B4F8A]">How to download GSTR-2B from the GST portal</span>
-            </div>
-            {guideOpen
-              ? <ChevronUp size={15} className="text-gray-400" />
-              : <ChevronDown size={15} className="text-gray-400" />}
-          </button>
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setGuideOpen(!guideOpen)}
+              className="flex-1 flex items-center justify-between px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <BookOpen size={15} className="text-[#1B4F8A]" />
+                <span className="font-medium text-[#1B4F8A]">How to download GSTR-2B from the GST portal</span>
+              </div>
+              {guideOpen
+                ? <ChevronUp size={15} className="text-gray-400" />
+                : <ChevronDown size={15} className="text-gray-400" />}
+            </button>
+            <a href="/dashboard/help?module=gst#gst-recon2b"
+              className="flex items-center gap-1 px-3 py-3 text-xs text-gray-400 hover:text-[#1B4F8A] transition-colors border-l border-gray-100 shrink-0"
+              title="Open full reconciliation guide in Help Center"
+            >
+              <HelpCircle size={14} /> Help
+            </a>
+          </div>
           {guideOpen && (
             <div className="border-t border-gray-100 px-4 py-3 bg-blue-50/40 space-y-2">
               {GUIDE_STEPS.map((text, i) => (
@@ -260,10 +313,18 @@ export default function GstReconciliationPage() {
                   {s.b2bInvoices} invoices in 2B · Total ITC: {inr(s.itcIn2B)}
                 </span>
               </div>
-              <button onClick={reset}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 transition-colors shrink-0">
-                <X size={13} /> New file
-              </button>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => downloadAllCsv(result)}
+                  className="flex items-center gap-1.5 text-xs text-[#1B4F8A] hover:text-[#163d6b] font-medium transition-colors"
+                >
+                  <Download size={13} /> Download All
+                </button>
+                <button onClick={reset}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 transition-colors">
+                  <X size={13} /> New file
+                </button>
+              </div>
             </div>
 
             {/* Summary cards */}
@@ -371,20 +432,20 @@ export default function GstReconciliationPage() {
                         <th className="text-left px-4 py-2.5 font-semibold">Invoice</th>
                         {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyIn2B') && (
                           <>
-                            <th className="text-right px-4 py-2.5 font-semibold">2B Taxable</th>
-                            <th className="text-right px-4 py-2.5 font-semibold">2B Tax</th>
+                            <th className="text-right px-4 py-2.5 font-semibold cursor-help" title="Taxable value as parsed from the GSTR-2B file uploaded from the GST portal">2B Taxable</th>
+                            <th className="text-right px-4 py-2.5 font-semibold cursor-help" title="Total GST (CGST + SGST + IGST) from the GSTR-2B file — this is the ITC you can claim">2B Tax</th>
                           </>
                         )}
                         {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyInBooks') && (
                           <>
-                            <th className="text-right px-4 py-2.5 font-semibold">Book Taxable</th>
-                            <th className="text-right px-4 py-2.5 font-semibold">Book Tax</th>
+                            <th className="text-right px-4 py-2.5 font-semibold cursor-help" title="Taxable value recorded in your GRN (books)">Book Taxable</th>
+                            <th className="text-right px-4 py-2.5 font-semibold cursor-help" title="Total GST recorded in your GRN (books) — CGST + SGST + IGST">Book Tax</th>
                           </>
                         )}
                         {tab === 'mismatch' && (
                           <>
-                            <th className="text-right px-4 py-2.5 font-semibold text-amber-700">Taxable Diff</th>
-                            <th className="text-right px-4 py-2.5 font-semibold text-amber-700">Tax Diff</th>
+                            <th className="text-right px-4 py-2.5 font-semibold text-amber-700 cursor-help" title="Book Taxable − 2B Taxable. Positive = your book value is higher than GSTR-2B">Taxable Diff</th>
+                            <th className="text-right px-4 py-2.5 font-semibold text-amber-700 cursor-help" title="Book Tax − 2B Tax. Positive = your book tax is higher than GSTR-2B. Claim only the 2B amount.">Tax Diff</th>
                           </>
                         )}
                       </tr>
