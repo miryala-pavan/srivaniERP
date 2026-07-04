@@ -4,14 +4,20 @@ import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Upload, FileCheck2, AlertTriangle, FileX2, FileQuestion, CheckCircle2,
-  X, Loader2, ShieldAlert, Scale,
+  X, Loader2, ShieldAlert, ChevronDown, ChevronUp, Download,
+  ExternalLink, Info, BookOpen,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
 
-const inr = (v: number) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(Number(v ?? 0));
-const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const inr = (v: number) => {
+  const n = Number(v ?? 0);
+  const abs = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(Math.abs(n));
+  return n < 0 ? `-₹${abs}` : `₹${abs}`;
+};
+const fmtDate = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 interface Row {
   gstin: string; supplierName: string; invoiceNo: string; invoiceDate: string | null;
@@ -31,12 +37,94 @@ interface Result {
 
 type TabKey = 'matched' | 'mismatch' | 'onlyIn2B' | 'onlyInBooks';
 
+function downloadCsv(rows: Row[], tab: TabKey, fileName: string) {
+  let headers: string[];
+  let getData: (r: Row) => (string | number | null | undefined)[];
+
+  switch (tab) {
+    case 'onlyInBooks':
+      headers = ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', 'GRN No', 'Book Taxable (₹)', 'Book Tax (₹)'];
+      getData = (r) => [r.supplierName, r.gstin, r.invoiceNo, fmtDate(r.invoiceDate), r.grnNumber ?? '', r.bookTaxable ?? 0, r.bookTax ?? 0];
+      break;
+    case 'onlyIn2B':
+      headers = ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', '2B Taxable (₹)', '2B Tax (₹)'];
+      getData = (r) => [r.supplierName, r.gstin, r.invoiceNo, fmtDate(r.invoiceDate), r.b2bTaxable ?? 0, r.b2bTax ?? 0];
+      break;
+    case 'mismatch':
+      headers = ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', 'GRN No', '2B Taxable', '2B Tax', 'Book Taxable', 'Book Tax', 'Taxable Diff', 'Tax Diff'];
+      getData = (r) => [r.supplierName, r.gstin, r.invoiceNo, fmtDate(r.invoiceDate), r.grnNumber ?? '', r.b2bTaxable ?? 0, r.b2bTax ?? 0, r.bookTaxable ?? 0, r.bookTax ?? 0, r.taxableDiff ?? 0, r.taxDiff ?? 0];
+      break;
+    default:
+      headers = ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', 'GRN No', '2B Taxable (₹)', '2B Tax (₹)', 'Book Taxable (₹)', 'Book Tax (₹)'];
+      getData = (r) => [r.supplierName, r.gstin, r.invoiceNo, fmtDate(r.invoiceDate), r.grnNumber ?? '', r.b2bTaxable ?? 0, r.b2bTax ?? 0, r.bookTaxable ?? 0, r.bookTax ?? 0];
+  }
+
+  const csv = [headers, ...rows.map(getData)]
+    .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `GSTR2B_Recon_${tab}_${fileName.replace(/\.[^.]+$/, '')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const GUIDE_STEPS = [
+  'Go to the GST portal: gst.gov.in → Login with your GSTIN and password.',
+  'Click Services → Returns → View Returns / Filed Returns → OR use Returns Dashboard → View GSTR-2B.',
+  'Select the return period (month and year) you want to reconcile.',
+  'If the statement says "Generate" — click it and wait a few minutes for it to be generated.',
+  'Once ready, click "Download" → choose JSON format (preferred) or Excel (.xlsx).',
+  'Upload the downloaded file in the box below. Both .json and .xlsx are accepted here.',
+];
+
+const TAB_CONFIG: Record<TabKey, {
+  shortLabel: string; tone: string; bgTone: string; borderTone: string; icon: React.ElementType;
+  action: string; detail: string; emptyMsg: string;
+}> = {
+  onlyInBooks: {
+    shortLabel: 'ITC at risk',
+    tone: 'text-red-700', bgTone: 'bg-red-50', borderTone: 'border-red-200',
+    icon: ShieldAlert,
+    action: 'These GRNs are recorded in your books but NOT in GSTR-2B — the supplier has not filed their GSTR-1 for this period. You cannot safely claim this ITC until it appears in your GSTR-2B.',
+    detail: 'Action: Contact each supplier below and ask them to file their GSTR-1. These invoices will appear in next month\'s GSTR-2B once they file. Do not claim this ITC in GSTR-3B until confirmed.',
+    emptyMsg: 'All your GRN entries appear in GSTR-2B — no ITC at risk.',
+  },
+  mismatch: {
+    shortLabel: 'Mismatches',
+    tone: 'text-amber-700', bgTone: 'bg-amber-50', borderTone: 'border-amber-200',
+    icon: AlertTriangle,
+    action: 'These invoices exist in both GSTR-2B and your books, but the amounts differ beyond the ₹2 / 0.5% tolerance. This usually means a data entry error in the GRN, or the supplier filed a different amount.',
+    detail: 'Action: Compare each invoice with the physical bill. If the GSTR-2B amount is correct, update the GRN value. Claim ITC only on the amount shown in GSTR-2B, not your book amount.',
+    emptyMsg: 'No amount mismatches — all matched invoices have consistent values.',
+  },
+  onlyIn2B: {
+    shortLabel: 'Not in books',
+    tone: 'text-blue-700', bgTone: 'bg-blue-50', borderTone: 'border-blue-200',
+    icon: FileQuestion,
+    action: 'These invoices appear in your GSTR-2B (supplier filed correctly) but you have NO matching GRN entry. You are currently not claiming this ITC.',
+    detail: 'Action: Check if these goods were actually received. If yes, create a GRN for each invoice to record the purchase and claim ITC. Remember — ITC must be claimed by 30 November of the next financial year.',
+    emptyMsg: 'All GSTR-2B invoices have matching GRN entries in your books.',
+  },
+  matched: {
+    shortLabel: 'Matched',
+    tone: 'text-green-700', bgTone: 'bg-green-50', borderTone: 'border-green-200',
+    icon: CheckCircle2,
+    action: 'These invoices match between GSTR-2B and your books (within the ₹2 / 0.5% tolerance). ITC for all these invoices is safe to claim in GSTR-3B Table 4(A)(5).',
+    detail: '',
+    emptyMsg: 'No matched invoices found. Upload the correct GSTR-2B period or add GRN entries.',
+  },
+};
+
 export default function GstReconciliationPage() {
   const router = useRouter();
-  const [file, setFile]       = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult]   = useState<Result | null>(null);
-  const [tab, setTab]         = useState<TabKey>('onlyInBooks');
+  const [file, setFile]         = useState<File | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState<Result | null>(null);
+  const [tab, setTab]           = useState<TabKey>('onlyInBooks');
+  const [guideOpen, setGuideOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function runReconcile(f: File) {
@@ -47,9 +135,10 @@ export default function GstReconciliationPage() {
       const res = await api.post('/reports/gst/reconcile-2b', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setResult(res.data);
-      // Default to the most actionable tab
-      setTab(res.data.summary.onlyInBooks > 0 ? 'onlyInBooks' : res.data.summary.mismatch > 0 ? 'mismatch' : 'matched');
+      const data: Result = res.data;
+      setResult(data);
+      const s = data.summary;
+      setTab(s.onlyInBooks > 0 ? 'onlyInBooks' : s.mismatch > 0 ? 'mismatch' : s.onlyIn2B > 0 ? 'onlyIn2B' : 'matched');
       toast.success('Reconciliation complete');
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Reconciliation failed');
@@ -64,172 +153,316 @@ export default function GstReconciliationPage() {
     runReconcile(f);
   }
 
+  function reset() {
+    setFile(null);
+    setResult(null);
+  }
+
   const s = result?.summary;
-
-  const TABS: { key: TabKey; label: string; count: number; tone: string }[] = result ? [
-    { key: 'onlyInBooks', label: 'ITC at risk',       count: s!.onlyInBooks, tone: 'text-red-600' },
-    { key: 'mismatch',    label: 'Mismatches',        count: s!.mismatch,    tone: 'text-amber-600' },
-    { key: 'onlyIn2B',    label: 'In 2B, not booked', count: s!.onlyIn2B,    tone: 'text-blue-600' },
-    { key: 'matched',     label: 'Matched',           count: s!.matched,     tone: 'text-green-600' },
-  ] : [];
-
   const rows: Row[] = result ? result[tab] : [];
+  const cfg = TAB_CONFIG[tab];
+
+  const TABS: { key: TabKey; count: number; itc?: number }[] = result ? [
+    { key: 'onlyInBooks', count: s!.onlyInBooks, itc: s!.itcAtRisk   },
+    { key: 'mismatch',    count: s!.mismatch                           },
+    { key: 'onlyIn2B',   count: s!.onlyIn2B,   itc: s!.itcUnbooked  },
+    { key: 'matched',    count: s!.matched,     itc: s!.itcMatched   },
+  ] : [];
 
   return (
     <>
-      <Header title="GST Reconciliation — GSTR-2B" />
-      <main className="flex-1 p-6 space-y-5 max-w-6xl">
+      <Header title="GSTR-2B Reconciliation" />
+      <main className="flex-1 p-6 space-y-4 max-w-5xl">
 
-        {/* Intro / upload */}
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 flex items-start gap-3">
-          <Scale size={16} className="mt-0.5 flex-shrink-0 text-blue-500" />
-          <div>
-            Upload your <strong>GSTR-2B</strong> (JSON or Excel) downloaded from the GST portal. We match it against
-            your approved purchase GRNs so you only claim Input Tax Credit you&apos;re entitled to.
-          </div>
-        </div>
-
-        <div
-          className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-[#1B4F8A] hover:bg-blue-50/40 transition-colors"
-          onClick={() => fileRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); onPick(e.dataTransfer.files?.[0]); }}
-        >
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 text-[#1B4F8A]">
-              <Loader2 className="w-5 h-5 animate-spin" /> <span className="text-sm font-medium">Reconciling…</span>
+        {/* How to get the file */}
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setGuideOpen(!guideOpen)}
+            className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <BookOpen size={15} className="text-[#1B4F8A]" />
+              <span className="font-medium text-[#1B4F8A]">How to download GSTR-2B from the GST portal</span>
             </div>
-          ) : file ? (
-            <div className="flex items-center justify-center gap-2 text-green-700">
-              <CheckCircle2 size={18} /> <span className="text-sm font-medium">{file.name}</span>
-              <button onClick={(e) => { e.stopPropagation(); setFile(null); setResult(null); }} className="ml-2 text-gray-400 hover:text-red-500">
-                <X size={16} />
-              </button>
-            </div>
-          ) : (
-            <div className="text-gray-500">
-              <Upload size={28} className="mx-auto mb-2 text-gray-400" />
-              <p className="text-sm font-medium text-gray-700">Click or drag your GSTR-2B file here</p>
-              <p className="text-xs text-gray-400 mt-1">Accepts the portal&apos;s <strong>.json</strong> or <strong>.xlsx</strong> download</p>
+            {guideOpen
+              ? <ChevronUp size={15} className="text-gray-400" />
+              : <ChevronDown size={15} className="text-gray-400" />}
+          </button>
+          {guideOpen && (
+            <div className="border-t border-gray-100 px-4 py-3 bg-blue-50/40 space-y-2">
+              {GUIDE_STEPS.map((text, i) => (
+                <div key={i} className="flex gap-3 items-start">
+                  <span className="w-5 h-5 rounded-full bg-[#1B4F8A] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                    {i + 1}
+                  </span>
+                  <p className="text-xs text-gray-700 leading-relaxed">{text}</p>
+                </div>
+              ))}
+              <a href="https://gst.gov.in" target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-[#1B4F8A] mt-1 hover:underline">
+                Open GST Portal <ExternalLink size={11} />
+              </a>
             </div>
           )}
-          <input
-            ref={fileRef} type="file" accept=".json,.xlsx,.xls,application/json"
-            className="hidden"
-            onChange={(e) => onPick(e.target.files?.[0])}
-          />
         </div>
+
+        {/* Upload area */}
+        {!result && (
+          <div
+            className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
+              loading
+                ? 'border-[#1B4F8A] bg-blue-50 cursor-default'
+                : 'border-gray-300 hover:border-[#1B4F8A] hover:bg-blue-50/30'
+            }`}
+            onClick={() => !loading && fileRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); onPick(e.dataTransfer.files?.[0]); }}
+          >
+            {loading ? (
+              <div className="flex flex-col items-center gap-2 text-[#1B4F8A]">
+                <Loader2 className="w-8 h-8 animate-spin" />
+                <p className="text-sm font-semibold">Matching against your purchase GRNs…</p>
+                <p className="text-xs text-gray-500">This takes a few seconds. Do not close the tab.</p>
+              </div>
+            ) : (
+              <div>
+                <Upload size={32} className="mx-auto mb-3 text-gray-400" />
+                <p className="text-sm font-semibold text-gray-700">Click or drag your GSTR-2B file here</p>
+                <p className="text-xs text-gray-500 mt-1">Accepts <strong>.json</strong> (from GST portal) or <strong>.xlsx</strong> · Max 20 MB</p>
+                <p className="text-[11px] text-gray-400 mt-3 max-w-sm mx-auto leading-relaxed">
+                  Not sure how to get the file? Expand the guide above.
+                </p>
+              </div>
+            )}
+            <input
+              ref={fileRef} type="file" accept=".json,.xlsx,.xls,application/json"
+              className="hidden"
+              onChange={(e) => onPick(e.target.files?.[0])}
+            />
+          </div>
+        )}
 
         {result && s && (
           <>
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <SummaryCard icon={<ShieldAlert className="w-5 h-5" />} tone="red"
-                label="ITC at risk" value={`Rs.${inr(s.itcAtRisk)}`}
-                sub={`${s.onlyInBooks} invoice(s) in books, not in 2B`} />
-              <SummaryCard icon={<FileCheck2 className="w-5 h-5" />} tone="green"
-                label="ITC matched" value={`Rs.${inr(s.itcMatched)}`}
-                sub={`${s.matched} matched invoice(s)`} />
-              <SummaryCard icon={<FileQuestion className="w-5 h-5" />} tone="blue"
-                label="In 2B, not booked" value={`Rs.${inr(s.itcUnbooked)}`}
-                sub={`${s.onlyIn2B} invoice(s) to record`} />
-              <SummaryCard icon={<AlertTriangle className="w-5 h-5" />} tone="amber"
-                label="Mismatches" value={`${s.mismatch}`}
-                sub="value/tax differs — verify" />
+            {/* File info bar */}
+            <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-2.5">
+              <div className="flex items-center gap-3 flex-wrap text-sm">
+                <div className="flex items-center gap-1.5 text-green-700">
+                  <CheckCircle2 size={15} />
+                  <span className="font-medium text-gray-800">{file?.name}</span>
+                </div>
+                {result.window.from && (
+                  <span className="bg-gray-100 px-2.5 py-0.5 rounded-full text-xs font-mono text-gray-600">
+                    {fmtDate(result.window.from)} – {fmtDate(result.window.to)}
+                  </span>
+                )}
+                <span className="text-xs text-gray-400">
+                  {s.b2bInvoices} invoices in 2B · Total ITC: {inr(s.itcIn2B)}
+                </span>
+              </div>
+              <button onClick={reset}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 transition-colors shrink-0">
+                <X size={13} /> New file
+              </button>
             </div>
 
-            <p className="text-xs text-gray-400">
-              {s.b2bInvoices} invoices in 2B · Total ITC in 2B Rs.{inr(s.itcIn2B)}
-              {result.window.from && ` · period ${fmtDate(result.window.from)} – ${fmtDate(result.window.to)}`}
-            </p>
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                {
+                  icon: ShieldAlert, tone: 'red', tabKey: 'onlyInBooks' as TabKey,
+                  label: 'ITC at risk', value: inr(s.itcAtRisk),
+                  sub: `${s.onlyInBooks} invoice(s) — supplier not filed`,
+                },
+                {
+                  icon: AlertTriangle, tone: 'amber', tabKey: 'mismatch' as TabKey,
+                  label: 'Mismatches', value: String(s.mismatch) + ' invoice(s)',
+                  sub: 'amounts differ — need review',
+                },
+                {
+                  icon: FileQuestion, tone: 'blue', tabKey: 'onlyIn2B' as TabKey,
+                  label: 'Unclaimed ITC', value: inr(s.itcUnbooked),
+                  sub: `${s.onlyIn2B} invoice(s) — no GRN entered`,
+                },
+                {
+                  icon: FileCheck2, tone: 'green', tabKey: 'matched' as TabKey,
+                  label: 'Matched & safe', value: inr(s.itcMatched),
+                  sub: `${s.matched} invoice(s) confirmed`,
+                },
+              ].map(({ icon: Icon, tone, tabKey, label, value, sub }) => {
+                const toneMap: Record<string, string> = {
+                  red:   'bg-red-50 border-red-200 text-red-800',
+                  amber: 'bg-amber-50 border-amber-200 text-amber-800',
+                  blue:  'bg-blue-50 border-blue-200 text-blue-800',
+                  green: 'bg-green-50 border-green-200 text-green-800',
+                };
+                const ringMap: Record<string, string> = {
+                  red: 'ring-red-400', amber: 'ring-amber-400', blue: 'ring-blue-400', green: 'ring-green-400',
+                };
+                return (
+                  <button key={label}
+                    onClick={() => setTab(tabKey)}
+                    className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${toneMap[tone]} ${
+                      tab === tabKey ? `ring-2 ${ringMap[tone]}` : ''
+                    }`}>
+                    <div className="flex items-center gap-2 mb-1.5 opacity-80">
+                      <Icon className="w-4 h-4" />
+                      <span className="text-xs font-medium">{label}</span>
+                    </div>
+                    <div className="text-lg font-bold">{value}</div>
+                    <div className="text-xs opacity-70 mt-0.5 leading-relaxed">{sub}</div>
+                  </button>
+                );
+              })}
+            </div>
 
             {/* Tabs */}
-            <div className="flex gap-1 border-b border-gray-200">
-              {TABS.map((t) => (
-                <button key={t.key} onClick={() => setTab(t.key)}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                    tab === t.key ? 'border-[#1B4F8A] text-[#1B4F8A]' : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}>
-                  {t.label} <span className={`ml-1 ${t.tone}`}>({t.count})</span>
-                </button>
-              ))}
+            <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+              {TABS.map(({ key, count, itc }) => {
+                const c = TAB_CONFIG[key];
+                const Icon = c.icon;
+                const active = tab === key;
+                return (
+                  <button key={key} onClick={() => setTab(key)}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+                      active
+                        ? 'border-[#1B4F8A] text-[#1B4F8A]'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}>
+                    <Icon size={14} className={active ? 'text-[#1B4F8A]' : c.tone} />
+                    {c.shortLabel}
+                    <span className={`${c.tone} ${active ? '' : 'opacity-60'}`}>({count})</span>
+                    {itc !== undefined && count > 0 && (
+                      <span className={`text-[10px] ${c.tone} opacity-80 ml-0.5`}>{inr(itc)}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tab action banner */}
+            <div className={`rounded-xl border ${cfg.bgTone} ${cfg.borderTone} px-4 py-3 space-y-1`}>
+              <p className={`text-sm font-medium ${cfg.tone}`}>{cfg.action}</p>
+              {cfg.detail && <p className={`text-xs ${cfg.tone} opacity-80`}>{cfg.detail}</p>}
             </div>
 
             {/* Table */}
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              {rows.length === 0 ? (
-                <div className="p-10 text-center text-gray-400 text-sm">
-                  <FileX2 className="w-8 h-8 mx-auto mb-2 text-gray-300" /> Nothing in this bucket — good!
+            {rows.length === 0 ? (
+              <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400 text-sm">
+                <FileX2 className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                {cfg.emptyMsg}
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50/70">
+                  <p className="text-xs text-gray-500">{rows.length} invoice(s)</p>
+                  <button
+                    onClick={() => downloadCsv(rows, tab, result.fileName)}
+                    className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-[#1B4F8A] transition-colors"
+                  >
+                    <Download size={13} /> Download CSV
+                  </button>
                 </div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600">
-                    <tr>
-                      <th className="text-left px-4 py-2.5 font-medium">Supplier / GSTIN</th>
-                      <th className="text-left px-4 py-2.5 font-medium">Invoice</th>
-                      <th className="text-right px-4 py-2.5 font-medium">2B Taxable</th>
-                      <th className="text-right px-4 py-2.5 font-medium">2B Tax</th>
-                      <th className="text-right px-4 py-2.5 font-medium">Book Taxable</th>
-                      <th className="text-right px-4 py-2.5 font-medium">Book Tax</th>
-                      {tab === 'mismatch' && <th className="text-right px-4 py-2.5 font-medium">Tax Diff</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {rows.map((r, i) => (
-                      <tr key={i} className="hover:bg-gray-50">
-                        <td className="px-4 py-2.5">
-                          <div className="font-medium text-gray-800">{r.supplierName || '—'}</div>
-                          <div className="text-xs text-gray-400 font-mono">{r.gstin}</div>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {r.grnId ? (
-                            <button onClick={() => router.push(`/dashboard/grn/${r.grnId}`)}
-                              className="text-[#1B4F8A] hover:underline text-left">{r.invoiceNo}</button>
-                          ) : <span className="text-gray-700">{r.invoiceNo}</span>}
-                          <div className="text-xs text-gray-400">{fmtDate(r.invoiceDate)}{r.grnNumber ? ` · ${r.grnNumber}` : ''}</div>
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-gray-700">{r.b2bTaxable != null ? `Rs.${inr(r.b2bTaxable)}` : '—'}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-700">{r.b2bTax != null ? `Rs.${inr(r.b2bTax)}` : '—'}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-700">{r.bookTaxable != null ? `Rs.${inr(r.bookTaxable)}` : '—'}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-700">{r.bookTax != null ? `Rs.${inr(r.bookTax)}` : '—'}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
+                      <tr>
+                        <th className="text-left px-4 py-2.5 font-semibold">Supplier / GSTIN</th>
+                        <th className="text-left px-4 py-2.5 font-semibold">Invoice</th>
+                        {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyIn2B') && (
+                          <>
+                            <th className="text-right px-4 py-2.5 font-semibold">2B Taxable</th>
+                            <th className="text-right px-4 py-2.5 font-semibold">2B Tax</th>
+                          </>
+                        )}
+                        {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyInBooks') && (
+                          <>
+                            <th className="text-right px-4 py-2.5 font-semibold">Book Taxable</th>
+                            <th className="text-right px-4 py-2.5 font-semibold">Book Tax</th>
+                          </>
+                        )}
                         {tab === 'mismatch' && (
-                          <td className={`px-4 py-2.5 text-right font-medium ${Math.abs(r.taxDiff ?? 0) > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
-                            Rs.{inr(r.taxDiff ?? 0)}
-                          </td>
+                          <>
+                            <th className="text-right px-4 py-2.5 font-semibold text-amber-700">Taxable Diff</th>
+                            <th className="text-right px-4 py-2.5 font-semibold text-amber-700">Tax Diff</th>
+                          </>
                         )}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            {tab === 'onlyInBooks' && rows.length > 0 && (
-              <p className="text-xs text-red-500 flex items-center gap-1.5">
-                <ShieldAlert className="w-3.5 h-3.5" /> These are recorded in your books but not in GSTR-2B — your supplier may not have filed. Follow up before claiming this ITC.
-              </p>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {rows.map((r, i) => (
+                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-2.5">
+                            <div className="font-medium text-gray-800">{r.supplierName || '—'}</div>
+                            <div className="text-xs text-gray-400 font-mono tracking-wide">{r.gstin}</div>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {r.grnId ? (
+                              <button
+                                onClick={() => router.push(`/dashboard/grn/${r.grnId}`)}
+                                className="text-[#1B4F8A] hover:underline font-medium"
+                              >
+                                {r.invoiceNo}
+                              </button>
+                            ) : (
+                              <span className="text-gray-800 font-medium">{r.invoiceNo}</span>
+                            )}
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              {fmtDate(r.invoiceDate)}
+                              {r.grnNumber && <> · <span className="font-mono">{r.grnNumber}</span></>}
+                            </div>
+                          </td>
+                          {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyIn2B') && (
+                            <>
+                              <td className="px-4 py-2.5 text-right text-gray-700">
+                                {r.b2bTaxable != null ? inr(r.b2bTaxable) : '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-right text-gray-700">
+                                {r.b2bTax != null ? inr(r.b2bTax) : '—'}
+                              </td>
+                            </>
+                          )}
+                          {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyInBooks') && (
+                            <>
+                              <td className="px-4 py-2.5 text-right text-gray-700">
+                                {r.bookTaxable != null ? inr(r.bookTaxable) : '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-right text-gray-700">
+                                {r.bookTax != null ? inr(r.bookTax) : '—'}
+                              </td>
+                            </>
+                          )}
+                          {tab === 'mismatch' && (() => {
+                            const td = r.taxableDiff ?? 0;
+                            const tx = r.taxDiff ?? 0;
+                            return (
+                              <>
+                                <td className={`px-4 py-2.5 text-right font-medium ${Math.abs(td) > 0.5 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                  {td > 0 ? '+' : ''}{inr(td)}
+                                </td>
+                                <td className={`px-4 py-2.5 text-right font-medium ${Math.abs(tx) > 0.5 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                  {tx > 0 ? '+' : ''}{inr(tx)}
+                                </td>
+                              </>
+                            );
+                          })()}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
+
+            {/* Footer info */}
+            <p className="text-xs text-gray-400 flex items-start gap-1.5 pb-4">
+              <Info size={12} className="mt-0.5 shrink-0" />
+              Matched by GSTIN + Invoice Number (case-insensitive, punctuation stripped). An invoice is &ldquo;matched&rdquo; when the taxable value differs by less than ₹2 or 0.5%, and tax by less than ₹2 or 1%.
+              Credit/debit notes (CDNR) from GSTR-2B are included. Positive diff = your book value is higher than GSTR-2B.
+            </p>
           </>
         )}
       </main>
     </>
-  );
-}
-
-function SummaryCard({ icon, tone, label, value, sub }: {
-  icon: React.ReactNode; tone: 'red' | 'green' | 'blue' | 'amber'; label: string; value: string; sub: string;
-}) {
-  const tones: Record<string, string> = {
-    red:   'bg-red-50 border-red-200 text-red-700',
-    green: 'bg-green-50 border-green-200 text-green-700',
-    blue:  'bg-blue-50 border-blue-200 text-blue-700',
-    amber: 'bg-amber-50 border-amber-200 text-amber-700',
-  };
-  return (
-    <div className={`rounded-xl border p-4 ${tones[tone]}`}>
-      <div className="flex items-center gap-2 mb-1.5 opacity-80">{icon}<span className="text-xs font-medium">{label}</span></div>
-      <div className="text-xl font-bold">{value}</div>
-      <div className="text-xs opacity-70 mt-0.5">{sub}</div>
-    </div>
   );
 }

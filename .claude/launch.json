@@ -6,6 +6,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["dashboard/server.js"],
       "port": 5500
+    },
+    {
+      "name": "frontend-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 4000
     }
   ]
 }
