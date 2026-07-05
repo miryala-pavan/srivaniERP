@@ -9,9 +9,19 @@ id_ed25519
 id_ed25519.pub
 *.pem
 
+# Claude Code local settings — accumulates an auto-approval log of every
+# command run, which can include passwords typed inline (e.g. curl -d
+# '{"password":"..."}' during testing). Never commit.
+.claude/settings.local.json
+
 # Local kiosk dashboard (contains TLS private key) — never commit
 # Anchored to repo root so it does NOT match frontend/src/app/dashboard/
 /dashboard/
+
+# Server ops dashboard staging (contains TOTP/JWT secrets in data/credentials.json) — never commit
+/ops-dashboard/
+*.bak-before-*
+ops-dashboard-2fa-qr.png
 
 # Tesseract language data (downloaded at runtime)
 *.traineddata

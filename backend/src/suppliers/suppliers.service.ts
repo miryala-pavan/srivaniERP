@@ -543,7 +543,68 @@ export class SuppliersService {
       });
     } catch (_err) { /* fire-and-forget */ }
 
+    // Auto-TDS deduction — fire-and-forget, never blocks the payment response.
+    // Runs only when supplier.isTdsApplicable = true and tdsSection is set.
+    this.autoDeductTds(businessId, supplierId, payment.id, dto.amount, payment.paymentDate).catch(() => {});
+
     return payment;
+  }
+
+  private async autoDeductTds(
+    businessId: string,
+    supplierId: string,
+    paymentId: string,
+    amount: number,
+    paymentDate: Date,
+  ): Promise<void> {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: supplierId, businessId },
+      select: { isTdsApplicable: true, tdsSection: true, pan: true, name: true },
+    });
+
+    // Skip if TDS not applicable or no section configured on this supplier
+    if (!supplier?.isTdsApplicable || !supplier.tdsSection) return;
+
+    // Section 206AA: 20% flat rate applies when deductee has no PAN
+    const noPan    = !supplier.pan;
+    const ratePct  = noPan ? 20 : 0; // 0 = placeholder; TDS module computes actual via Rule Engine
+    const tdsAmt   = parseFloat((amount * ratePct / 100).toFixed(2));
+
+    // depositDueDate: 7th of month following payment (April payment due = 30 April for March)
+    const d = new Date(paymentDate);
+    const dueMonth = d.getMonth() === 2 ? 3 : (d.getMonth() + 1) % 12; // March → April 30
+    const dueYear  = d.getMonth() === 2 ? d.getFullYear() : (d.getMonth() === 11 ? d.getFullYear() + 1 : d.getFullYear());
+    const depositDueDate = d.getMonth() === 2
+      ? new Date(dueYear, 3, 30)   // March exception: 30 April
+      : new Date(dueYear, dueMonth, 7); // all others: 7th of next month
+
+    const fy = d.getMonth() >= 3
+      ? `${d.getFullYear()}-${String(d.getFullYear() + 1).slice(2)}`
+      : `${d.getFullYear() - 1}-${String(d.getFullYear()).slice(2)}`;
+
+    await (this.prisma as any).tdsEntry.create({
+      data: {
+        businessId,
+        financialYear:  fy,
+        section:        supplier.tdsSection,
+        deducteeName:   supplier.name,
+        deducteePan:    supplier.pan ?? null,
+        paymentDate,
+        paymentAmount:  amount,
+        tdsRatePct:     ratePct,
+        tdsAmount:      tdsAmt,
+        surcharge:      0,
+        cess:           0,
+        totalTdsAmount: tdsAmt,
+        depositDueDate,
+        status:         'PENDING_DEPOSIT',
+        sourceType:     'SUPPLIER_PAYMENT',
+        sourceId:       paymentId,
+        remarks: noPan
+          ? `Section 206AA: no PAN for ${supplier.name}. 20% flat. Update PAN to get correct rate.`
+          : `Auto-entry on payment. Run TDS module computeTds() to apply Rule Engine rate for ${supplier.tdsSection}.`,
+      },
+    });
   }
 
   async getPayments(businessId: string, supplierId: string, query: { purchaseId?: string; page?: string; limit?: string; dateFrom?: string; dateTo?: string; method?: string }) {

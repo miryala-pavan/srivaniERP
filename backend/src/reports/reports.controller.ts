@@ -83,6 +83,11 @@ export class ReportsController {
     return this.reportsService.getReceivablesAgeing(req.user.businessId, asOf);
   }
 
+  @Get('payables/ageing')
+  getPayablesAgeing(@Request() req: any, @Query('asOf') asOf?: string) {
+    return this.reportsService.getPayablesAgeing(req.user.businessId, asOf);
+  }
+
   // ─── DAY BOOK / CASH BOOK ─────────────────────────────
 
   @Roles('SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON')

@@ -521,6 +521,12 @@ model Supplier {
   // Payee type — distinguishes trade suppliers from rent/loan/other payees
   supplierType       String    @default("SUPPLIER") // SUPPLIER | RENT | LOAN | OTHER
 
+  // TDS fields — set when supplier payments attract TDS deduction
+  pan                String?   // PAN mandatory for TDS; 20% flat rate applies without PAN (Sec 206AA)
+  isTdsApplicable    Boolean   @default(false)
+  tdsSection         String?   // 194C | 194J | 194I | 194H | 194D | 194IB | etc.
+  // udyamRegistration already present above — used for MSME 45-day rule (Sec 43B(h))
+
   // Legacy single bank account fields (kept for backwards compat)
   bankAccountNumber  String?
   bankIfscCode       String?
@@ -532,6 +538,7 @@ model Supplier {
   itemAliases    SupplierItemAlias[]
   advances       SupplierAdvance[]
   creditNotes    SupplierCreditNote[]
+  debitNotes     PurchaseDebitNote[]
   payments       SupplierPayment[]
   bankAccounts   SupplierBankAccount[]
   purchaseOrders PurchaseOrder[]
@@ -698,6 +705,17 @@ model SalesBill {
   loyaltyPointsEarned     Int     @default(0)
   loyaltyPointsRedeemed   Int     @default(0)
   loyaltyDiscount         Decimal @db.Decimal(10, 2) @default(0)
+  // ── GST Compliance stubs (feature-ready) ─────────────────────────────────
+  // irnNumber: e-Invoice Reference Number from IRP (mandatory >₹5Cr turnover)
+  irnNumber               String?
+  // eWayBillNumber: required for goods movement >₹50,000
+  eWayBillNumber          String?
+  // reverseChargeApplicable: Section 9(3) / 9(4) supplies
+  reverseChargeApplicable Boolean @default(false)
+  // Buyer structured address — needed for GSTR-1 B2B table
+  buyerAddress            String?
+  buyerPincode            String?
+  buyerStateCode          String?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
@@ -1185,13 +1203,17 @@ model CreditNote {
   customerId         String?
   customerName       String?
   customerPhone      String?
+  customerGstin      String?
+  isB2B              Boolean         @default(false)
   reason             String
   subtotalAmount     Decimal         @db.Decimal(15, 2)
   taxAmount          Decimal         @db.Decimal(15, 2)
   cgstAmount         Decimal         @db.Decimal(15, 2)
   sgstAmount         Decimal         @db.Decimal(15, 2)
+  igstAmount         Decimal         @db.Decimal(15, 2) @default(0)
+  cessAmount         Decimal         @db.Decimal(15, 2) @default(0)
   totalAmount        Decimal         @db.Decimal(15, 2)
-  refundMode         String          // CASH or STORE_CREDIT
+  refundMode         String          // CASH | STORE_CREDIT | BANK_TRANSFER
   refundStatus       String          @default("PENDING")
   refundCompletedAt  DateTime?
   createdById        String
@@ -1215,13 +1237,72 @@ model CreditNoteItem {
   hsnCode        String?
   quantity       Decimal    @db.Decimal(15, 3)
   unitPrice      Decimal    @db.Decimal(15, 2)
+  discountAmount Decimal    @db.Decimal(15, 2) @default(0)
+  taxableAmount  Decimal    @db.Decimal(15, 2) @default(0)
   gstRatePercent Decimal    @db.Decimal(5, 2)
   cgstAmount     Decimal    @db.Decimal(15, 2)
   sgstAmount     Decimal    @db.Decimal(15, 2)
+  igstAmount     Decimal    @db.Decimal(15, 2) @default(0)
+  cessAmount     Decimal    @db.Decimal(15, 2) @default(0)
   totalAmount    Decimal    @db.Decimal(15, 2)
   isReturnable   Boolean    @default(true)
 
   @@map("credit_note_item")
+}
+
+// ─── SALES DEBIT NOTE ────────────────────────────────────────────────────────
+// Issued when a price increase correction is needed against a customer
+// (opposite of credit note — charges the customer more)
+model SalesDebitNote {
+  id               String   @id @default(cuid())
+  businessId       String
+  branchId         String
+  debitNoteNumber  String   @unique
+  debitNoteDate    DateTime @default(now())
+  originalBillId   String?
+  originalBillNumber String?
+  customerId       String?
+  customerName     String?
+  customerGstin    String?
+  reason           String
+  subtotalAmount   Decimal  @db.Decimal(15, 2) @default(0)
+  cgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  sgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  igstAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  cessAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  totalAmount      Decimal  @db.Decimal(15, 2)
+  status           String   @default("DRAFT")  // DRAFT | ISSUED | CANCELLED
+  createdById      String?
+  createdByName    String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  items SalesDebitNoteItem[]
+
+  @@index([businessId, debitNoteDate])
+  @@index([businessId, customerId])
+  @@map("sales_debit_note")
+}
+
+model SalesDebitNoteItem {
+  id             String         @id @default(cuid())
+  debitNoteId    String
+  debitNote      SalesDebitNote @relation(fields: [debitNoteId], references: [id])
+  productId      String?
+  productName    String
+  hsnCode        String?
+  quantity       Decimal        @db.Decimal(15, 3)
+  unitPrice      Decimal        @db.Decimal(15, 2)
+  taxableAmount  Decimal        @db.Decimal(15, 2) @default(0)
+  gstRatePercent Decimal        @db.Decimal(5, 2)  @default(0)
+  cgstAmount     Decimal        @db.Decimal(15, 2) @default(0)
+  sgstAmount     Decimal        @db.Decimal(15, 2) @default(0)
+  igstAmount     Decimal        @db.Decimal(15, 2) @default(0)
+  cessAmount     Decimal        @db.Decimal(15, 2) @default(0)
+  totalAmount    Decimal        @db.Decimal(15, 2)
+
+  @@map("sales_debit_note_item")
 }
 
 // ─── SETTINGS ────────────────────────────────────────
@@ -1584,6 +1665,63 @@ model SupplierCreditNoteItem {
 
   @@index([creditNoteId])
   @@map("supplier_credit_note_item")
+}
+
+// ─── PURCHASE DEBIT NOTE ─────────────────────────────────────────────────────
+// Raised when you charge the supplier for returns, damages, or price differences
+model PurchaseDebitNote {
+  id               String   @id @default(cuid())
+  businessId       String
+  debitNoteNumber  String   @unique
+  debitNoteDate    DateTime @default(now())
+  supplierId       String
+  supplierName     String
+  supplierGstin    String?
+  originalGrnId    String?
+  originalInvoiceNo String?
+  reason           String
+  taxableAmount    Decimal  @db.Decimal(15, 2) @default(0)
+  cgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  sgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  igstAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  cessAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  totalAmount      Decimal  @db.Decimal(15, 2)
+  // itcReversal: if goods returned, ITC claimed must be reversed
+  itcReversal      Boolean  @default(false)
+  status           String   @default("DRAFT")  // DRAFT | ISSUED | ACCEPTED | REJECTED
+  notes            String?
+  createdById      String?
+  createdByName    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  items    PurchaseDebitNoteItem[]
+
+  @@index([businessId, supplierId])
+  @@index([businessId, debitNoteDate])
+  @@map("purchase_debit_note")
+}
+
+model PurchaseDebitNoteItem {
+  id             String            @id @default(cuid())
+  debitNoteId    String
+  debitNote      PurchaseDebitNote @relation(fields: [debitNoteId], references: [id])
+  productId      String?
+  productName    String
+  hsnCode        String?
+  quantity       Decimal           @db.Decimal(10, 3)
+  unitPrice      Decimal           @db.Decimal(15, 2)
+  taxableAmount  Decimal           @db.Decimal(15, 2) @default(0)
+  gstRate        Decimal           @db.Decimal(5, 2)  @default(0)
+  cgstAmount     Decimal           @db.Decimal(15, 2) @default(0)
+  sgstAmount     Decimal           @db.Decimal(15, 2) @default(0)
+  igstAmount     Decimal           @db.Decimal(15, 2) @default(0)
+  cessAmount     Decimal           @db.Decimal(15, 2) @default(0)
+  totalAmount    Decimal           @db.Decimal(15, 2)
+
+  @@index([debitNoteId])
+  @@map("purchase_debit_note_item")
 }
 
 // ─── SUPPLIER PAYMENT ─────────────────────────────────

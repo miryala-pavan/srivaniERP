@@ -881,6 +881,96 @@ export class ReportsService {
     };
   }
 
+  // ─── AP AGING (PAYABLES) ──────────────────────────────
+  // Mirrors getReceivablesAgeing but for supplier dues.
+  // Buckets unpaid/partially-paid APPROVED GRNs by days past due date.
+  // If paymentDueDate is null, falls back to invoiceDate + 30 days.
+  async getPayablesAgeing(businessId: string, asOf?: string) {
+    const today = asOf ? dayEnd(new Date(asOf)) : new Date();
+
+    const grns = await this.prisma.purchase.findMany({
+      where: {
+        businessId,
+        status:        'APPROVED',
+        balanceAmount: { gt: 0 },
+      },
+      select: {
+        id: true, grnNumber: true, invoiceNumber: true, invoiceDate: true,
+        paymentDueDate: true, balanceAmount: true, grandTotal: true,
+        supplierId: true, supplierName: true, supplierGstin: true,
+        supplier: { select: { id: true, name: true, phone: true } },
+      },
+      orderBy: { invoiceDate: 'asc' },
+    });
+
+    type Sup = {
+      supplierId: string; supplierName: string; supplierPhone: string | null;
+      b0_30: number; b31_60: number; b61_90: number; b90_plus: number;
+      total: number; grnCount: number; oldestDays: number; nextDueDate: string | null;
+    };
+    const map = new Map<string, Sup>();
+
+    for (const g of grns) {
+      const bal     = n(g.balanceAmount);
+      const dueDate = g.paymentDueDate
+        ? new Date(g.paymentDueDate)
+        : new Date(new Date(g.invoiceDate).getTime() + 30 * 86400000);
+      const days    = Math.max(0, Math.floor((today.getTime() - dueDate.getTime()) / 86400000));
+      const key     = g.supplierId;
+
+      const s = map.get(key) ?? {
+        supplierId:   g.supplierId,
+        supplierName: g.supplierName ?? g.supplier?.name ?? 'Unknown',
+        supplierPhone: g.supplier?.phone ?? null,
+        b0_30: 0, b31_60: 0, b61_90: 0, b90_plus: 0,
+        total: 0, grnCount: 0, oldestDays: 0, nextDueDate: null,
+      };
+
+      if      (days <= 30) s.b0_30    = r2(s.b0_30    + bal);
+      else if (days <= 60) s.b31_60   = r2(s.b31_60   + bal);
+      else if (days <= 90) s.b61_90   = r2(s.b61_90   + bal);
+      else                 s.b90_plus = r2(s.b90_plus + bal);
+
+      s.total      = r2(s.total + bal);
+      s.grnCount  += 1;
+      s.oldestDays = Math.max(s.oldestDays, days);
+
+      // Track soonest upcoming due date (future dues)
+      if (dueDate > today) {
+        const dd = dueDate.toISOString().slice(0, 10);
+        if (!s.nextDueDate || dd < s.nextDueDate) s.nextDueDate = dd;
+      }
+
+      map.set(key, s);
+    }
+
+    const suppliers = [...map.values()].sort((a, b) => b.total - a.total);
+
+    const totals = suppliers.reduce(
+      (acc, s) => ({
+        b0_30:    r2(acc.b0_30    + s.b0_30),
+        b31_60:   r2(acc.b31_60   + s.b31_60),
+        b61_90:   r2(acc.b61_90   + s.b61_90),
+        b90_plus: r2(acc.b90_plus + s.b90_plus),
+        total:    r2(acc.total    + s.total),
+      }),
+      { b0_30: 0, b31_60: 0, b61_90: 0, b90_plus: 0, total: 0 },
+    );
+
+    return {
+      asOf:      today.toISOString(),
+      suppliers,
+      totals,
+      summary: {
+        supplierCount:  suppliers.length,
+        grnCount:       grns.length,
+        totalOutstanding: totals.total,
+        // Section 43B(h): MSME dues beyond 45 days are disallowed — flag them
+        msmeWarning: 'Dues to MSME suppliers outstanding >45 days may be disallowed under Section 43B(h)',
+      },
+    };
+  }
+
   // ─── DAY BOOK + CASH BOOK ─────────────────────────────
   // Day Book: chronological list of the day's money movements (all modes).
   // Cash Book: cash-only opening / receipts / payments / closing.

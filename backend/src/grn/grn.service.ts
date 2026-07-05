@@ -1072,6 +1072,7 @@ export class GrnService {
     if (grn.status !== 'DRAFT') throw new BadRequestException('Only DRAFT GRNs can be deleted');
     await this.prisma.$transaction([
       this.prisma.purchaseItem.deleteMany({ where: { purchaseId: id } }),
+      this.prisma.purchaseTaxBreakup.deleteMany({ where: { purchaseId: id } }),
       this.prisma.purchase.delete({ where: { id } }),
     ]);
     return { success: true };
