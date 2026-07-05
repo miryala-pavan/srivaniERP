@@ -30,7 +30,16 @@ export interface TdsComputationResult {
   rulesApplied: string[];
 }
 
-const TDS_SECTIONS = ['194J', '194C', '194I', '194H', '194A', '194B', '194D', '192'];
+// Bare-digit section codes matching the real TdsSection enum (S192, S194A, ...)
+// minus the leading "S". Kept bare here because Supplier.tdsSection is a plain
+// string documented/entered without the "S" (e.g. "194C"), while TdsEntry.section
+// is the strict Prisma enum WITH the "S" prefix -- normalizeSection() below
+// bridges the two so callers can pass either form.
+const TDS_SECTIONS = ['192', '194A', '194C', '194D', '194H', '194I', '194IB', '194J', '194LA', '194M', '194N', '194Q', 'OTHER'];
+
+function normalizeSection(section: string): string {
+  return section.replace(/^S/i, '');
+}
 
 @Injectable()
 export class TdsService {
@@ -43,8 +52,9 @@ export class TdsService {
 
   async computeTds(
     businessId: string,
-    input: TdsComputationInput,
+    rawInput: TdsComputationInput,
   ): Promise<TdsComputationResult> {
+    const input = { ...rawInput, section: normalizeSection(rawInput.section) };
     if (!TDS_SECTIONS.includes(input.section))
       throw new BadRequestException(`Unknown TDS section: ${input.section}`);
 
@@ -130,6 +140,34 @@ export class TdsService {
     const e = await this.prisma.tdsEntry.findUnique({ where: { id } });
     if (!e) throw new NotFoundException('TDS entry not found');
     return e;
+  }
+
+  /**
+   * Applies computeTds() to an existing entry and saves the result. For
+   * auto-created stub entries (0% rate, deductee has a PAN) this is what
+   * actually fills in the real Rule Engine rate — computeTds() alone only
+   * calculates a hypothetical result, it never touches stored entries.
+   */
+  async recomputeLedgerEntry(businessId: string, id: string) {
+    const entry = await this.prisma.tdsEntry.findFirst({ where: { id, businessId } });
+    if (!entry) throw new NotFoundException('TDS entry not found');
+
+    const result = await this.computeTds(businessId, {
+      section: entry.section,
+      grossAmount: Number(entry.paymentAmount),
+      partyPan: entry.deducteePan ?? undefined,
+    });
+
+    return this.prisma.tdsEntry.update({
+      where: { id },
+      data: {
+        tdsRatePct: result.tdsRate * 100,
+        tdsAmount: result.tdsAmount,
+        cess: result.cess,
+        totalTdsAmount: result.totalTds,
+        remarks: `Rate computed: ${result.rulesApplied.join(', ') || 'default'}.`,
+      },
+    });
   }
 
   async recordChallan(

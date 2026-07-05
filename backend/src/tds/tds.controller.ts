@@ -25,6 +25,7 @@ export class TdsController {
         'POST /api/tds/compute — Compute TDS for a transaction',
         'GET  /api/tds/ledger — TDS deduction ledger (optional ?financialYear=&section=)',
         'GET  /api/tds/ledger/:id — Single TDS entry',
+        'POST /api/tds/ledger/:id/recompute — Apply Rule Engine rate to a stub entry (0% rate)',
         'GET  /api/tds/summary — TDS dashboard: deducted, deposited, outstanding',
         'POST /api/tds/challans — Record TDS challan deposit',
         'GET  /api/tds/challans — List challans (optional ?financialYear=)',
@@ -53,6 +54,11 @@ export class TdsController {
   @Get('ledger/:id')
   getLedgerEntry(@Param('id') id: string) {
     return this.tds.getLedgerEntry(id);
+  }
+
+  @Post('ledger/:id/recompute')
+  recomputeLedgerEntry(@Request() req: any, @Param('id') id: string) {
+    return this.tds.recomputeLedgerEntry(req.user.businessId, id);
   }
 
   @Post('challans')

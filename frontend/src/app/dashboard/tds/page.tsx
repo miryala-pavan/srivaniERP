@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, IndianRupee, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, Plus, IndianRupee, AlertCircle, CheckCircle2, Calculator } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { BackButton } from '@/components/shared/BackButton';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
@@ -39,6 +39,7 @@ export default function TdsPage() {
   const [tab, setTab] = useState<'ledger' | 'challans'>('ledger');
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [recomputingId, setRecomputingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     financialYear: currentFy(), quarter: 'Q1', section: '194C',
     amountDeducted: '', amountDeposited: '', bsrCode: '', challanSerial: '',
@@ -81,6 +82,18 @@ export default function TdsPage() {
   }
 
   const outstanding = summary?.outstanding ?? 0;
+  const needsComputeCount = ledger.filter(e => Number(e.tdsRatePct) === 0).length;
+
+  async function recompute(id: string) {
+    setRecomputingId(id);
+    try {
+      await api.post(`/tds/ledger/${id}/recompute`);
+      toast.success('Rate applied');
+      load();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to compute rate'));
+    } finally { setRecomputingId(null); }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -151,6 +164,12 @@ export default function TdsPage() {
               {t === 'ledger' ? `Deduction Ledger (${ledger.length})` : `Challans (${challans.length})`}
             </button>
           ))}
+          {tab === 'ledger' && needsComputeCount > 0 && (
+            <span title="These were auto-created when a supplier payment was made, but still need their real TDS rate applied — click Compute on each row"
+              className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full">
+              <AlertCircle className="w-3.5 h-3.5" /> {needsComputeCount} need rate computed
+            </span>
+          )}
           {tab === 'challans' && (
             <button onClick={() => setShowForm(s => !s)}
               className="ml-auto flex items-center gap-1 px-2.5 py-1.5 text-xs bg-[#1B4F8A] text-white rounded-lg hover:bg-[#163f6e]">
@@ -199,22 +218,39 @@ export default function TdsPage() {
                     <th className="px-4 py-2.5 text-right font-medium">Payment ₹</th>
                     <th className="px-4 py-2.5 text-right font-medium">Rate %</th>
                     <th className="px-4 py-2.5 text-right font-medium">TDS ₹</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ledger.map(e => (
-                    <tr key={e.id} className="border-b border-gray-50 hover:bg-gray-50">
-                      <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{fmtDate(e.paymentDate)}</td>
-                      <td className="px-4 py-2.5 text-gray-700 font-medium">{e.deducteeName}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{e.deducteePan ?? '—'}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{e.section}</td>
-                      <td className="px-4 py-2.5 text-right text-gray-600">₹{inr(Number(e.paymentAmount))}</td>
-                      <td className="px-4 py-2.5 text-right text-gray-500">{Number(e.tdsRatePct)}%</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-gray-800">₹{inr(Number(e.tdsAmount))}</td>
-                    </tr>
-                  ))}
+                  {ledger.map(e => {
+                    const needsCompute = Number(e.tdsRatePct) === 0;
+                    return (
+                      <tr key={e.id} className={`border-b border-gray-50 hover:bg-gray-50 ${needsCompute ? 'bg-amber-50/40' : ''}`}>
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{fmtDate(e.paymentDate)}</td>
+                        <td className="px-4 py-2.5 text-gray-700 font-medium">{e.deducteeName}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{e.deducteePan ?? '—'}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{e.section}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-600">₹{inr(Number(e.paymentAmount))}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          {needsCompute
+                            ? <span className="text-amber-600 font-medium" title="Auto-created stub — rate not yet computed">0% (pending)</span>
+                            : <span className="text-gray-500">{Number(e.tdsRatePct)}%</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-gray-800">₹{inr(Number(e.tdsAmount))}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          {needsCompute && (
+                            <button onClick={() => recompute(e.id)} disabled={recomputingId === e.id}
+                              title="Apply the real TDS rate via the Rule Engine for this section"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 disabled:opacity-50">
+                              <Calculator className={`w-3 h-3 ${recomputingId === e.id ? 'animate-pulse' : ''}`} /> Compute
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {!loading && ledger.length === 0 && (
-                    <tr><td colSpan={7} className="py-12 text-center text-gray-400">No TDS deductions recorded yet — entries appear automatically when qualifying payments are made</td></tr>
+                    <tr><td colSpan={8} className="py-12 text-center text-gray-400">No TDS deductions recorded yet — entries appear automatically when qualifying payments are made</td></tr>
                   )}
                 </tbody>
               </table>
