@@ -71,6 +71,25 @@ export const PERIOD_OPTIONS: { value: Period; label: string }[] = [
   { value: 'custom',    label: 'Custom' },
 ];
 
+// ─── Comparison helpers ──────────────────────────────────────────────────────
+
+/** The equal-length window immediately before the given range (for "vs previous period"). */
+export function prevRange(range: DateRange): DateRange {
+  const from = new Date(range.from + 'T00:00:00');
+  const to   = new Date(range.to   + 'T00:00:00');
+  const days = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
+  const prevTo   = new Date(from); prevTo.setDate(prevTo.getDate() - 1);
+  const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - days + 1);
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return { from: iso(prevFrom), to: iso(prevTo) };
+}
+
+/** % change from prev to curr; null when prev is 0/absent (no meaningful base). */
+export function pctDelta(curr: number, prev: number | null | undefined): number | null {
+  if (prev == null || prev === 0) return null;
+  return Math.round(((curr - prev) / Math.abs(prev)) * 1000) / 10;
+}
+
 // ─── Excel blob download ─────────────────────────────────────────────────────
 
 export async function downloadExcel(

@@ -13,7 +13,7 @@ import { TdsService } from './tds.service';
 import type { TdsComputationInput } from './tds.service';
 
 @UseGuards(JwtAuthGuard)
-@Controller('api/tds')
+@Controller('tds')
 export class TdsController {
   constructor(private readonly tds: TdsService) {}
 

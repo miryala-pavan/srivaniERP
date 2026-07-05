@@ -2311,4 +2311,40 @@ export class ProductsService {
     await this.shopCache.bustNavigation().catch(() => {});
     return { updated: productIds.length };
   }
+
+  // ─── PLU PRICE HISTORY ────────────────────────────────
+  // Full audit trail of every price/status change across all PLUs of a product.
+  // Cost prices are stripped for roles that cannot view cost.
+  async getProductPriceHistory(businessId: string, productId: string, canViewCost: boolean) {
+    const rows = await this.prisma.pluPriceHistory.findMany({
+      where: { businessId, productId },
+      include: { plu: { select: { pluCode: true, displayName: true, unitSymbol: true } } },
+      orderBy: { recordedAt: 'desc' },
+      take: 300,
+    });
+
+    return {
+      history: rows.map(r => ({
+        id: r.id,
+        pluCode: r.plu.pluCode,
+        packLabel: r.plu.displayName ?? null,
+        changeSource: r.changeSource,
+        grnId: r.grnId,
+        changedBy: r.changedBy,
+        effectiveDate: r.effectiveDate,
+        recordedAt: r.recordedAt,
+        mrpBefore: r.mrpBefore, mrpAfter: r.mrpAfter,
+        sellingPriceBefore: r.sellingPriceBefore, sellingPriceAfter: r.sellingPriceAfter,
+        gstRateBefore: r.gstRateBefore, gstRateAfter: r.gstRateAfter,
+        hsnCodeBefore: r.hsnCodeBefore, hsnCodeAfter: r.hsnCodeAfter,
+        isDefaultBefore: r.isDefaultBefore, isDefaultAfter: r.isDefaultAfter,
+        isActiveBefore: r.isActiveBefore, isActiveAfter: r.isActiveAfter,
+        ...(canViewCost
+          ? { costPriceBefore: r.costPriceBefore, costPriceAfter: r.costPriceAfter }
+          : {}),
+        notes: r.notes,
+      })),
+      count: rows.length,
+    };
+  }
 }

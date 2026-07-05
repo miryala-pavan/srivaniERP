@@ -113,6 +113,20 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
+  /**
+   * Free-form text message for scheduled report delivery.
+   * Meta restriction: text (non-template) messages only reach recipients who
+   * messaged this WhatsApp number within the last 24 hours. If reports stop
+   * arriving, the recipient just needs to send any message to the store's
+   * WhatsApp number to re-open the window. Email is the guaranteed channel.
+   */
+  async sendTextMessage(phone: string, body: string): Promise<void> {
+    if (!this.enabled) throw new Error('WhatsApp not configured (token/phoneId missing)');
+    const to = this.e164(phone);
+    if (!to) throw new Error(`Invalid WhatsApp number: ${phone}`);
+    await this.post({ to, type: 'text', text: { body, preview_url: false } });
+  }
+
   private sendTemplate(to: string, name: string, params: string[]): Promise<void> {
     return this.post({
       to,

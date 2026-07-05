@@ -150,6 +150,17 @@ export class ReportsController {
     return this.reportsService.getSlowMovingStock(req.user.businessId, days ? Number(days) : 30);
   }
 
+  // ─── PRICE AUDIT ──────────────────────────────────────
+
+  @Roles(...MANAGER_ROLES)
+  @Get('price-audit')
+  getPriceAudit(
+    @Request() req: any,
+    @Query() query: { startDate?: string; endDate?: string; source?: string },
+  ) {
+    return this.reportsService.getPriceAudit(req.user.businessId, query);
+  }
+
   // ─── CA EXPORT ────────────────────────────────────────
 
   @Roles('SUPER_ADMIN', 'ACCOUNTS_PERSON', 'BRANCH_MANAGER', 'CA')

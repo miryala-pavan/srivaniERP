@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ArrowLeftRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
 import Header from '@/components/layout/Header';
 import { BackButton } from '@/components/shared/BackButton';
@@ -9,9 +9,11 @@ import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
 import SortableTh from '@/components/reports/SortableTh';
 import ExportBtn from '@/components/reports/ExportBtn';
 import PeriodFilter from '@/components/reports/PeriodFilter';
+import SavedViews from '@/components/reports/SavedViews';
+import DeltaBadge from '@/components/reports/DeltaBadge';
 import { useReportParams } from '@/hooks/useReportParams';
 import { useSortable } from '@/hooks/useSortable';
-import { inr, inr0, today, monthStart, periodDates, type Period, type DateRange } from '@/lib/report-format';
+import { inr, inr0, today, monthStart, periodDates, prevRange, pctDelta, type Period, type DateRange } from '@/lib/report-format';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { getErrorMessage } from '@/lib/errors';
@@ -31,7 +33,9 @@ export default function SalesByCategoryPage() {
   const params = useReportParams();
   const [period, setPeriod] = useState<Period>(() => (params.get('period', 'month') as Period));
   const [range,  setRange]  = useState<DateRange>({ from: params.get('from', monthStart()), to: params.get('to', today()) });
+  const [cmp,    setCmp]    = useState(() => params.get('cmp') === '1');
   const [data,   setData]   = useState<CategoryData | null>(null);
+  const [prev,   setPrev]   = useState<CategoryData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -40,10 +44,15 @@ export default function SalesByCategoryPage() {
     try {
       const res = await api.get<CategoryData>('/reports/sales/by-category', { params: { startDate, endDate } });
       setData(res.data);
+      if (cmp) {
+        const pr = prevRange({ from: startDate, to: endDate });
+        const prevRes = await api.get<CategoryData>('/reports/sales/by-category', { params: { startDate: pr.from, endDate: pr.to } });
+        setPrev(prevRes.data);
+      } else setPrev(null);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to load category sales'));
     } finally { setLoading(false); }
-  }, [period, range]);
+  }, [period, range, cmp]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -51,6 +60,14 @@ export default function SalesByCategoryPage() {
     setPeriod(p); setRange(r);
     params.set({ period: p, from: r.from, to: r.to });
   }
+  function toggleCmp() {
+    const v = !cmp; setCmp(v);
+    params.set({ cmp: v ? '1' : null });
+  }
+
+  // Per-category previous revenue for the table delta column (compare mode)
+  const prevByCat: Record<string, number> = {};
+  if (cmp && prev) for (const c of prev.categories) prevByCat[c.categoryName] = c.totalRevenue;
 
   const { sorted, sort, dir, handleSort } = useSortable(data?.categories ?? [], 'totalRevenue', 'desc');
   const top10 = (data?.categories ?? []).slice(0, 10);
@@ -65,9 +82,15 @@ export default function SalesByCategoryPage() {
           <BackButton />
           <div className="flex flex-wrap items-center gap-2">
             <PeriodFilter period={period} from={range.from} to={range.to} onChange={handlePeriod} />
+            <button onClick={toggleCmp}
+              title="Compare with the previous period of equal length — deltas appear on cards and per category"
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg ${cmp ? 'bg-[#1B4F8A] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              <ArrowLeftRight className="w-3.5 h-3.5" /> Compare
+            </button>
             <button onClick={load} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
+            <SavedViews />
             <ExportBtn onPrint={() => window.print()} />
           </div>
         </div>
@@ -76,11 +99,18 @@ export default function SalesByCategoryPage() {
         <div className="grid grid-cols-2 gap-3 mb-5">
           <div className="bg-white rounded-xl border border-gray-100 p-4">
             <p className="text-xs text-gray-500">Total Revenue</p>
-            <p className="text-2xl font-bold text-[#1B4F8A]">₹{inr(data?.summary.totalRevenue ?? 0)}</p>
+            <p className="text-2xl font-bold text-[#1B4F8A]">
+              ₹{inr(data?.summary.totalRevenue ?? 0)}
+              {cmp && prev && <span className="ml-2 align-middle"><DeltaBadge delta={pctDelta(data?.summary.totalRevenue ?? 0, prev.summary.totalRevenue)} /></span>}
+            </p>
+            {cmp && prev && <p className="text-[10px] text-gray-400 mt-0.5">prev: ₹{inr(prev.summary.totalRevenue)}</p>}
           </div>
           <div className="bg-white rounded-xl border border-gray-100 p-4">
             <p className="text-xs text-gray-500">Categories</p>
-            <p className="text-2xl font-bold text-gray-800">{data?.summary.categoryCount ?? 0}</p>
+            <p className="text-2xl font-bold text-gray-800">
+              {data?.summary.categoryCount ?? 0}
+              {cmp && prev && <span className="ml-2 align-middle"><DeltaBadge delta={pctDelta(data?.summary.categoryCount ?? 0, prev.summary.categoryCount)} /></span>}
+            </p>
           </div>
         </div>
 
@@ -119,6 +149,7 @@ export default function SalesByCategoryPage() {
                   <SortableTh column="billCount"    label="Bills"     sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof CategoryRow)} align="right" />
                   <SortableTh column="totalQty"     label="Qty Sold"  sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof CategoryRow)} align="right" />
                   <SortableTh column="totalRevenue" label="Revenue"   sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof CategoryRow)} align="right" />
+                  {cmp && <th className="px-4 py-2.5 text-right font-medium" title="Change vs previous period of equal length">vs Prev</th>}
                   <SortableTh column="revenuePct"   label="% Share"   sort={sort as string} dir={dir} onSort={s => handleSort(s as keyof CategoryRow)} align="right" />
                 </tr>
               </thead>
@@ -130,6 +161,11 @@ export default function SalesByCategoryPage() {
                     <td className="px-4 py-2.5 text-right text-gray-600">{inr0(c.billCount)}</td>
                     <td className="px-4 py-2.5 text-right text-gray-600">{inr0(c.totalQty)}</td>
                     <td className="px-4 py-2.5 text-right font-semibold text-[#1B4F8A]">₹{inr(c.totalRevenue)}</td>
+                    {cmp && (
+                      <td className="px-4 py-2.5 text-right">
+                        <DeltaBadge delta={pctDelta(c.totalRevenue, prevByCat[c.categoryName])} />
+                      </td>
+                    )}
                     <td className="px-4 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <div className="w-16 bg-gray-100 rounded-full h-1.5">

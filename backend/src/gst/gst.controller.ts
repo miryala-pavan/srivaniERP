@@ -12,7 +12,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GstService } from './gst.service';
 
 @UseGuards(JwtAuthGuard)
-@Controller('api/gst')
+@Controller('gst')
 export class GstController {
   constructor(private readonly gst: GstService) {}
 

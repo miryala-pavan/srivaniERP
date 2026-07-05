@@ -1400,6 +1400,33 @@ model ProductPlu {
   @@map("product_plu")
 }
 
+// ─── SCHEDULED REPORTS ────────────────────────────────
+// Automatic report delivery via WhatsApp / email on a daily/weekly/monthly cadence.
+// Times are IST ("HH:mm"). The runner polls every minute and sends once per period.
+model ScheduledReport {
+  id          String    @id @default(cuid())
+  businessId  String
+  name        String
+  reportType  String    // DAY_BOOK | SALES_BY_CATEGORY | PAYMENT_MODES | EXPENSES | PURCHASES
+  frequency   String    // DAILY | WEEKLY | MONTHLY
+  sendAt      String    // "HH:mm" 24h IST
+  weekday     Int?      // 0=Sun … 6=Sat (WEEKLY only)
+  dayOfMonth  Int?      // 1–28 (MONTHLY only)
+  channel     String    // WHATSAPP | EMAIL
+  recipient   String    // phone for WHATSAPP, email address for EMAIL
+  isActive    Boolean   @default(true)
+  lastRunAt   DateTime?
+  lastStatus  String?   // SENT | FAILED
+  lastError   String?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([businessId])
+  @@index([isActive])
+  @@map("scheduled_report")
+}
+
 // ─── PLU PRICE HISTORY ────────────────────────────────
 // Full before/after audit trail for every PLU price/status change.
 // changeSource: GRN_APPROVAL | PLU_CREATE | MANUAL_UPDATE | SET_DEFAULT | DEACTIVATE

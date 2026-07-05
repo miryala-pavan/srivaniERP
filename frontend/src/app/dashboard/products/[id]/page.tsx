@@ -27,7 +27,7 @@ const fmtDate = (d: string | Date | null | undefined) =>
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'plus' | 'stock-history' | 'sales' | 'purchases' | 'suppliers';
+type Tab = 'plus' | 'stock-history' | 'sales' | 'purchases' | 'suppliers' | 'price-history';
 
 const MOVEMENT_BADGE: Record<string, string> = {
   PURCHASE:        'bg-green-100 text-green-700',
@@ -113,6 +113,12 @@ export default function ProductDetailPage() {
     queryKey: ['product', id, 'suppliers'],
     queryFn:  () => api.get(`/products/${id}/suppliers`).then(r => r.data),
     enabled:  !!id && activeTab === 'suppliers',
+  });
+
+  const { data: priceHistoryData, isLoading: priceHistoryLoading } = useQuery<{ history: any[]; count: number }>({
+    queryKey: ['product', id, 'price-history'],
+    queryFn:  () => api.get(`/products/${id}/price-history`).then(r => r.data),
+    enabled:  !!id && activeTab === 'price-history',
   });
 
   // ── Real-time ────────────────────────────────────────────────────────────────
@@ -374,6 +380,7 @@ export default function ProductDetailPage() {
                 { key: 'sales', label: 'Sales' },
                 { key: 'purchases', label: 'Purchases' },
                 { key: 'suppliers', label: 'Suppliers' },
+                { key: 'price-history', label: 'Price History' },
               ]}
               active={activeTab}
               onChange={(t) => setActiveTab(t as Tab)}
@@ -642,6 +649,79 @@ export default function ProductDetailPage() {
                         </div>
                       )
                       : <div className="py-12 text-center text-gray-400 text-sm">No suppliers found for this product</div>
+                  }
+                </div>
+              )}
+
+              {/* Price History */}
+              {activeTab === 'price-history' && (
+                <div>
+                  {priceHistoryLoading
+                    ? <div className="py-12 text-center text-gray-400 text-sm">Loading...</div>
+                    : (priceHistoryData?.history?.length ?? 0) > 0
+                      ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-gray-100 text-xs text-gray-500 bg-gray-50">
+                                <th className="px-4 py-2.5 text-left font-medium">When</th>
+                                <th className="px-4 py-2.5 text-left font-medium">PLU</th>
+                                <th className="px-4 py-2.5 text-left font-medium">Source</th>
+                                <th className="px-4 py-2.5 text-left font-medium">By</th>
+                                <th className="px-4 py-2.5 text-right font-medium">MRP</th>
+                                <th className="px-4 py-2.5 text-right font-medium">Selling</th>
+                                {isOwner && <th className="px-4 py-2.5 text-right font-medium">Cost</th>}
+                                <th className="px-4 py-2.5 text-left font-medium">Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {priceHistoryData!.history.map((h: any) => {
+                                const badge: Record<string, string> = {
+                                  GRN_APPROVAL:  'bg-blue-100 text-blue-700',
+                                  PLU_CREATE:    'bg-green-100 text-green-700',
+                                  MANUAL_UPDATE: 'bg-amber-100 text-amber-700',
+                                  SET_DEFAULT:   'bg-purple-100 text-purple-700',
+                                  DEACTIVATE:    'bg-red-100 text-red-600',
+                                };
+                                const delta = (before: any, after: any) => {
+                                  const b = before != null ? n(before) : null;
+                                  const a = after  != null ? n(after)  : null;
+                                  if (b == null && a == null) return <span className="text-gray-300">—</span>;
+                                  if (b == null || a == null || b === a) return <span className="text-gray-600">Rs. {inr(a ?? b ?? 0)}</span>;
+                                  return (
+                                    <span className="whitespace-nowrap">
+                                      <span className="text-gray-400 line-through mr-1">Rs. {inr(b)}</span>
+                                      <span className={`font-semibold ${a > b ? 'text-red-600' : 'text-green-700'}`}>Rs. {inr(a)}</span>
+                                    </span>
+                                  );
+                                };
+                                return (
+                                  <tr key={h.id} className="border-b border-gray-50 hover:bg-gray-50">
+                                    <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{fmtDate(h.recordedAt)}</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{h.pluCode}</td>
+                                    <td className="px-4 py-2.5">
+                                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge[h.changeSource] ?? 'bg-gray-100 text-gray-500'}`}>
+                                        {h.changeSource.replace('_', ' ')}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-2.5 text-xs text-gray-500">{h.changedBy ?? 'System'}</td>
+                                    <td className="px-4 py-2.5 text-right">{delta(h.mrpBefore, h.mrpAfter)}</td>
+                                    <td className="px-4 py-2.5 text-right">{delta(h.sellingPriceBefore, h.sellingPriceAfter)}</td>
+                                    {isOwner && <td className="px-4 py-2.5 text-right">{delta(h.costPriceBefore, h.costPriceAfter)}</td>}
+                                    <td className="px-4 py-2.5 text-xs text-gray-400 max-w-[200px] truncate">{h.notes ?? '—'}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                          <p className="px-4 py-3 text-xs text-gray-400 border-t border-gray-50">
+                            Every price and status change across this product&apos;s PLUs — from GRN approvals (supplier
+                            invoice cost), manual edits, new PLUs, default switches, and deactivations. Old value is struck
+                            through; red = increase, green = decrease.
+                          </p>
+                        </div>
+                      )
+                      : <div className="py-12 text-center text-gray-400 text-sm">No price changes recorded yet — history starts from the first GRN approval or PLU edit after this feature went live</div>
                   }
                 </div>
               )}

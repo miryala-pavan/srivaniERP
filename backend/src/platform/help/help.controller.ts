@@ -1,7 +1,7 @@
 import { Controller, Get, Param, NotFoundException } from '@nestjs/common';
 import { HelpRegistry } from './help.registry';
 
-@Controller('api/help')
+@Controller('help')
 export class HelpController {
   constructor(private readonly registry: HelpRegistry) {}
 
@@ -9,7 +9,7 @@ export class HelpController {
   @Get()
   index() {
     return {
-      message: 'Srivani BOS Help Centre — use GET /api/help/:module for full details',
+      message: 'PaVaOS Help Centre — use GET /api/help/:module for full details',
       modules: this.registry.index(),
     };
   }

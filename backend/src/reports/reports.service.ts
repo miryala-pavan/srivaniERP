@@ -1311,4 +1311,75 @@ export class ReportsService {
 
     return { products, summary, days };
   }
+
+  // ─── PRICE AUDIT ──────────────────────────────────────
+  // Every PLU price/status change in the window, across all products.
+  // Sources: GRN_APPROVAL, PLU_CREATE, MANUAL_UPDATE, SET_DEFAULT, DEACTIVATE.
+  async getPriceAudit(
+    businessId: string,
+    query: { startDate?: string; endDate?: string; source?: string },
+  ) {
+    const start = query.startDate ? new Date(query.startDate) : new Date(Date.now() - 30 * 86400000);
+    const end   = query.endDate   ? new Date(query.endDate + 'T23:59:59.999') : new Date();
+
+    const rows = await this.prisma.pluPriceHistory.findMany({
+      where: {
+        businessId,
+        recordedAt: { gte: start, lte: end },
+        ...(query.source ? { changeSource: query.source } : {}),
+      },
+      include: {
+        plu: {
+          select: {
+            pluCode: true,
+            displayName: true,
+            product: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { recordedAt: 'desc' },
+      take: 500,
+    });
+
+    const changes = rows.map((r) => {
+      const spBefore = r.sellingPriceBefore != null ? Number(r.sellingPriceBefore) : null;
+      const spAfter  = r.sellingPriceAfter  != null ? Number(r.sellingPriceAfter)  : null;
+      const spDelta  = spBefore != null && spAfter != null ? r2(spAfter - spBefore) : null;
+      return {
+        id: r.id,
+        productId: r.plu.product.id,
+        productName: r.plu.product.name,
+        pluCode: r.plu.pluCode,
+        packLabel: r.plu.displayName ?? null,
+        changeSource: r.changeSource,
+        grnId: r.grnId,
+        changedBy: r.changedBy,
+        effectiveDate: r.effectiveDate,
+        recordedAt: r.recordedAt,
+        mrpBefore: r.mrpBefore, mrpAfter: r.mrpAfter,
+        sellingPriceBefore: spBefore, sellingPriceAfter: spAfter,
+        sellingPriceDelta: spDelta,
+        gstRateBefore: r.gstRateBefore, gstRateAfter: r.gstRateAfter,
+        isActiveAfter: r.isActiveAfter,
+        isDefaultAfter: r.isDefaultAfter,
+        notes: r.notes,
+      };
+    });
+
+    const bySource: Record<string, number> = {};
+    for (const c of changes) bySource[c.changeSource] = (bySource[c.changeSource] ?? 0) + 1;
+
+    const summary = {
+      count: changes.length,
+      increases: changes.filter((c) => (c.sellingPriceDelta ?? 0) > 0).length,
+      decreases: changes.filter((c) => (c.sellingPriceDelta ?? 0) < 0).length,
+      bySource,
+    };
+
+    return {
+      changes,
+      summary,
+      dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
+    };
+  }
 }

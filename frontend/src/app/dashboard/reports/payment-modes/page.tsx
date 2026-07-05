@@ -1,15 +1,17 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Banknote, Smartphone, CreditCard, Building } from 'lucide-react';
+import { RefreshCw, Banknote, Smartphone, CreditCard, Building, ArrowLeftRight } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import Header from '@/components/layout/Header';
 import { BackButton } from '@/components/shared/BackButton';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
 import ExportBtn from '@/components/reports/ExportBtn';
 import PeriodFilter from '@/components/reports/PeriodFilter';
+import SavedViews from '@/components/reports/SavedViews';
+import DeltaBadge from '@/components/reports/DeltaBadge';
 import { useReportParams } from '@/hooks/useReportParams';
-import { inr, inr0, today, monthStart, periodDates, type Period, type DateRange } from '@/lib/report-format';
+import { inr, inr0, today, monthStart, periodDates, prevRange, pctDelta, type Period, type DateRange } from '@/lib/report-format';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { getErrorMessage } from '@/lib/errors';
@@ -41,7 +43,9 @@ export default function PaymentModesPage() {
   const params = useReportParams();
   const [period, setPeriod] = useState<Period>(() => (params.get('period', 'month') as Period));
   const [range,  setRange]  = useState<DateRange>({ from: params.get('from', monthStart()), to: params.get('to', today()) });
+  const [cmp,    setCmp]    = useState(() => params.get('cmp') === '1');
   const [data,   setData]   = useState<ModeData | null>(null);
+  const [prev,   setPrev]   = useState<ModeData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -50,10 +54,15 @@ export default function PaymentModesPage() {
     try {
       const res = await api.get<ModeData>('/reports/sales/by-payment-mode', { params: { startDate, endDate } });
       setData(res.data);
+      if (cmp) {
+        const pr = prevRange({ from: startDate, to: endDate });
+        const prevRes = await api.get<ModeData>('/reports/sales/by-payment-mode', { params: { startDate: pr.from, endDate: pr.to } });
+        setPrev(prevRes.data);
+      } else setPrev(null);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to load payment mode report'));
     } finally { setLoading(false); }
-  }, [period, range]);
+  }, [period, range, cmp]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -61,9 +70,15 @@ export default function PaymentModesPage() {
     setPeriod(p); setRange(r);
     params.set({ period: p, from: r.from, to: r.to });
   }
+  function toggleCmp() {
+    const v = !cmp; setCmp(v);
+    params.set({ cmp: v ? '1' : null });
+  }
 
   const modes = data?.modes ?? [];
   const pieData = modes.map(m => ({ name: m.paymentMode, value: Math.round(m.totalAmount) }));
+  const prevByMode: Record<string, number> = {};
+  if (cmp && prev) for (const m of prev.modes) prevByMode[m.paymentMode] = m.totalAmount;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -75,9 +90,15 @@ export default function PaymentModesPage() {
           <BackButton />
           <div className="flex flex-wrap items-center gap-2">
             <PeriodFilter period={period} from={range.from} to={range.to} onChange={handlePeriod} />
+            <button onClick={toggleCmp}
+              title="Compare with the previous period of equal length — deltas appear on cards and per mode"
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg ${cmp ? 'bg-[#1B4F8A] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              <ArrowLeftRight className="w-3.5 h-3.5" /> Compare
+            </button>
             <button onClick={load} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
+            <SavedViews />
             <ExportBtn onPrint={() => window.print()} />
           </div>
         </div>
@@ -86,11 +107,19 @@ export default function PaymentModesPage() {
         <div className="grid grid-cols-2 gap-3 mb-5">
           <div className="bg-white rounded-xl border border-gray-100 p-4">
             <p className="text-xs text-gray-500">Total Collected</p>
-            <p className="text-2xl font-bold text-[#1B4F8A]">₹{inr(data?.summary.totalAmount ?? 0)}</p>
+            <p className="text-2xl font-bold text-[#1B4F8A]">
+              ₹{inr(data?.summary.totalAmount ?? 0)}
+              {cmp && prev && <span className="ml-2 align-middle"><DeltaBadge delta={pctDelta(data?.summary.totalAmount ?? 0, prev.summary.totalAmount)} /></span>}
+            </p>
+            {cmp && prev && <p className="text-[10px] text-gray-400 mt-0.5">prev: ₹{inr(prev.summary.totalAmount)}</p>}
           </div>
           <div className="bg-white rounded-xl border border-gray-100 p-4">
             <p className="text-xs text-gray-500">Total Bills</p>
-            <p className="text-2xl font-bold text-gray-800">{inr0(data?.summary.totalBills ?? 0)}</p>
+            <p className="text-2xl font-bold text-gray-800">
+              {inr0(data?.summary.totalBills ?? 0)}
+              {cmp && prev && <span className="ml-2 align-middle"><DeltaBadge delta={pctDelta(data?.summary.totalBills ?? 0, prev.summary.totalBills)} /></span>}
+            </p>
+            {cmp && prev && <p className="text-[10px] text-gray-400 mt-0.5">prev: {inr0(prev.summary.totalBills)}</p>}
           </div>
         </div>
 
@@ -126,7 +155,10 @@ export default function PaymentModesPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-base font-bold text-gray-800">₹{inr(m.totalAmount)}</p>
-                  <p className="text-xs text-gray-400">{m.pct}%</p>
+                  <p className="text-xs text-gray-400">
+                    {m.pct}%
+                    {cmp && prev && <span className="ml-1.5"><DeltaBadge delta={pctDelta(m.totalAmount, prevByMode[m.paymentMode])} /></span>}
+                  </p>
                 </div>
                 <div className="w-16">
                   <div className="w-full bg-gray-100 rounded-full h-1.5">

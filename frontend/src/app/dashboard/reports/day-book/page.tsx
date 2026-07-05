@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ArrowDownCircle, ArrowUpCircle, Wallet } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { RefreshCw, ArrowDownCircle, ArrowUpCircle, Wallet, AlertTriangle } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { BackButton } from '@/components/shared/BackButton';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
 import SortableTh from '@/components/reports/SortableTh';
 import ColumnToggle from '@/components/reports/ColumnToggle';
 import ExportBtn from '@/components/reports/ExportBtn';
+import SavedViews from '@/components/reports/SavedViews';
 import { useReportParams } from '@/hooks/useReportParams';
 import { useSortable } from '@/hooks/useSortable';
 import { useColumnToggle } from '@/hooks/useColumnToggle';
@@ -83,6 +84,36 @@ export default function DayBookPage() {
   const db = data?.dayBook;
   const cb = data?.cashBook;
 
+  // ── Anomaly detection ──
+  // Flags entries whose amount is unusually large versus the rest of the same
+  // type today (mean + 2 standard deviations, min 5 entries of that type).
+  // Helps spot fat-finger amounts, unusual expenses, or oversized bills at a glance.
+  const anomalyThresholds = useMemo(() => {
+    const byType: Record<string, number[]> = {};
+    for (const e of data?.entries ?? []) {
+      const amt = e.moneyIn > 0 ? e.moneyIn : e.moneyOut;
+      if (amt <= 0) continue;
+      (byType[e.type] ??= []).push(amt);
+    }
+    const thresholds: Record<string, number> = {};
+    for (const [type, amounts] of Object.entries(byType)) {
+      if (amounts.length < 5) continue;
+      const mean = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+      const variance = amounts.reduce((s, a) => s + (a - mean) ** 2, 0) / amounts.length;
+      const sd = Math.sqrt(variance);
+      // Floor at 2× mean so near-uniform amounts (tiny σ) don't false-flag
+      thresholds[type] = Math.max(mean + 2 * sd, mean * 2);
+    }
+    return thresholds;
+  }, [data]);
+
+  const isAnomaly = (e: Entry) => {
+    const amt = e.moneyIn > 0 ? e.moneyIn : e.moneyOut;
+    const t = anomalyThresholds[e.type];
+    return t !== undefined && amt > t;
+  };
+  const anomalyCount = sorted.filter(isAnomaly).length;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header title="Day Book & Cash Book" />
@@ -101,6 +132,7 @@ export default function DayBookPage() {
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
             <ColumnToggle columns={COLUMNS} isVisible={isVisible} onToggle={toggle} onShowAll={showAll} />
+            <SavedViews />
             <ExportBtn onPrint={() => window.print()} />
           </div>
         </div>
@@ -135,8 +167,14 @@ export default function DayBookPage() {
         {/* ── Day Book entries ── */}
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-800">
+            <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               Day Book — {sorted.length} transactions
+              {anomalyCount > 0 && (
+                <span title="Entries flagged amber are unusually large versus today's other entries of the same type (statistical outliers) — worth a second look for typos or unusual activity"
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                  <AlertTriangle className="w-3 h-3" /> {anomalyCount} unusual
+                </span>
+              )}
             </h2>
             <div className="text-xs text-gray-500">
               In <span className="text-green-700 font-semibold">₹{inr(db?.totalIn ?? 0)}</span>
@@ -158,7 +196,7 @@ export default function DayBookPage() {
               </thead>
               <tbody>
                 {sorted.map((e, i) => (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                  <tr key={i} className={`border-b border-gray-50 hover:bg-gray-50 ${isAnomaly(e) ? 'bg-amber-50/60' : ''}`}>
                     {isVisible('time')        && <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{fmtTime(e.time)}</td>}
                     {isVisible('type')        && (
                       <td className="px-4 py-2.5">
@@ -166,7 +204,17 @@ export default function DayBookPage() {
                       </td>
                     )}
                     {isVisible('reference')   && <td className="px-4 py-2.5 text-gray-600">{e.reference}</td>}
-                    {isVisible('particulars') && <td className="px-4 py-2.5 text-gray-700">{e.particulars}</td>}
+                    {isVisible('particulars') && (
+                      <td className="px-4 py-2.5 text-gray-700">
+                        {e.particulars}
+                        {isAnomaly(e) && (
+                          <span title={`Unusually large ${TYPE_LABEL[e.type].toLowerCase()} versus today's average — verify the amount is correct`}
+                            className="ml-1.5 inline-flex align-middle text-amber-500">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                      </td>
+                    )}
                     {isVisible('mode')        && <td className="px-4 py-2.5 text-gray-500">{e.mode}</td>}
                     {isVisible('moneyIn')     && <td className="px-4 py-2.5 text-right text-green-700 font-medium">{e.moneyIn > 0 ? inr(e.moneyIn) : '—'}</td>}
                     {isVisible('moneyOut')    && <td className="px-4 py-2.5 text-right text-red-700 font-medium">{e.moneyOut > 0 ? inr(e.moneyOut) : '—'}</td>}
@@ -193,7 +241,9 @@ export default function DayBookPage() {
         </div>
         <p className="text-xs text-gray-400 mt-3">
           Day Book lists all money movements. Cash Book reflects cash-only flow.
-          Opening cash is the sum of shift opening floats. URL is shareable — paste it to open the same date.
+          Opening cash is the sum of shift opening floats. Amber rows are statistical outliers —
+          unusually large versus today&apos;s other entries of the same type (needs at least 5 entries of
+          that type to compare). URL is shareable — paste it to open the same date.
         </p>
       </div>
     </div>

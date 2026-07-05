@@ -151,11 +151,13 @@ const REPORT_LINKS = [
   { label: 'Payment Modes',      desc: 'Cash / UPI / card split with pie chart', href: '/dashboard/reports/payment-modes',     icon: IndianRupee },
   { label: 'Expense Report',     desc: 'Expenses by category with chart',       href: '/dashboard/reports/expenses',           icon: Download },
   { label: 'Slow-Moving Stock',  desc: 'Products in stock but not selling',     href: '/dashboard/reports/slow-moving',        icon: AlertTriangle },
+  { label: 'Price Audit',        desc: 'Every PLU price change with audit trail', href: '/dashboard/reports/price-audit',       icon: FileText },
   { label: 'Day Book',           desc: 'All money in/out for a single day',     href: '/dashboard/reports/day-book',           icon: BarChart2 },
   { label: 'Receivables Ageing', desc: 'Outstanding credit bills by customer',  href: '/dashboard/reports/ageing',             icon: AlertTriangle },
   { label: 'Supplier Payables',  desc: 'Amounts owed to suppliers by age',      href: '/dashboard/reports/payables',           icon: IndianRupee },
   { label: 'GST Reports',        desc: 'GSTR-1, 3B, HSN, ITC registers',        href: '/dashboard/reports/gst',                icon: FileText },
   { label: 'CA Export',          desc: 'Excel export for your chartered accountant', href: '/dashboard/reports/ca-export',      icon: Download },
+  { label: 'Scheduled Reports',  desc: 'Auto-send summaries via WhatsApp/email',  href: '/dashboard/reports/schedules',          icon: ExternalLink },
 ];
 
 // ── TABS ──────────────────────────────────────────────────────────────────────

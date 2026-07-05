@@ -193,6 +193,12 @@ export class ProductsController {
     return this.productsService.getProductSuppliers(req.user.businessId, id, isOwner);
   }
 
+  @Get(':id/price-history')
+  getPriceHistory(@Request() req: any, @Param('id') id: string) {
+    const isOwner = canViewCost(req.user.role);
+    return this.productsService.getProductPriceHistory(req.user.businessId, id, isOwner);
+  }
+
   // ─── SINGLE-RESOURCE ROUTES ───────────────────────────
 
   @Get(':id')

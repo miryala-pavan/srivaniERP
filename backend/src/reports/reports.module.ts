@@ -9,10 +9,12 @@ import { GstHealthService }      from './gst-health.service';
 import { GstHealthController }   from './gst-health.controller';
 import { GstPublicController }   from './gst-public.controller';
 import { NotificationsModule }   from '../notifications/notifications.module';
+import { ScheduledReportsService }    from './scheduled-reports.service';
+import { ScheduledReportsController } from './scheduled-reports.controller';
 
 @Module({
   imports:     [NotificationsModule],
-  providers:   [ReportsService, GstReportsService, ExcelExportService, CaExportService, GstHealthService],
-  controllers: [ReportsController, GstReportsController, GstPublicController, GstHealthController],
+  providers:   [ReportsService, GstReportsService, ExcelExportService, CaExportService, GstHealthService, ScheduledReportsService],
+  controllers: [ReportsController, GstReportsController, GstPublicController, GstHealthController, ScheduledReportsController],
 })
 export class ReportsModule {}

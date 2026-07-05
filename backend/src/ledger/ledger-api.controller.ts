@@ -23,7 +23,7 @@ const REVENUE_TYPES = ['REVENUE', 'INCOME', 'OTHER_INCOME'];
 const EXPENSE_TYPES = ['EXPENSE', 'COGS', 'OPERATING_EXPENSE', 'OTHER_EXPENSE'];
 
 @UseGuards(JwtAuthGuard)
-@Controller('api/ledger')
+@Controller('ledger')
 export class LedgerApiController {
   constructor(
     private readonly journalSvc: JournalService,

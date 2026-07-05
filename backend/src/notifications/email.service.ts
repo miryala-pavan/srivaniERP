@@ -132,6 +132,14 @@ export class EmailService {
     }
   }
 
+  /** Generic sender for scheduled report deliveries. Throws on failure so the
+   *  scheduler can record lastStatus=FAILED instead of silently swallowing. */
+  async sendReportEmail(to: string, subject: string, html: string) {
+    if (!this.transporter) throw new Error('SMTP not configured (SMTP_USER/SMTP_PASS)');
+    if (!to) throw new Error('No recipient email');
+    await this.transporter.sendMail({ from: FROM, to, subject, html });
+  }
+
   async sendOrderPlaced(order: {
     customerName: string;
     customerEmail: string;

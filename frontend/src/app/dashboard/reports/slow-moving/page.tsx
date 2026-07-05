@@ -8,6 +8,7 @@ import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
 import SortableTh from '@/components/reports/SortableTh';
 import ColumnToggle from '@/components/reports/ColumnToggle';
 import ExportBtn from '@/components/reports/ExportBtn';
+import SavedViews from '@/components/reports/SavedViews';
 import { useReportParams } from '@/hooks/useReportParams';
 import { useSortable } from '@/hooks/useSortable';
 import { useColumnToggle } from '@/hooks/useColumnToggle';
@@ -97,6 +98,7 @@ export default function SlowMovingPage() {
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
             <ColumnToggle columns={COLUMNS} isVisible={isVisible} onToggle={toggle} onShowAll={showAll} />
+            <SavedViews />
             <ExportBtn onPrint={() => window.print()} />
           </div>
         </div>

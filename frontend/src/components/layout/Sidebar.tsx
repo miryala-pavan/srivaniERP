@@ -142,6 +142,15 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: 'compliance',
+    label: 'Compliance & Books',
+    items: [
+      { href: '/dashboard/gst-filing', label: 'GST Filing',      icon: ScrollText, roles: ['SUPER_ADMIN', 'ACCOUNTS_PERSON', 'CA'] },
+      { href: '/dashboard/tds',        label: 'TDS',             icon: Percent,    roles: ['SUPER_ADMIN', 'ACCOUNTS_PERSON', 'CA'] },
+      { href: '/dashboard/ledger',     label: 'General Ledger',  icon: BookOpen,   roles: ['SUPER_ADMIN', 'ACCOUNTS_PERSON', 'CA'] },
+    ],
+  },
+  {
     key: 'settings',
     label: 'Settings',
     items: [
@@ -151,6 +160,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/notifications/whatsapp',      label: 'WhatsApp Msgs',   icon: MessageSquare,   roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/lists',                        label: 'Order Lists',      icon: FileText,        roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/settings/roles',               label: 'Role Permissions', icon: ShieldCheck,     roles: ['SUPER_ADMIN'] },
+      { href: '/dashboard/billing',                      label: 'Subscription',     icon: CreditCard,      roles: ['SUPER_ADMIN'] },
     ],
   },
 ];
