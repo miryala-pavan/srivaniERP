@@ -24,6 +24,8 @@ interface GrnItem {
   hsnCode: string; unitOfMeasure: string; gstRate: number;
   dbGstRate: number;   // GST rate from product DB — for mismatch warning only
   basicCostPrice: number;
+  isFreeItem: boolean;
+  isSaleable: boolean;
   tradePercent: number; tradeRs: number;
   schemePercent: number; schemeRs: number;
   cashPercent: number; cashRs: number;
@@ -138,6 +140,8 @@ const defaultItem = (): GrnItem => ({
   productId: '', productName: '', productCode: '', hsnCode: '',
   unitOfMeasure: 'PCS', gstRate: 18, dbGstRate: 18,
   basicCostPrice: 0,
+  isFreeItem: false,
+  isSaleable: true,
   tradePercent: 0, tradeRs: 0,
   schemePercent: 0, schemeRs: 0,
   cashPercent: 0, cashRs: 0,
@@ -524,6 +528,8 @@ export default function GrnV2Page() {
             gstRate:         Number(it.gstRatePercent ?? 0),
             dbGstRate:       Number(it.gstRatePercent ?? 0),  // loaded from saved GRN
             basicCostPrice:  bcp,
+            isFreeItem:      Boolean(it.isFreeItem),
+            isSaleable:      it.isSaleable === false ? false : true,
             tradePercent:    td,  tradeRs,
             schemePercent:   sd,  schemeRs,
             cashPercent:     cd,  cashRs,
@@ -899,6 +905,8 @@ export default function GrnV2Page() {
       gstRate: lastRate?.gstRatePercent ?? dbRate,
       dbGstRate: dbRate,
       basicCostPrice: lastRate?.basicCostPrice ?? n(p.costPrice),
+      isFreeItem: false,
+      isSaleable: true,
       tradePercent: 0, tradeRs: 0,
       schemePercent: 0, schemeRs: 0,
       cashPercent: 0, cashRs: 0,
@@ -990,7 +998,7 @@ export default function GrnV2Page() {
     };
     const c = calcItem(resolvedItem, taxType, isInterState);
     if (c.totalReceivedQty <= 0) { toast.error('Enter quantity received'); return; }
-    if (panelItem.basicCostPrice <= 0) { toast.error('Enter basic cost price'); return; }
+    if (!panelItem.isFreeItem && panelItem.basicCostPrice <= 0) { toast.error('Enter basic cost price (or tick "Received Free")'); return; }
     if (panelItem.mrp <= 0) { toast.error('Enter MRP'); return; }
 
     let newItems: GrnItem[];
@@ -1095,7 +1103,7 @@ export default function GrnV2Page() {
     for (const it of items) {
       const c = calcs[items.indexOf(it)];
       if (c.totalReceivedQty <= 0) { toast.error(`${it.productName}: enter qty`); return false; }
-      if (it.basicCostPrice <= 0)  { toast.error(`${it.productName}: enter cost price`); return false; }
+      if (!it.isFreeItem && it.basicCostPrice <= 0)  { toast.error(`${it.productName}: enter cost price (or mark it Received Free)`); return false; }
       if (it.mrp <= 0)             { toast.error(`${it.productName}: enter MRP`); return false; }
     }
     return true;
@@ -1131,6 +1139,8 @@ export default function GrnV2Page() {
         items: items.map((it) => ({
           productId: it.productId,
           basicCostPrice: it.basicCostPrice,
+          isFreeItem: it.isFreeItem || undefined,
+          isSaleable: it.isFreeItem ? it.isSaleable : undefined,
           // Always send the GST rate the user sees so backend calculation
           // matches the frontend exactly (backend falls back to DB rate if absent).
           gstRatePercent: it.gstRate,
@@ -1763,6 +1773,35 @@ export default function GrnV2Page() {
                           All discounts independent — % on Basic CP · Rs fields = LINE TOTAL (copy directly from bill)
                           {taxType === 'TAX_INCLUSIVE' ? ' · TAX INCLUSIVE' : ' · TAX EXCLUSIVE'}
                         </span>
+                        <label
+                          title="Use when the supplier gave this exact product free (a different item than what you paid for) — not the same as Free Cases/Free Loose above, which are extra units of the item you're already buying."
+                          className="flex items-center gap-1.5 text-[11px] font-bold text-red-700 cursor-pointer shrink-0"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={panelItem.isFreeItem}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              updatePanel({ isFreeItem: checked, isSaleable: checked ? panelItem.isSaleable : true, basicCostPrice: checked ? 0 : panelItem.basicCostPrice });
+                            }}
+                            className="w-3.5 h-3.5"
+                          />
+                          Received Free (₹0 cost)
+                        </label>
+                        {panelItem.isFreeItem && (
+                          <label
+                            title="Tick if this free item is NOT to be sold to customers (sample, display/promotional item). It will still be recorded on this GRN for bill-matching, but will not be added to sellable shelf stock."
+                            className="flex items-center gap-1.5 text-[11px] font-bold text-orange-700 cursor-pointer shrink-0"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!panelItem.isSaleable}
+                              onChange={(e) => updatePanel({ isSaleable: !e.target.checked })}
+                              className="w-3.5 h-3.5"
+                            />
+                            Not For Sale
+                          </label>
+                        )}
                         <span className="text-[10px] text-gray-400">
                           Trade=Disc/Colgate/RAJ · Scheme=Sch/HUL/Nestle · Cash=CD/RS
                         </span>
@@ -1790,9 +1829,10 @@ export default function GrnV2Page() {
                       <div className="grid grid-cols-8 gap-2">
                         {/* Basic CP */}
                         <input type="number" min="0" step="0.01"
-                          value={panelItem.basicCostPrice || ''}
+                          value={panelItem.isFreeItem ? 0 : (panelItem.basicCostPrice || '')}
                           onChange={(e) => updatePanel({ basicCostPrice: Number(e.target.value) || 0 })}
-                          className={fi}
+                          disabled={panelItem.isFreeItem}
+                          className={`${fi} ${panelItem.isFreeItem ? 'bg-red-50 text-red-700 font-bold' : ''}`}
                           placeholder="0.00"
                         />
 
@@ -2127,6 +2167,16 @@ export default function GrnV2Page() {
                           <td className="px-2 py-1.5 min-w-0 max-w-0">
                             <p className="font-semibold text-gray-900 truncate flex items-center gap-1">
                               {it.productName}
+                              {it.isFreeItem && (
+                                <span className="text-[9px] font-bold bg-red-100 text-red-700 border border-red-300 rounded px-1 shrink-0">
+                                  FREE
+                                </span>
+                              )}
+                              {it.isFreeItem && !it.isSaleable && (
+                                <span title="Not added to sellable stock" className="text-[9px] font-bold bg-orange-100 text-orange-700 border border-orange-300 rounded px-1 shrink-0">
+                                  NOT FOR SALE
+                                </span>
+                              )}
                               {items.filter((x) => x.productId === it.productId).length > 1 && (
                                 <span className="text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-300 rounded px-1 shrink-0">
                                   MRP {it.mrp}

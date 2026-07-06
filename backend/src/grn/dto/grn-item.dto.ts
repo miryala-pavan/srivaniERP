@@ -1,5 +1,5 @@
 import {
-  IsString, IsNotEmpty, IsNumber, IsOptional, Min, IsDateString,
+  IsString, IsNotEmpty, IsNumber, IsOptional, Min, IsDateString, IsBoolean,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -9,6 +9,11 @@ export class GrnItemDto {
   @IsOptional() @IsString() supplierProductName?: string;
 
   @Type(() => Number) @IsNumber() @Min(0) basicCostPrice: number;
+  // Whole line received free (a different product given as a scheme freebie),
+  // distinct from freeCases/freeLoose below (extra free units of this same item).
+  @IsOptional() @IsBoolean() isFreeItem?: boolean;
+  // Only meaningful when isFreeItem=true: false = not for resale (sample/display item).
+  @IsOptional() @IsBoolean() isSaleable?: boolean;
 
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) casesReceived?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) looseQty?: number;

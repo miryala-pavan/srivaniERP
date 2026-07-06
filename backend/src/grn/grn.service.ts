@@ -224,6 +224,8 @@ export class GrnService {
         mrp: item.mrp,
         sellingPrice: item.sellingPrice ?? null,
         basicCostPrice: item.basicCostPrice,
+        isFreeItem: item.isFreeItem ?? false,
+        isSaleable: item.isSaleable ?? true,
         disc1Percent: item.disc1Percent ?? 0,
         disc2Percent: item.disc2Percent ?? 0,
         disc3Percent: item.disc3Percent ?? 0,
@@ -748,6 +750,13 @@ export class GrnService {
 
       if (acceptedQty <= 0) continue;
 
+      if ((item as any).isFreeItem && (item as any).isSaleable === false) {
+        // Non-saleable free line (sample/display/promotional item) — the GRN row itself
+        // is the audit record for bill-matching; it must never touch sellable PLU stock,
+        // cost, or margin.
+        continue;
+      }
+
       const itemMrp        = Number((item as any).mrp ?? 0);
       const itemGstRate    = Number((item as any).gstRatePercent ?? 0);
       const itemNetInclRaw = Number((item as any).netCostPrice ?? (item as any).trueCostPrice ?? item.unitPrice ?? 0);
@@ -793,6 +802,13 @@ export class GrnService {
       const priceIsSame = activePlu
         && Math.abs(Number(activePlu.costPrice) - itemCost) < 0.01;
 
+      // A free line that lands on an existing PLU at the same MRP but a DIFFERENT
+      // (paid) cost must never overwrite that PLU's cost basis in place — that would
+      // silently blend free (₹0) stock into a paid batch's costing. Force a separate
+      // PLU instead. (When priceIsSame is true — e.g. topping up an already-free batch
+      // — STEP 2A above already handles it safely, so this only applies in STEP 2B.)
+      const forceSeparateBatch = !!activePlu && !priceIsSame && !!(item as any).isFreeItem;
+
       // Track whether the PLU that ends up receiving stock for this line is the default.
       // Used in STEP 3 to decide whether to sync product master prices.
       let thisLineIsDefault = false;
@@ -836,12 +852,16 @@ export class GrnService {
 
         // Only make this PLU the default if there is no existing default,
         // or if it's replacing a same-MRP PLU whose cost changed (price update).
-        const makeDefault = !existingDefault || !!(activePlu && activePlu.id === existingDefault.id);
+        // A forced-split free batch never becomes/replaces the default — the existing
+        // (paid) batch keeps its cost basis and its default status untouched.
+        const makeDefault = forceSeparateBatch
+          ? false
+          : (!existingDefault || !!(activePlu && activePlu.id === existingDefault.id));
         thisLineIsDefault = makeDefault;
 
         const newGstRate = itemGstRate || Number(product.gstRatePercent ?? 0);
 
-        if (activePlu) {
+        if (activePlu && !forceSeparateBatch) {
           // Cost changed on same MRP batch — keep the existing PLU record but update cost.
           // (Don't create a duplicate PLU for same MRP; just update prices and add stock.)
           await tx.productPlu.update({
@@ -888,7 +908,8 @@ export class GrnService {
           // If the old default was a different PLU (different MRP), leave it as default
           // — this batch is a secondary batch.
         } else {
-          // Completely new MRP batch — create fresh PLU
+          // Completely new MRP batch, OR a free line forced into its own batch
+          // (see forceSeparateBatch above) — create fresh PLU.
           if (existingDefault && makeDefault) {
             // Demote old default so this new batch becomes the default
             await tx.productPlu.update({

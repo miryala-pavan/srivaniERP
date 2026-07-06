@@ -933,6 +933,14 @@ model PurchaseItem {
   freeCases               Decimal   @db.Decimal(10, 3) @default(0)
   freeLoose               Decimal   @db.Decimal(10, 3) @default(0)
   totalFreeQty            Decimal   @db.Decimal(10, 3) @default(0)
+  // Whole line received at zero cost (a different product given free against
+  // the bill, e.g. "Sambar Masala free" on an oil/mirchi order) — distinct
+  // from freeCases/freeLoose, which are extra free units of THIS SAME item.
+  isFreeItem              Boolean   @default(false)
+  // Only meaningful when isFreeItem=true: false means this free line is NOT to be
+  // resold (sample/display/promotional item) — recorded on the GRN for bill-matching
+  // but must never enter sellable PLU stock. Ignored for normal (non-free) lines.
+  isSaleable              Boolean   @default(true)
   totalQty                Decimal   @db.Decimal(10, 3) @default(0)
   cessRate                Decimal   @db.Decimal(5, 2)  @default(0)
   cessAmount              Decimal   @db.Decimal(15, 2) @default(0)
