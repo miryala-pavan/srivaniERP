@@ -37,11 +37,21 @@ export class OutboxProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   async poll(): Promise<void> {
-    const events = await this.prisma.outboxEvent.findMany({
-      where: { status: 'PENDING', retryCount: { lt: MAX_RETRIES } },
-      orderBy: { createdAt: 'asc' },
-      take: BATCH_SIZE,
-    });
+    let events: Awaited<ReturnType<typeof this.prisma.outboxEvent.findMany>>;
+    try {
+      events = await this.prisma.outboxEvent.findMany({
+        where: { status: 'PENDING', retryCount: { lt: MAX_RETRIES } },
+        orderBy: { createdAt: 'asc' },
+        take: BATCH_SIZE,
+      });
+    } catch (err) {
+      // A transient DB/connection error here must not crash the whole app —
+      // this runs on a 2s interval with no caller to catch a rejection, so an
+      // uncaught failure becomes an unhandled rejection that takes down the
+      // entire process (and with it, login) until PM2 restarts it.
+      this.logger.error(`Outbox poll query failed, will retry next cycle: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
 
     if (!events.length) return;
 
