@@ -77,6 +77,7 @@ model Business {
   bankTransactions    BankTransaction[]
   onlineOrders        OnlineOrder[]
   waIncomingLists     WaIncomingList[]
+  waMessages          WaMessage[]
   serviceablePincodes ServiceablePincode[]
   systemSettings      SystemSetting[]
   productReviews      ProductReview[]
@@ -2084,6 +2085,62 @@ model WaIncomingList {
   @@index([senderPhone])
   @@index([status])
   @@map("wa_incoming_list")
+}
+
+enum WaMessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum WaMessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// ─── WHATSAPP MESSAGE LOG ────────────────────────────
+// Tracks every outbound send and inbound receipt by Meta's message id, so
+// delivery/read status can be correlated back from webhook "statuses" events
+// and inbound webhook retries can be deduplicated. Also backs the chat-style
+// conversation inbox (grouped by phone number).
+model WaMessage {
+  id            String             @id @default(cuid())
+  businessId    String
+
+  waMessageId   String             // Meta's message id — dedup + status-correlation key
+  direction     WaMessageDirection
+  phone         String             // customer number, E.164 (91XXXXXXXXXX)
+
+  messageType   String             // TEXT | TEMPLATE | INTERACTIVE_BUTTON | IMAGE | DOCUMENT | BUTTON_REPLY
+  templateName  String?
+  bodyPreview   String?            // first ~200 chars, for the admin log/chat bubble
+  buttonId      String?            // set when direction=INBOUND and it's a button-reply tap
+
+  status        WaMessageStatus    @default(QUEUED)
+  errorMessage  String?
+
+  relatedType   String?            // e.g. "ONLINE_ORDER"
+  relatedId     String?            // e.g. the orderNumber
+
+  // Staff-side read tracking for the chat inbox — distinct from `status`
+  // (which is Meta's own delivery/read state on the *customer's* end).
+  // Only meaningful for direction=INBOUND; null means unread by staff.
+  readByStaffAt DateTime?
+
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  createdAt     DateTime           @default(now())
+
+  business      Business           @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, waMessageId])
+  @@index([businessId, createdAt(sort: Desc)])
+  @@index([businessId, status])
+  @@index([businessId, phone, createdAt(sort: Desc)])
+  @@map("wa_message")
 }
 
 

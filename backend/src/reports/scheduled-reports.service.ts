@@ -177,7 +177,7 @@ export class ScheduledReportsService implements OnModuleInit, OnModuleDestroy {
   }): Promise<void> {
     try {
       const { text, html, subject } = await this.render(s.businessId, s.reportType, s.frequency);
-      if (s.channel === 'WHATSAPP') await this.whatsapp.sendTextMessage(s.recipient, text);
+      if (s.channel === 'WHATSAPP') await this.whatsapp.sendTextMessage(s.businessId, s.recipient, text);
       else await this.email.sendReportEmail(s.recipient, subject, html);
 
       await this.prisma.scheduledReport.update({

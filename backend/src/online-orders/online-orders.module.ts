@@ -9,5 +9,6 @@ import { NotificationsModule } from '../notifications/notifications.module';
   imports: [EventsModule, AuditLogModule, NotificationsModule],
   controllers: [OnlineOrdersController],
   providers: [OnlineOrdersService],
+  exports: [OnlineOrdersService],
 })
 export class OnlineOrdersModule {}

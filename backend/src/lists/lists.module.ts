@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { ListsService } from './lists.service';
 import { ListsController, WebhookController } from './lists.controller';
 import { PrismaModule } from '../prisma/prisma.module';
+import { OnlineOrdersModule } from '../online-orders/online-orders.module';
+import { EventsModule } from '../events/events.module';
 
 @Module({
-  imports:     [PrismaModule],
+  imports:     [PrismaModule, OnlineOrdersModule, EventsModule],
   providers:   [ListsService],
   controllers: [ListsController, WebhookController],
   exports:     [ListsService],

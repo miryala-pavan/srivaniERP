@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventsService } from '../events/events.service';
+import { Events } from '../events/event-types';
 
 const API_VERSION = 'v25.0';
 
@@ -21,7 +23,7 @@ export class WhatsAppService implements OnModuleInit {
   private _wabaId:   string | undefined;
   private _storeNum: string | undefined;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private events: EventsService) {}
 
   async onModuleInit() {
     await this.loadCredentialsFromDb();
@@ -85,12 +87,134 @@ export class WhatsAppService implements OnModuleInit {
     return this.getCredentials();
   }
 
+  // ── Message log ──────────────────────────────────────────────────────────────
+
+  async listMessages(
+    businessId: string,
+    page = 1,
+    limit = 30,
+    direction?: 'OUTBOUND' | 'INBOUND',
+    status?: 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED',
+  ) {
+    const where = { businessId, ...(direction ? { direction } : {}), ...(status ? { status } : {}) };
+    const [items, total] = await Promise.all([
+      this.prisma.waMessage.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.waMessage.count({ where }),
+    ]);
+    return { items, total, page, limit };
+  }
+
+  // ── Conversations (chat inbox) ──────────────────────────────────────────────
+
+  /**
+   * One row per phone number: the latest message (either direction) plus an
+   * unread count (inbound messages staff haven't opened yet). Uses Postgres
+   * DISTINCT ON since Prisma has no "latest row per group" primitive.
+   */
+  async listConversations(businessId: string) {
+    const latest = await this.prisma.$queryRaw<{
+      phone: string; bodyPreview: string | null; messageType: string;
+      direction: string; createdAt: Date; status: string;
+    }[]>`
+      SELECT DISTINCT ON (phone) phone, "bodyPreview", "messageType", direction, "createdAt", status
+      FROM wa_message
+      WHERE "businessId" = ${businessId}
+      ORDER BY phone, "createdAt" DESC`;
+
+    const unreadRows = await this.prisma.waMessage.groupBy({
+      by: ['phone'],
+      where: { businessId, direction: 'INBOUND', readByStaffAt: null },
+      _count: { _all: true },
+    });
+    const unreadMap = new Map(unreadRows.map(r => [r.phone, r._count._all]));
+
+    const phones = latest.map(l => l.phone);
+    const customers = phones.length
+      ? await this.prisma.customer.findMany({
+          where: { businessId, phone: { in: phones } },
+          select: { phone: true, name: true },
+        })
+      : [];
+    const nameMap = new Map(customers.map(c => [c.phone, c.name]));
+
+    return latest
+      .map(l => ({
+        phone: l.phone,
+        customerName: nameMap.get(l.phone) ?? null,
+        lastMessage: l.bodyPreview,
+        lastMessageType: l.messageType,
+        lastDirection: l.direction,
+        lastAt: l.createdAt,
+        lastStatus: l.status,
+        unreadCount: unreadMap.get(l.phone) ?? 0,
+      }))
+      .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+  }
+
+  /** Paginated thread for one phone number, newest page first — frontend reverses for display. */
+  async getConversationMessages(businessId: string, phone: string, page = 1, limit = 50) {
+    const where = { businessId, phone };
+    const [items, total] = await Promise.all([
+      this.prisma.waMessage.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.waMessage.count({ where }),
+    ]);
+    return { items, total, page, limit };
+  }
+
+  /** Marks all unread inbound messages in this conversation as read by staff. */
+  async markConversationRead(businessId: string, phone: string) {
+    const result = await this.prisma.waMessage.updateMany({
+      where: { businessId, phone, direction: 'INBOUND', readByStaffAt: null },
+      data: { readByStaffAt: new Date() },
+    });
+    return { updated: result.count };
+  }
+
+  /**
+   * Whether a free-text reply can currently be sent — Meta only allows
+   * non-template messages within 24h of the customer's last inbound message.
+   */
+  async getSessionWindowStatus(businessId: string, phone: string) {
+    const lastInbound = await this.prisma.waMessage.findFirst({
+      where: { businessId, phone, direction: 'INBOUND' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (!lastInbound) return { open: false, expiresAt: null };
+    const expiresAt = new Date(lastInbound.createdAt.getTime() + 24 * 60 * 60 * 1000);
+    return { open: expiresAt.getTime() > Date.now(), expiresAt };
+  }
+
+  /** Sends a free-text reply within an open session window. */
+  async sendReply(businessId: string, phone: string, text: string): Promise<{ ok: boolean; reason?: string }> {
+    const window = await this.getSessionWindowStatus(businessId, phone);
+    if (!window.open) {
+      return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule). Send a template instead.' };
+    }
+    try {
+      await this.sendTextMessage(businessId, phone, text);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: String(err) };
+    }
+  }
+
   // ── Core sender ────────────────────────────────────────────────────────────
 
-  private async post(payload: object): Promise<void> {
+  private async post(payload: object): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
     if (!this.enabled) {
       this.logger.warn('WhatsApp not configured — skipping (set WA_ACCESS_TOKEN + WA_PHONE_NUMBER_ID)');
-      return;
+      return { ok: false, skipped: true, data: null };
     }
     try {
       const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`;
@@ -105,12 +229,68 @@ export class WhatsAppService implements OnModuleInit {
       const data = await res.json() as Record<string, unknown>;
       if (!res.ok) {
         this.logger.error(`WhatsApp API ${res.status}: ${JSON.stringify(data)}`);
-      } else {
-        this.logger.log(`WhatsApp sent → ${JSON.stringify((data as any)?.messages?.[0])}`);
+        return { ok: false, data };
       }
+      this.logger.log(`WhatsApp sent → ${JSON.stringify((data as any)?.messages?.[0])}`);
+      return { ok: true, data };
     } catch (err) {
       this.logger.error(`WhatsApp send failed: ${err}`);
+      return { ok: false, data: { error: String(err) } };
     }
+  }
+
+  /**
+   * Wraps post() with a WaMessage log row so every outbound send is
+   * correlated to Meta's message id — this is what makes delivery/read
+   * status (arriving later via the webhook's `statuses[]`) traceable back
+   * to a specific send, and makes failures visible instead of log-only.
+   */
+  private async logAndSend(
+    businessId: string,
+    payload: object,
+    meta: {
+      phone: string;
+      messageType: string;
+      templateName?: string;
+      bodyPreview?: string;
+      relatedType?: string;
+      relatedId?: string;
+    },
+  ): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
+    const result = await this.post(payload);
+    if (result.skipped) return result; // WhatsApp not configured — nothing to log
+
+    try {
+      const messageId = result.ok ? (result.data as any)?.messages?.[0]?.id : undefined;
+      await this.prisma.waMessage.create({
+        data: {
+          businessId,
+          waMessageId: messageId ?? `failed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          direction: 'OUTBOUND',
+          phone: meta.phone,
+          messageType: meta.messageType,
+          templateName: meta.templateName,
+          bodyPreview: meta.bodyPreview?.slice(0, 200),
+          status: result.ok ? 'SENT' : 'FAILED',
+          errorMessage: result.ok ? undefined : JSON.stringify(result.data).slice(0, 500),
+          relatedType: meta.relatedType,
+          relatedId: meta.relatedId,
+          sentAt: result.ok ? new Date() : undefined,
+        },
+      });
+      try {
+        this.events.emitToBusiness(businessId, Events.WA_MESSAGE_SENT, {
+          phone: meta.phone,
+          direction: 'OUTBOUND',
+          bodyPreview: meta.bodyPreview?.slice(0, 200) ?? null,
+          messageType: meta.messageType,
+          createdAt: new Date().toISOString(),
+        });
+      } catch { /* fire-and-forget */ }
+    } catch (err) {
+      this.logger.error(`Failed to log outbound WaMessage: ${err}`);
+    }
+    return result;
   }
 
   /**
@@ -120,28 +300,93 @@ export class WhatsAppService implements OnModuleInit {
    * arriving, the recipient just needs to send any message to the store's
    * WhatsApp number to re-open the window. Email is the guaranteed channel.
    */
-  async sendTextMessage(phone: string, body: string): Promise<void> {
+  async sendTextMessage(businessId: string, phone: string, body: string): Promise<void> {
     if (!this.enabled) throw new Error('WhatsApp not configured (token/phoneId missing)');
     const to = this.e164(phone);
     if (!to) throw new Error(`Invalid WhatsApp number: ${phone}`);
-    await this.post({ to, type: 'text', text: { body, preview_url: false } });
+    await this.logAndSend(
+      businessId,
+      { to, type: 'text', text: { body, preview_url: false } },
+      { phone: to, messageType: 'TEXT', bodyPreview: body },
+    );
   }
 
-  private sendTemplate(to: string, name: string, params: string[]): Promise<void> {
-    return this.post({
-      to,
-      type: 'template',
-      template: {
-        name,
-        language: { code: 'en' },
-        components: [
-          {
-            type: 'body',
-            parameters: params.map(text => ({ type: 'text', text })),
+  /**
+   * Interactive reply-button message (Cloud API `type: "interactive"`, max 3
+   * buttons, 20-char title limit). Same 24h session-window rule as free text.
+   */
+  async sendInteractiveButtons(
+    businessId: string,
+    phone: string,
+    bodyText: string,
+    buttons: { id: string; title: string }[],
+    meta?: { relatedType?: string; relatedId?: string },
+  ): Promise<void> {
+    const to = this.e164(phone);
+    if (!to) return;
+    if (buttons.length === 0 || buttons.length > 3) {
+      throw new Error('Interactive button messages support 1–3 buttons');
+    }
+    for (const b of buttons) {
+      if (b.title.length > 20) {
+        throw new Error(`Button title "${b.title}" exceeds Meta's 20-character limit`);
+      }
+    }
+    await this.logAndSend(
+      businessId,
+      {
+        to,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: bodyText },
+          action: {
+            buttons: buttons.map(b => ({ type: 'reply', reply: { id: b.id, title: b.title } })),
           },
-        ],
+        },
       },
-    });
+      {
+        phone: to,
+        messageType: 'INTERACTIVE_BUTTON',
+        bodyPreview: bodyText,
+        relatedType: meta?.relatedType,
+        relatedId: meta?.relatedId,
+      },
+    );
+  }
+
+  private async sendTemplate(
+    businessId: string,
+    to: string,
+    name: string,
+    params: string[],
+    meta?: { relatedType?: string; relatedId?: string },
+  ): Promise<void> {
+    await this.logAndSend(
+      businessId,
+      {
+        to,
+        type: 'template',
+        template: {
+          name,
+          language: { code: 'en' },
+          components: [
+            {
+              type: 'body',
+              parameters: params.map(text => ({ type: 'text', text })),
+            },
+          ],
+        },
+      },
+      {
+        phone: to,
+        messageType: 'TEMPLATE',
+        templateName: name,
+        bodyPreview: params.join(' | '),
+        relatedType: meta?.relatedType,
+        relatedId: meta?.relatedId,
+      },
+    );
   }
 
   // Normalize to E.164 Indian number (91XXXXXXXXXX)
@@ -160,7 +405,7 @@ export class WhatsAppService implements OnModuleInit {
    * Body: Hello! New order {{1}} from {{2}} ({{3}}).
    *       Items: {{4}} | Total: ₹{{5}} | {{6}} | {{7}}
    */
-  async sendOrderAlert(order: {
+  async sendOrderAlert(businessId: string, order: {
     orderNumber: string;
     customerName: string;
     customerPhone: string;
@@ -177,7 +422,7 @@ export class WhatsAppService implements OnModuleInit {
     }
     const delivery = order.deliveryType === 'HOME_DELIVERY' ? 'Home Delivery' : 'Store Pickup';
     const payment  = order.paymentMethod === 'COD' ? 'Cash on Delivery' : 'Online Paid';
-    await this.sendTemplate(to, 'test_order', [
+    await this.sendTemplate(businessId, to, 'test_order', [
       order.orderNumber,
       order.customerName,
       order.customerPhone,
@@ -185,7 +430,7 @@ export class WhatsAppService implements OnModuleInit {
       order.total.toFixed(2),
       payment,
       delivery,
-    ]);
+    ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber });
   }
 
   // ── Customer notifications ──────────────────────────────────────────────────
@@ -200,7 +445,7 @@ export class WhatsAppService implements OnModuleInit {
    *   Total: ₹{{3}} | {{4}}
    *   We will keep you updated. Thank you for shopping with us! 🙏
    */
-  async sendCustomerOrderPlaced(order: {
+  async sendCustomerOrderPlaced(businessId: string, order: {
     customerName: string;
     customerPhone: string;
     orderNumber: string;
@@ -210,12 +455,12 @@ export class WhatsAppService implements OnModuleInit {
     const to = this.e164(order.customerPhone);
     if (!to) return;
     const delivery = order.deliveryType === 'HOME_DELIVERY' ? 'Home Delivery' : 'Store Pickup';
-    await this.sendTemplate(to, 'svn_order_placed', [
+    await this.sendTemplate(businessId, to, 'svn_order_placed', [
       order.customerName,
       order.orderNumber,
       order.total.toFixed(0),
       delivery,
-    ]);
+    ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber });
   }
 
   /**
@@ -227,7 +472,7 @@ export class WhatsAppService implements OnModuleInit {
    *   Order *{{3}}* is confirmed. We will start preparing it now.
    *   - Srivani Stores
    */
-  async sendCustomerPaymentConfirmed(order: {
+  async sendCustomerPaymentConfirmed(businessId: string, order: {
     customerName: string;
     customerPhone: string;
     orderNumber: string;
@@ -235,11 +480,11 @@ export class WhatsAppService implements OnModuleInit {
   }): Promise<void> {
     const to = this.e164(order.customerPhone);
     if (!to) return;
-    await this.sendTemplate(to, 'svn_payment_done', [
+    await this.sendTemplate(businessId, to, 'svn_payment_done', [
       order.customerName,
       order.total.toFixed(0),
       order.orderNumber,
-    ]);
+    ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber });
   }
 
   /**
@@ -252,7 +497,7 @@ export class WhatsAppService implements OnModuleInit {
    *   {{3}}
    *   - Team Srivani Stores
    */
-  async sendCustomerOrderUpdate(order: {
+  async sendCustomerOrderUpdate(businessId: string, order: {
     customerName: string;
     customerPhone: string;
     orderNumber: string;
@@ -262,31 +507,43 @@ export class WhatsAppService implements OnModuleInit {
     const to = this.e164(order.customerPhone);
     if (!to) return;
 
+    // Home-delivery orders going READY get an in-chat "Confirm Receipt"
+    // button instead of a text link — the tap is handled by the webhook's
+    // button_reply branch, which calls OnlineOrdersService.confirmDelivery().
+    if (order.status === 'READY' && order.deliveryType === 'HOME_DELIVERY') {
+      await this.sendInteractiveButtons(
+        businessId,
+        order.customerPhone,
+        `Hello ${order.customerName}, your order *${order.orderNumber}* is on the way! 🚴 Expected in 30–60 mins.\nTap below once you've received it.`,
+        [{ id: `CONFIRM_DELIVERY:${order.orderNumber}`, title: 'Confirm Receipt' }],
+        { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber },
+      );
+      return;
+    }
+
     // Statuses match OnlineOrderStatus enum in schema.prisma
     const messages: Record<string, string> = {
       CONFIRMED:      'Your order is confirmed and we are preparing it! 🎉',
       PROCESSING:     'Your order is being prepared. 👨‍🍳',
-      READY:          order.deliveryType === 'HOME_DELIVERY'
-                        ? `Your order is on the way! 🚴 Expected in 30–60 mins.\nConfirm receipt: shop.srivani.com/order/${order.orderNumber}/confirm`
-                        : 'Your order is ready for pickup at our store! 🏪',
+      READY:          'Your order is ready for pickup at our store! 🏪', // STORE_PICKUP only — HOME_DELIVERY handled above
       DELIVERED:      'Your order has been delivered. Enjoy! 😊 Thank you for shopping with Srivani Stores.',
       CANCELLED:      'Your order has been cancelled. If you paid online, a refund will be processed in 5–7 working days.',
     };
     const msg = messages[order.status];
     if (!msg) return; // skip PENDING_PAYMENT, PENDING_COD, PAYMENT_FAILED
 
-    await this.sendTemplate(to, 'svn_order_update', [
+    await this.sendTemplate(businessId, to, 'svn_order_update', [
       order.customerName,
       order.orderNumber,
       msg,
-    ]);
+    ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber });
   }
 
   /**
    * Template: svn_back_in_stock
    * Body: Hi {{1}}, {{2}} ({{3}}) is back in stock! Order now: {{4}}
    */
-  async sendBackInStock(data: {
+  async sendBackInStock(businessId: string, data: {
     customerPhone: string;
     customerName: string;
     productName: string;
@@ -295,12 +552,12 @@ export class WhatsAppService implements OnModuleInit {
   }): Promise<void> {
     const to = this.e164(data.customerPhone);
     if (!to) return;
-    await this.sendTemplate(to, 'svn_back_in_stock', [
+    await this.sendTemplate(businessId, to, 'svn_back_in_stock', [
       data.customerName,
       data.productName,
       data.packLabel,
       data.productUrl,
-    ]);
+    ], { relatedType: 'PRODUCT', relatedId: data.productName });
   }
 
   // ── Template management (Meta Graph API) ────────────────────────────────────
@@ -380,35 +637,25 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
-  async sendTemplateToNumber(phone: string, templateName: string, language: string, params: string[]) {
+  async sendTemplateToNumber(businessId: string, phone: string, templateName: string, language: string, params: string[]) {
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
     if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
-    try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`;
-      const components: object[] = [];
-      if (params.length > 0) {
-        components.push({
-          type: 'body',
-          parameters: params.map(text => ({ type: 'text', text })),
-        });
-      }
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to,
-          type: 'template',
-          template: { name: templateName, language: { code: language }, components },
-        }),
+
+    const components: object[] = [];
+    if (params.length > 0) {
+      components.push({
+        type: 'body',
+        parameters: params.map(text => ({ type: 'text', text })),
       });
-      const data = await res.json() as Record<string, unknown>;
-      if (!res.ok) return { ok: false, reason: JSON.stringify((data as any)?.error?.message ?? data) };
-      return { ok: true, to };
-    } catch (err) {
-      return { ok: false, reason: String(err) };
     }
+    const result = await this.logAndSend(
+      businessId,
+      { to, type: 'template', template: { name: templateName, language: { code: language }, components } },
+      { phone: to, messageType: 'TEMPLATE', templateName, bodyPreview: params.join(' | ') },
+    );
+    if (!result.ok) return { ok: false, reason: JSON.stringify((result.data as any)?.error?.message ?? result.data) };
+    return { ok: true, to };
   }
 
   // ── Credential test ─────────────────────────────────────────────────────────
@@ -417,33 +664,17 @@ export class WhatsAppService implements OnModuleInit {
    * Send the pre-approved Meta "hello_world" template to any number.
    * Use this to verify credentials before submitting custom templates.
    */
-  async sendHelloWorld(phone: string): Promise<{ ok: boolean; to: string | null; reason?: string }> {
+  async sendHelloWorld(businessId: string, phone: string): Promise<{ ok: boolean; to: string | null; reason?: string }> {
     const to = this.e164(phone);
     if (!to) return { ok: false, to: null, reason: 'Invalid phone number' };
     if (!this.enabled) return { ok: false, to, reason: 'WhatsApp not configured — set WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID' };
 
-    try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to,
-          type: 'template',
-          template: { name: 'hello_world', language: { code: 'en_US' } },
-        }),
-      });
-      const data = await res.json() as Record<string, unknown>;
-      if (!res.ok) {
-        return { ok: false, to, reason: JSON.stringify(data) };
-      }
-      return { ok: true, to };
-    } catch (err) {
-      return { ok: false, to, reason: String(err) };
-    }
+    const result = await this.logAndSend(
+      businessId,
+      { to, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } },
+      { phone: to, messageType: 'TEMPLATE', templateName: 'hello_world' },
+    );
+    if (!result.ok) return { ok: false, to, reason: JSON.stringify(result.data) };
+    return { ok: true, to };
   }
 }

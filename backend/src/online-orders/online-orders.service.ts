@@ -192,7 +192,7 @@ export class OnlineOrdersService {
     ).catch(() => {});
 
     // WhatsApp: alert store
-    this.whatsapp.sendOrderAlert({
+    this.whatsapp.sendOrderAlert(businessId, {
       orderNumber,
       customerName: dto.customerName,
       customerPhone: dto.customerPhone,
@@ -204,7 +204,7 @@ export class OnlineOrdersService {
 
     // WhatsApp + email: confirm to customer (COD only — Razorpay sends after payment verified)
     if (dto.paymentMethod === PaymentMethod.COD) {
-      this.whatsapp.sendCustomerOrderPlaced({
+      this.whatsapp.sendCustomerOrderPlaced(businessId, {
         customerName: dto.customerName,
         customerPhone: dto.customerPhone,
         orderNumber,
@@ -295,7 +295,7 @@ export class OnlineOrdersService {
     });
 
     // WhatsApp + email: payment confirmed to customer
-    this.whatsapp.sendCustomerPaymentConfirmed({
+    this.whatsapp.sendCustomerPaymentConfirmed(order.businessId, {
       customerName: order.customerName,
       customerPhone: order.customerPhone,
       orderNumber: updated.orderNumber,
@@ -419,7 +419,7 @@ export class OnlineOrdersService {
       { action: 'CREATE', entity: 'ONLINE_ORDER', entityRef: orderNumber, description: `WhatsApp order by ${dto.customerName} (${dto.customerPhone}) — ₹${total}` },
     ).catch(() => {});
 
-    this.whatsapp.sendOrderAlert({
+    this.whatsapp.sendOrderAlert(businessId, {
       orderNumber,
       customerName: dto.customerName,
       customerPhone: dto.customerPhone,
@@ -472,7 +472,7 @@ export class OnlineOrdersService {
     if (!order) throw new NotFoundException('Order not found');
     if (!order.customerPhone) return { sent: false, to: null };
 
-    await this.whatsapp.sendCustomerOrderUpdate({
+    await this.whatsapp.sendCustomerOrderUpdate(order.businessId, {
       customerName:  order.customerName,
       customerPhone: order.customerPhone,
       orderNumber,
@@ -541,7 +541,7 @@ export class OnlineOrdersService {
     });
 
     if (order.customerPhone) {
-      this.whatsapp.sendCustomerOrderUpdate({
+      this.whatsapp.sendCustomerOrderUpdate(order.businessId, {
         customerName: order.customerName,
         customerPhone: order.customerPhone,
         orderNumber,
@@ -644,7 +644,7 @@ export class OnlineOrdersService {
 
     // WhatsApp + email: status update to customer
     if (order.customerPhone) {
-      this.whatsapp.sendCustomerOrderUpdate({
+      this.whatsapp.sendCustomerOrderUpdate(order.businessId, {
         customerName:  order.customerName,
         customerPhone: order.customerPhone,
         orderNumber,

@@ -4,9 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle,
   Send, KeyRound, PlayCircle, X, Wifi, WifiOff, AlertCircle,
+  CheckCheck, ArrowUpRight, ArrowDownLeft, MousePointerClick,
+  MessagesSquare, FileText, Settings as SettingsIcon,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
+import WhatsAppChat from './WhatsAppChat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,9 +48,33 @@ const REQUIRED_TEMPLATES = [
 const BLANK_FORM  = { name: '', category: 'UTILITY' as const, language: 'en', headerText: '', bodyText: '', footerText: '' };
 const BLANK_CREDS = { token: '', phoneId: '', wabaId: '', storeNum: '' };
 
+interface WaMessage {
+  id:           string;
+  direction:    'OUTBOUND' | 'INBOUND';
+  phone:        string;
+  messageType:  string;
+  templateName: string | null;
+  bodyPreview:  string | null;
+  buttonId:     string | null;
+  status:       'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+  errorMessage: string | null;
+  relatedType:  string | null;
+  relatedId:    string | null;
+  createdAt:    string;
+}
+
+const MSG_STATUS_CONFIG = {
+  QUEUED:    { label: 'Queued',    color: 'bg-gray-100 text-gray-500 border-gray-200',      icon: <Clock size={11} /> },
+  SENT:      { label: 'Sent',      color: 'bg-blue-50 text-blue-700 border-blue-200',       icon: <Send size={11} /> },
+  DELIVERED: { label: 'Delivered', color: 'bg-teal-50 text-teal-700 border-teal-200',       icon: <CheckCircle2 size={11} /> },
+  READ:      { label: 'Read',      color: 'bg-green-50 text-green-700 border-green-200',    icon: <CheckCheck size={11} /> },
+  FAILED:    { label: 'Failed',    color: 'bg-red-50 text-red-600 border-red-200',          icon: <XCircle size={11} /> },
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function WhatsAppTemplatesPage() {
+  const [tab, setTab] = useState<'chat' | 'templates' | 'settings'>('chat');
   const [templates, setTemplates]     = useState<WaTemplate[]>([]);
   const [loading, setLoading]         = useState(true);
   const [showForm, setShowForm]       = useState(false);
@@ -64,6 +91,38 @@ export default function WhatsAppTemplatesPage() {
   const [sendModal, setSendModal]     = useState<{
     template: WaTemplate; phone: string; params: string[]; sending: boolean;
   } | null>(null);
+
+  // Message log
+  const [waMessages, setWaMessages]     = useState<WaMessage[]>([]);
+  const [waTotal, setWaTotal]           = useState(0);
+  const [waLoading, setWaLoading]       = useState(true);
+  const [waPage, setWaPage]             = useState(1);
+  const [waExpanded, setWaExpanded]     = useState<string | null>(null);
+  const [waDirFilter, setWaDirFilter]   = useState<'' | 'OUTBOUND' | 'INBOUND'>('');
+  const [waStatusFilter, setWaStatusFilter] = useState<'' | WaMessage['status']>('');
+  const WA_LIMIT = 20;
+
+  const loadMessages = useCallback(async () => {
+    setWaLoading(true);
+    try {
+      const { data } = await api.get('/notifications/whatsapp/messages', {
+        params: {
+          page: waPage,
+          limit: WA_LIMIT,
+          ...(waDirFilter ? { direction: waDirFilter } : {}),
+          ...(waStatusFilter ? { status: waStatusFilter } : {}),
+        },
+      });
+      setWaMessages(data?.items ?? []);
+      setWaTotal(data?.total ?? 0);
+    } catch {
+      toast.error('Failed to load message log');
+    } finally {
+      setWaLoading(false);
+    }
+  }, [waPage, waDirFilter, waStatusFilter]);
+
+  useEffect(() => { loadMessages(); }, [loadMessages]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -213,29 +272,58 @@ export default function WhatsAppTemplatesPage() {
 
   return (
     <>
-    <div className="p-6 max-w-4xl mx-auto space-y-5">
+    <div className={`p-6 mx-auto space-y-5 ${tab === 'chat' ? 'max-w-6xl' : 'max-w-4xl'}`}>
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2">
             <MessageSquare className="text-green-600" size={22} />
-            <h1 className="text-xl font-semibold text-gray-900">WhatsApp Notifications</h1>
+            <h1 className="text-xl font-semibold text-gray-900">WhatsApp</h1>
+            <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium
+              ${isConnected ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+              {isConnected ? <Wifi size={10} /> : <WifiOff size={10} />}
+              {isConnected ? 'Connected' : 'Not connected'}
+            </span>
           </div>
-          <p className="text-sm text-gray-500 mt-0.5 ml-8">Automated messages for orders, payments and updates</p>
+          <p className="text-sm text-gray-500 mt-0.5 ml-8">Chat with customers, manage templates and connection settings</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={load} className="btn-outline flex items-center gap-1.5 text-sm">
-            <RefreshCw size={13} /> Refresh
-          </button>
-          <button onClick={() => { setShowForm(v => !v); setForm({ ...BLANK_FORM }); }}
-            className="btn-primary flex items-center gap-1.5 text-sm">
-            <Plus size={13} /> New Template
-          </button>
-        </div>
+        {tab === 'templates' && (
+          <div className="flex gap-2">
+            <button onClick={load} className="btn-outline flex items-center gap-1.5 text-sm">
+              <RefreshCw size={13} /> Refresh
+            </button>
+            <button onClick={() => { setShowForm(v => !v); setForm({ ...BLANK_FORM }); }}
+              className="btn-primary flex items-center gap-1.5 text-sm">
+              <Plus size={13} /> New Template
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ── Connection status card ── */}
+      {/* ── Tab nav ── */}
+      <div className="flex items-center gap-1 border-b border-gray-200">
+        {([
+          { key: 'chat' as const,      label: 'Chat',      icon: <MessagesSquare size={14} /> },
+          { key: 'templates' as const, label: 'Templates', icon: <FileText size={14} /> },
+          { key: 'settings' as const,  label: 'Settings',  icon: <SettingsIcon size={14} /> },
+        ]).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`flex items-center gap-1.5 text-sm font-medium px-4 py-2.5 border-b-2 -mb-px transition-colors
+              ${tab === t.key ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Chat tab ── */}
+      {tab === 'chat' && <WhatsAppChat />}
+
+      {/* ── Settings tab: connection status card ── */}
+      {tab === 'settings' && (
       <div className={`rounded-xl border p-4 ${isConnected ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
@@ -284,6 +372,10 @@ export default function WhatsAppTemplatesPage() {
           </button>
         </div>
       </div>
+      )}
+
+      {/* ── Templates tab ── */}
+      {tab === 'templates' && <>
 
       {/* ── New template form ── */}
       {showForm && (
@@ -462,6 +554,128 @@ export default function WhatsAppTemplatesPage() {
           })}
         </div>
       </div>
+
+      </>}
+
+      {/* ── Settings tab: message log ── */}
+      {tab === 'settings' && (
+      <div>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+            Message Log {!waLoading && `(${waTotal})`}
+            <span
+              title="Sent = accepted by Meta. Delivered = reached the customer's phone. Read = customer opened it. Meta only allows free-form / interactive messages to reach customers who messaged your number in the last 24 hours — templates are the only way to reach outside that window."
+              className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <select className="input text-xs h-7 py-0" value={waDirFilter}
+              onChange={e => { setWaPage(1); setWaDirFilter(e.target.value as typeof waDirFilter); }}>
+              <option value="">All directions</option>
+              <option value="OUTBOUND">Sent by store</option>
+              <option value="INBOUND">Received</option>
+            </select>
+            <select className="input text-xs h-7 py-0" value={waStatusFilter}
+              onChange={e => { setWaPage(1); setWaStatusFilter(e.target.value as typeof waStatusFilter); }}>
+              <option value="">All statuses</option>
+              {Object.entries(MSG_STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+            <button onClick={loadMessages} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
+              <RefreshCw size={12} />
+            </button>
+          </div>
+        </div>
+
+        {waLoading ? (
+          <div className="text-center py-10 text-gray-400 text-sm">Loading message log…</div>
+        ) : waMessages.length === 0 ? (
+          <div className="text-center py-10 border border-dashed border-gray-200 rounded-xl text-gray-400">
+            <MessageSquare size={30} className="mx-auto mb-2 text-gray-300" />
+            <p className="text-sm">No messages logged yet.</p>
+            <p className="text-xs mt-1">Sends and receives will appear here once WhatsApp is active.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {waMessages.map(m => {
+              const st = MSG_STATUS_CONFIG[m.status] ?? MSG_STATUS_CONFIG.QUEUED;
+              const isOpen = m.id === waExpanded;
+              const date = new Date(m.createdAt);
+              const dateStr = date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+              const timeStr = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+              return (
+                <div key={m.id}
+                  className={`bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-sm transition-shadow border-l-4
+                    ${m.status === 'FAILED' ? 'border-l-red-400' : m.direction === 'INBOUND' ? 'border-l-purple-400' : 'border-l-blue-400'}`}>
+                  <div className="flex items-center gap-3 p-3.5 cursor-pointer" onClick={() => setWaExpanded(isOpen ? null : m.id)}>
+                    <div className="shrink-0" title={m.direction === 'OUTBOUND' ? 'Sent by store' : 'Received from customer'}>
+                      {m.direction === 'OUTBOUND'
+                        ? <ArrowUpRight size={14} className="text-blue-500" />
+                        : <ArrowDownLeft size={14} className="text-purple-500" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm text-gray-900">+{m.phone}</span>
+                        <span className="text-xs text-gray-400">{m.messageType}{m.templateName ? ` · ${m.templateName}` : ''}</span>
+                        <span className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full border ${st.color}`}>
+                          {st.icon} {st.label}
+                        </span>
+                        {m.buttonId && (
+                          <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200">
+                            <MousePointerClick size={11} /> Button tap
+                          </span>
+                        )}
+                      </div>
+                      {m.bodyPreview && (
+                        <p className="text-xs text-gray-500 mt-0.5 truncate">{m.bodyPreview}</p>
+                      )}
+                      {m.errorMessage && (
+                        <p className="text-xs text-red-500 mt-0.5 flex items-center gap-1">
+                          <AlertCircle size={10} /> {m.errorMessage}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {m.relatedType === 'ONLINE_ORDER' && m.relatedId && (
+                        <span className="text-xs text-gray-400 font-mono">{m.relatedId}</span>
+                      )}
+                      <span className="text-xs text-gray-400">{dateStr} {timeStr}</span>
+                    </div>
+                  </div>
+                  {isOpen && (
+                    <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 space-y-1 text-xs text-gray-500">
+                      <div className="flex gap-6 flex-wrap">
+                        <span><span className="font-medium">Phone:</span> +{m.phone}</span>
+                        <span><span className="font-medium">Type:</span> {m.messageType}</span>
+                        <span><span className="font-medium">Status:</span> {st.label}</span>
+                        {m.relatedType && m.relatedId && (
+                          <span><span className="font-medium">{m.relatedType}:</span> {m.relatedId}</span>
+                        )}
+                      </div>
+                      {m.bodyPreview && (
+                        <p className="mt-1"><span className="font-medium">Content:</span> {m.bodyPreview}</p>
+                      )}
+                      {m.errorMessage && (
+                        <p className="mt-1 text-red-500"><span className="font-medium">Error:</span> {m.errorMessage}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {waTotal > WA_LIMIT && (
+          <div className="flex justify-center gap-2 mt-4">
+            {Array.from({ length: Math.ceil(waTotal / WA_LIMIT) }, (_, i) => i + 1).map(p => (
+              <button key={p} onClick={() => setWaPage(p)}
+                className={`text-xs px-3 py-1.5 rounded-lg border ${p === waPage ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 hover:bg-gray-50'}`}>
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      )}
 
     </div>
 

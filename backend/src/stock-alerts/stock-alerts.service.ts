@@ -68,7 +68,7 @@ export class StockAlertsService {
     for (const alert of alerts) {
       try {
         if (alert.phone) {
-          await this.whatsapp.sendBackInStock({
+          await this.whatsapp.sendBackInStock(alert.businessId, {
             customerPhone: alert.phone,
             customerName: alert.phone, // name not stored; phone is the identifier
             productName: alert.productName,

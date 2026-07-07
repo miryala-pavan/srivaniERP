@@ -35,6 +35,8 @@ export const Events = {
   SUBCATEGORY_DELETED:        'subcategory.deleted',
   ONLINE_ORDER_PLACED:        'online.order.placed',
   ONLINE_ORDER_STATUS_CHANGED: 'online.order.status_changed',
+  WA_MESSAGE_RECEIVED:        'wa.message.received',
+  WA_MESSAGE_SENT:            'wa.message.sent',
 } as const;
 
 export type EventName = typeof Events[keyof typeof Events];
@@ -69,3 +71,4 @@ export interface CustomerPaymentRecordedPayload { paymentId: string; customerId:
 export interface CustomerPaymentDeletedPayload  { paymentId: string; customerId: string; amount: number }
 export interface OnlineOrderPlacedPayload       { orderNumber: string; customerName: string; customerPhone: string; total: number; paymentMethod: string; deliveryType: string; itemCount: number }
 export interface OnlineOrderStatusChangedPayload { orderNumber: string; status: string; customerName: string }
+export interface WaMessagePayload { phone: string; direction: 'INBOUND' | 'OUTBOUND'; bodyPreview: string | null; messageType: string; createdAt: string }
