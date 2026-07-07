@@ -91,6 +91,10 @@ export class CreateOrderDto {
   @Type(() => DeliveryAddressDto)
   deliveryAddress?: DeliveryAddressDto;
 
+  @IsOptional()
+  @IsString()
+  deliverySlot?: string;
+
   @IsEnum(PaymentMethod)
   paymentMethod: PaymentMethod;
 

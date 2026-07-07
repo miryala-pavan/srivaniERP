@@ -29,6 +29,8 @@ interface Props {
     sort?: string;
     inStock?: string;
     page?: string;
+    minPrice?: string;
+    maxPrice?: string;
   };
 }
 
@@ -37,19 +39,23 @@ export default async function ProductsPage({ searchParams }: Props) {
   const sort      = (searchParams.sort as SortOption) || 'nameAsc';
   const inStock   = searchParams.inStock === 'true';
   const page      = Math.max(1, parseInt(searchParams.page ?? '1', 10));
+  const minPrice  = searchParams.minPrice ? Number(searchParams.minPrice) : undefined;
+  const maxPrice  = searchParams.maxPrice ? Number(searchParams.maxPrice) : undefined;
 
   const baseHref = (() => {
     const p = new URLSearchParams();
     if (deptCode) p.set('dept', deptCode);
     if (sort && sort !== 'nameAsc') p.set('sort', sort);
     if (inStock) p.set('inStock', 'true');
+    if (minPrice != null) p.set('minPrice', String(minPrice));
+    if (maxPrice != null) p.set('maxPrice', String(maxPrice));
     const qs = p.toString();
     return `/products${qs ? `?${qs}` : ''}`;
   })();
 
   const [departments, result] = await Promise.all([
     getDepartments(),
-    getProducts({ deptCode, sort, inStock, page, limit: PAGE_SIZE }),
+    getProducts({ deptCode, sort, inStock, page, limit: PAGE_SIZE, minPrice, maxPrice }),
   ]);
 
   const activeDept = departments.find(d => d.code === deptCode);
@@ -76,6 +82,8 @@ export default async function ProductsPage({ searchParams }: Props) {
             currentDept={deptCode ?? ''}
             currentSort={sort}
             currentInStock={inStock}
+            currentMinPrice={searchParams.minPrice ?? ''}
+            currentMaxPrice={searchParams.maxPrice ?? ''}
           />
         </Suspense>
 

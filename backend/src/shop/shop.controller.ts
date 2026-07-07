@@ -25,7 +25,7 @@ export class ShopController {
     return this.shopService.getNavTree();
   }
 
-  // GET /shop/products?categoryCode=&subCategoryCode=&deptCode=&search=&inStock=&sort=&page=&limit=
+  // GET /shop/products?categoryCode=&subCategoryCode=&deptCode=&search=&inStock=&sort=&page=&limit=&minPrice=&maxPrice=
   @Get('products')
   getProducts(
     @Query('categoryCode')    categoryCode?: string,
@@ -33,6 +33,8 @@ export class ShopController {
     @Query('deptCode')        deptCode?: string,
     @Query('search')          search?: string,
     @Query('sort')            sort?: string,
+    @Query('minPrice')        minPrice?: string,
+    @Query('maxPrice')        maxPrice?: string,
     @Query('inStock',    new DefaultValuePipe(false), ParseBoolPipe) inStock    = false,
     @Query('dealsOnly',  new DefaultValuePipe(false), ParseBoolPipe) dealsOnly  = false,
     @Query('page',       new DefaultValuePipe(1),     ParseIntPipe)  page       = 1,
@@ -40,6 +42,8 @@ export class ShopController {
   ) {
     return this.shopService.getProducts({
       categoryCode, subCategoryCode, deptCode, search, sort, inStock, dealsOnly, page, limit,
+      minPrice: minPrice !== undefined ? Number(minPrice) : undefined,
+      maxPrice: maxPrice !== undefined ? Number(maxPrice) : undefined,
     });
   }
 
@@ -65,5 +69,17 @@ export class ShopController {
     @Query('limit', new DefaultValuePipe(4), ParseIntPipe) limit = 4,
   ) {
     return this.shopService.getFrequentlyBoughtWith(pluBarcode, limit);
+  }
+
+  // GET /shop/check-pincode/:pincode — checkout serviceability check
+  @Get('check-pincode/:pincode')
+  checkPincode(@Param('pincode') pincode: string) {
+    return this.shopService.checkPincode(pincode);
+  }
+
+  // GET /shop/delivery-slots?date=today|tomorrow
+  @Get('delivery-slots')
+  getDeliverySlots(@Query('date') date?: string) {
+    return this.shopService.getDeliverySlots(date === 'tomorrow' ? 'tomorrow' : 'today');
   }
 }

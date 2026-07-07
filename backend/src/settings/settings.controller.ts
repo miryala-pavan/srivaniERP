@@ -1,5 +1,5 @@
 import { Controller, Get, Put, Body, UseGuards, Request } from '@nestjs/common';
-import { SettingsService } from './settings.service';
+import { SettingsService, DeliverySlot } from './settings.service';
 import { UpdateFeaturesDto } from './dto/update-features.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -89,5 +89,17 @@ export class SettingsController {
   @Put('loyalty')
   updateLoyaltySettings(@Request() req: any, @Body() body: Record<string, string>) {
     return this.settingsService.updateLoyaltySettings(req.user.businessId, body);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Get('delivery-slots')
+  getDeliverySlots(@Request() req: any) {
+    return this.settingsService.getDeliverySlots(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Put('delivery-slots')
+  updateDeliverySlots(@Request() req: any, @Body() body: { slots: DeliverySlot[] }) {
+    return this.settingsService.updateDeliverySlots(req.user.businessId, body.slots);
   }
 }

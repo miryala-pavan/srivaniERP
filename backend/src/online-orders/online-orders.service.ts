@@ -161,6 +161,7 @@ export class OnlineOrdersService {
         deliveryAddress: dto.deliveryAddress
           ? JSON.parse(JSON.stringify(dto.deliveryAddress))
           : undefined,
+        deliverySlot: dto.deliverySlot ?? null,
         paymentMethod: dto.paymentMethod,
         paymentStatus: OnlinePaymentStatus.PENDING,
         status: initialStatus,

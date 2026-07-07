@@ -18,6 +18,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "backend", "run", "start:dev"],
       "port": 4001
+    },
+    {
+      "name": "storefront-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "storefront", "run", "dev"],
+      "port": 4002
     }
   ]
 }

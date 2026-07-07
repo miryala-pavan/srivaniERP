@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Settings, Receipt, Save, RefreshCw, CheckCircle2, Keyboard, AlertCircle, Store, Clock, FileText, Star } from 'lucide-react';
+import { Settings, Receipt, Save, RefreshCw, CheckCircle2, Keyboard, AlertCircle, Store, Clock, FileText, Star, Truck, Trash2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 
@@ -195,7 +195,7 @@ function KeyCapture({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type TabId = 'billing' | 'shortcuts' | 'pos' | 'gst' | 'system' | 'loyalty';
+type TabId = 'billing' | 'shortcuts' | 'pos' | 'gst' | 'system' | 'loyalty' | 'delivery';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('billing');
@@ -282,6 +282,87 @@ export default function SettingsPage() {
       toast.success('Loyalty settings saved!');
     } catch { toast.error('Failed to save loyalty settings'); }
     finally { setLoyaltySaving(false); }
+  };
+
+  // ─── Delivery / Serviceable Pincodes ────────────────────────
+  interface ServiceablePincode { id: string; pincode: string; areaLabel: string | null; isActive: boolean; createdAt: string; }
+  const [pincodes,        setPincodes]        = useState<ServiceablePincode[]>([]);
+  const [pincodesLoading, setPincodesLoading]  = useState(false);
+  const [newPincode,      setNewPincode]       = useState('');
+  const [newAreaLabel,    setNewAreaLabel]     = useState('');
+  const [pincodeAdding,   setPincodeAdding]     = useState(false);
+
+  const loadPincodes = useCallback(async () => {
+    setPincodesLoading(true);
+    try {
+      const { data } = await api.get('/settings/serviceable-pincodes');
+      setPincodes(data);
+    } catch { toast.error('Failed to load serviceable pincodes'); }
+    finally { setPincodesLoading(false); }
+  }, []);
+
+  const addPincode = async () => {
+    const trimmed = newPincode.trim();
+    if (!/^\d{6}$/.test(trimmed)) { toast.error('Enter a valid 6-digit pincode'); return; }
+    setPincodeAdding(true);
+    try {
+      await api.post('/settings/serviceable-pincodes', { pincode: trimmed, areaLabel: newAreaLabel.trim() || undefined });
+      setNewPincode(''); setNewAreaLabel('');
+      toast.success('Pincode added');
+      loadPincodes();
+    } catch (e: any) { toast.error(e?.response?.data?.message ?? 'Failed to add pincode'); }
+    finally { setPincodeAdding(false); }
+  };
+
+  const removePincode = async (id: string) => {
+    try {
+      await api.delete(`/settings/serviceable-pincodes/${id}`);
+      setPincodes(prev => prev.filter(p => p.id !== id));
+      toast.success('Pincode removed');
+    } catch { toast.error('Failed to remove pincode'); }
+  };
+
+  // ─── Delivery Slots ──────────────────────────────────────────
+  interface DeliverySlot { id: string; label: string; startHour: number; endHour: number; }
+  const [slots,        setSlots]        = useState<DeliverySlot[]>([]);
+  const [slotsLoading, setSlotsLoading]  = useState(false);
+  const [slotsSaving,  setSlotsSaving]   = useState(false);
+
+  const loadSlots = useCallback(async () => {
+    setSlotsLoading(true);
+    try {
+      const { data } = await api.get('/settings/delivery-slots');
+      setSlots(data);
+    } catch { toast.error('Failed to load delivery slots'); }
+    finally { setSlotsLoading(false); }
+  }, []);
+
+  const saveSlots = async () => {
+    setSlotsSaving(true);
+    try {
+      const { data } = await api.put('/settings/delivery-slots', { slots });
+      setSlots(data);
+      toast.success('Delivery slots saved');
+    } catch { toast.error('Failed to save delivery slots'); }
+    finally { setSlotsSaving(false); }
+  };
+
+  const updateSlot = (idx: number, field: 'label' | 'startHour' | 'endHour', value: string) => {
+    setSlots(prev => prev.map((s, i) => i === idx ? { ...s, [field]: field === 'label' ? value : Number(value) } : s));
+  };
+
+  const addSlot = () => {
+    setSlots(prev => [...prev, { id: `slot-${Date.now()}`, label: 'New Slot', startHour: 9, endHour: 12 }]);
+  };
+
+  const removeSlot = (idx: number) => {
+    setSlots(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const fmtHour = (h: number) => {
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12} ${period}`;
   };
 
   // Bill starting numbers
@@ -549,9 +630,11 @@ export default function SettingsPage() {
     { id: 'gst'       as TabId, label: 'GST',           icon: FileText },
     { id: 'system'    as TabId, label: 'System',        icon: Clock },
     { id: 'loyalty'   as TabId, label: 'Loyalty',       icon: Star },
+    { id: 'delivery'  as TabId, label: 'Delivery',      icon: Truck },
   ];
 
   useEffect(() => { if (activeTab === 'loyalty') loadLoyaltySettings(); }, [activeTab, loadLoyaltySettings]);
+  useEffect(() => { if (activeTab === 'delivery') { loadPincodes(); loadSlots(); } }, [activeTab, loadPincodes, loadSlots]);
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -1217,6 +1300,148 @@ export default function SettingsPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ─── Delivery Tab ─── */}
+      {activeTab === 'delivery' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Serviceable Pincodes</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              Pincodes your storefront delivers to. Customers checking out with an address outside this list will be
+              asked to choose Store Pickup instead. If this list is empty, every pincode is accepted.
+            </p>
+
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                placeholder="6-digit pincode"
+                value={newPincode}
+                onChange={(e) => setNewPincode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <input
+                type="text"
+                placeholder="Area name (optional)"
+                value={newAreaLabel}
+                onChange={(e) => setNewAreaLabel(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                onClick={addPincode}
+                disabled={pincodeAdding || newPincode.length !== 6}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {pincodeAdding ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Add
+              </button>
+            </div>
+
+            {pincodesLoading ? (
+              <div className="flex items-center justify-center py-10 text-gray-400">
+                <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading...
+              </div>
+            ) : pincodes.length === 0 ? (
+              <div className="text-sm text-gray-400 py-6 text-center border border-dashed border-gray-200 rounded-lg">
+                No pincodes added yet — every pincode is currently accepted at checkout.
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
+                {pincodes.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between px-4 py-2.5">
+                    <div>
+                      <span className="font-mono text-sm font-semibold text-gray-900">{p.pincode}</span>
+                      {p.areaLabel && <span className="text-xs text-gray-500 ml-2">{p.areaLabel}</span>}
+                    </div>
+                    <button
+                      onClick={() => removePincode(p.id)}
+                      title="Remove pincode"
+                      className="text-gray-400 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'delivery' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mt-6">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Delivery Slots</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              Fixed daily delivery windows shown to customers at checkout (same slots every day, today or tomorrow only).
+              A slot is hidden once its end time has passed for today.
+            </p>
+
+            {slotsLoading ? (
+              <div className="flex items-center justify-center py-10 text-gray-400">
+                <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading...
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {slots.map((s, idx) => (
+                  <div key={s.id} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={s.label}
+                      onChange={(e) => updateSlot(idx, 'label', e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Slot name"
+                    />
+                    <select
+                      value={s.startHour}
+                      onChange={(e) => updateSlot(idx, 'startHour', e.target.value)}
+                      className="px-2 py-2 border border-gray-300 rounded-lg text-sm"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    </select>
+                    <span className="text-gray-400 text-sm">to</span>
+                    <select
+                      value={s.endHour}
+                      onChange={(e) => updateSlot(idx, 'endHour', e.target.value)}
+                      className="px-2 py-2 border border-gray-300 rounded-lg text-sm"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    </select>
+                    <button
+                      onClick={() => removeSlot(idx)}
+                      title="Remove slot"
+                      className="text-gray-400 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={addSlot}
+                  className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium mt-2"
+                >
+                  <Plus className="w-4 h-4" /> Add slot
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <button
+              onClick={loadSlots}
+              className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Discard changes
+            </button>
+            <button
+              onClick={saveSlots}
+              disabled={slotsSaving}
+              className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {slotsSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {slotsSaving ? 'Saving...' : 'Save Slots'}
+            </button>
+          </div>
         </div>
       )}
     </div>

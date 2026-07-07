@@ -27,6 +27,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { ReportsModule } from './reports/reports.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { SettingsModule } from './settings/settings.module';
+import { ServiceablePincodesModule } from './serviceable-pincodes/serviceable-pincodes.module';
 import { AdminModule } from './admin/admin.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DayClosureModule } from './day-closure/day-closure.module';
@@ -69,6 +70,7 @@ import { LedgerApiModule } from './ledger/ledger-api.module';
     ReportsModule,
     ExpensesModule,
     SettingsModule,
+    ServiceablePincodesModule,
     AdminModule,
     NotificationsModule,
     DayClosureModule,

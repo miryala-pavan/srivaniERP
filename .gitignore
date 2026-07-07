@@ -8,6 +8,8 @@
 id_ed25519
 id_ed25519.pub
 *.pem
+*token*.txt
+*credential*.txt
 
 # Claude Code local settings — accumulates an auto-approval log of every
 # command run, which can include passwords typed inline (e.g. curl -d

@@ -56,6 +56,14 @@ const GST_DEFAULTS = {
   'gst.from_date': '',  // ISO date — all GST reports exclude data before this date (set to go-live date)
 };
 
+export interface DeliverySlot { id: string; label: string; startHour: number; endHour: number; }
+
+const DEFAULT_DELIVERY_SLOTS: DeliverySlot[] = [
+  { id: 'morning',   label: 'Morning',   startHour: 9,  endHour: 12 },
+  { id: 'afternoon', label: 'Afternoon', startHour: 12, endHour: 16 },
+  { id: 'evening',   label: 'Evening',   startHour: 16, endHour: 20 },
+];
+
 const LOYALTY_DEFAULTS = {
   'loyalty.enabled':           'false',
   'loyalty.earn_per_100':      '1',    // points earned per ₹100 spent
@@ -282,6 +290,34 @@ export class SettingsService {
     }
     if (ops.length) await this.prisma.$transaction(ops);
     return this.getLoyaltySettings(businessId);
+  }
+
+  // Fixed daily delivery windows (same slots every day, no per-slot capacity —
+  // stored as one JSON row rather than a table since the list is short and
+  // admin-editable, matching the pattern used for other simple config here).
+  async getDeliverySlots(businessId: string): Promise<DeliverySlot[]> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { businessId_key: { businessId, key: 'delivery.slots' } },
+    });
+    if (!row) return DEFAULT_DELIVERY_SLOTS;
+    try {
+      const parsed = JSON.parse(row.value);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_DELIVERY_SLOTS;
+    } catch {
+      return DEFAULT_DELIVERY_SLOTS;
+    }
+  }
+
+  async updateDeliverySlots(businessId: string, slots: DeliverySlot[]): Promise<DeliverySlot[]> {
+    const clean = slots
+      .filter(s => s.label?.trim() && Number.isFinite(s.startHour) && Number.isFinite(s.endHour) && s.startHour < s.endHour)
+      .map(s => ({ id: s.id || s.label.toLowerCase().replace(/\s+/g, '-'), label: s.label.trim(), startHour: s.startHour, endHour: s.endHour }));
+    await this.prisma.systemSetting.upsert({
+      where:  { businessId_key: { businessId, key: 'delivery.slots' } },
+      update: { value: JSON.stringify(clean) },
+      create: { businessId, key: 'delivery.slots', value: JSON.stringify(clean) },
+    });
+    return this.getDeliverySlots(businessId);
   }
 
   async updateGstSettings(businessId: string, updates: Record<string, string>) {

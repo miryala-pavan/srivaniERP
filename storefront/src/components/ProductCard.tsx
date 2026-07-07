@@ -152,6 +152,19 @@ export default function ProductCard({ product }: Props) {
           {product.code}
         </span>
 
+        {/* Rating stars — only shown once the product has at least one published review */}
+        {!!product.reviewCount && product.reviewCount > 0 && (
+          <div className="flex items-center" style={{ gap: '3px' }}>
+            <span style={{ fontSize: '11px', letterSpacing: '1px', color: '#e0a500' }}>
+              {'★'.repeat(Math.round(product.avgRating ?? 0))}
+              {'☆'.repeat(5 - Math.round(product.avgRating ?? 0))}
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--ink-soft)' }}>
+              ({product.reviewCount})
+            </span>
+          </div>
+        )}
+
         {/* Pricing + Add to list */}
         <div className="mt-auto" style={{ paddingTop: '8px' }}>
           <div className="flex items-baseline flex-wrap" style={{ gap: '6px', marginBottom: '8px' }}>

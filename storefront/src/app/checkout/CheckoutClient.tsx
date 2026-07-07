@@ -14,6 +14,7 @@ import {
   type PaymentMethod,
 } from '@/lib/orders';
 import { fetchAddresses, createAddress, type SavedAddress } from '@/lib/addresses';
+import { checkPincodeServiceable, getDeliverySlots, type DeliverySlotOption } from '@/lib/shop';
 
 declare global {
   interface Window {
@@ -231,6 +232,20 @@ export default function CheckoutClient() {
   const [addrPincode, setAddrPincode] = useState('502001');
   const [addrState, setAddrState] = useState('Telangana');
 
+  // Delivery slot
+  const [deliveryDay, setDeliveryDay] = useState<'today' | 'tomorrow'>('today');
+  const [slots, setSlots] = useState<DeliverySlotOption[]>([]);
+  const [selectedSlotId, setSelectedSlotId] = useState('');
+
+  useEffect(() => {
+    if (deliveryType !== 'HOME_DELIVERY') return;
+    getDeliverySlots(deliveryDay).then((s) => {
+      setSlots(s);
+      // Auto-select the first available slot, or clear if the previous pick is no longer valid
+      setSelectedSlotId((prev) => (s.some((x) => x.id === prev && x.available) ? prev : (s.find((x) => x.available)?.id ?? '')));
+    });
+  }, [deliveryType, deliveryDay]);
+
   // Payment
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('RAZORPAY');
   const [customerNotes, setCustomerNotes] = useState('');
@@ -257,6 +272,7 @@ export default function CheckoutClient() {
         return 'Enter your full delivery address (house/flat, street)';
       if (!addrCity.trim()) return 'Enter your city';
       if (!/^\d{6}$/.test(addrPincode.trim())) return 'Enter a valid 6-digit pincode';
+      if (!selectedSlotId) return 'Please choose a delivery slot';
     }
     return null;
   }
@@ -268,6 +284,15 @@ export default function CheckoutClient() {
     setLoading(true);
 
     try {
+      if (deliveryType === 'HOME_DELIVERY') {
+        const serviceable = await checkPincodeServiceable(addrPincode.trim());
+        if (!serviceable) {
+          setError(`Sorry, we don't currently deliver to pincode ${addrPincode.trim()}. Please choose Store Pickup or try a different address.`);
+          setLoading(false);
+          return;
+        }
+      }
+      const selectedSlot = slots.find((s) => s.id === selectedSlotId);
       const payload: CreateOrderPayload = {
         customerName: name.trim(),
         customerPhone: phone.trim(),
@@ -282,6 +307,10 @@ export default function CheckoutClient() {
                 pincode: addrPincode.trim(),
                 state: addrState.trim(),
               }
+            : undefined,
+        deliverySlot:
+          deliveryType === 'HOME_DELIVERY' && selectedSlot
+            ? `${deliveryDay === 'today' ? 'Today' : 'Tomorrow'} · ${selectedSlot.label} (${selectedSlot.timeRange})`
             : undefined,
         paymentMethod,
         items: items.map((it) => ({
@@ -512,6 +541,62 @@ export default function CheckoutClient() {
                     <input style={inp} value={addrState} onChange={(e) => setAddrState(e.target.value)}
                       placeholder="Telangana" title="State" autoComplete="address-level1" />
                   </Field>
+
+                  {/* Delivery slot */}
+                  <div>
+                    <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ink-soft)', marginBottom: '8px', letterSpacing: '0.03em' }}>
+                      DELIVERY SLOT *
+                    </p>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                      {(['today', 'tomorrow'] as const).map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setDeliveryDay(d)}
+                          style={{
+                            flex: 1, padding: '8px', borderRadius: '10px', cursor: 'pointer',
+                            border: `1.5px solid ${deliveryDay === d ? 'var(--saffron)' : 'var(--line)'}`,
+                            background: deliveryDay === d ? 'rgba(217,131,36,0.08)' : 'var(--paper-2)',
+                            fontSize: '13px', fontWeight: 700,
+                            color: deliveryDay === d ? 'var(--saffron)' : 'var(--ink)',
+                          }}
+                        >
+                          {d === 'today' ? 'Today' : 'Tomorrow'}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {slots.length === 0 ? (
+                        <p style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>Loading slots…</p>
+                      ) : slots.every((s) => !s.available) ? (
+                        <p style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>No slots left for {deliveryDay === 'today' ? 'today' : 'tomorrow'} — try {deliveryDay === 'today' ? 'tomorrow' : 'today'}.</p>
+                      ) : (
+                        slots.map((s) => (
+                          <label
+                            key={s.id}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '10px',
+                              cursor: s.available ? 'pointer' : 'not-allowed',
+                              border: `1.5px solid ${selectedSlotId === s.id ? 'var(--saffron)' : 'var(--line)'}`,
+                              background: selectedSlotId === s.id ? 'rgba(217,131,36,0.08)' : 'var(--paper-2)',
+                              opacity: s.available ? 1 : 0.5,
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="deliverySlot"
+                              disabled={!s.available}
+                              checked={selectedSlotId === s.id}
+                              onChange={() => setSelectedSlotId(s.id)}
+                            />
+                            <span style={{ fontSize: '13px', fontWeight: 700 }}>{s.label}</span>
+                            <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>{s.timeRange}</span>
+                            {!s.available && <span style={{ fontSize: '11px', color: 'var(--ink-soft)', marginLeft: 'auto' }}>Passed</span>}
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
 
                   {/* Save address checkbox */}
                   <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>

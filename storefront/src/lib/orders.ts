@@ -27,6 +27,7 @@ export interface CreateOrderPayload {
   customerEmail?: string;
   deliveryType: DeliveryType;
   deliveryAddress?: DeliveryAddress;
+  deliverySlot?: string;
   paymentMethod: PaymentMethod;
   items: OrderItem[];
   customerNotes?: string;

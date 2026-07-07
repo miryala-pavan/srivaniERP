@@ -17,6 +17,9 @@ interface Props {
   currentDept: string;
   currentSort: SortOption;
   currentInStock: boolean;
+  currentMinPrice?: string;
+  currentMaxPrice?: string;
+  basePath?: string; // defaults to /products — pass '/search' to reuse on the search results page
 }
 
 export default function FilterSidebar({
@@ -25,10 +28,15 @@ export default function FilterSidebar({
   currentDept,
   currentSort,
   currentInStock,
+  currentMinPrice = '',
+  currentMaxPrice = '',
+  basePath = '/products',
 }: Props) {
   const router        = useRouter();
   const searchParams  = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [minPriceInput, setMinPriceInput] = useState(currentMinPrice);
+  const [maxPriceInput, setMaxPriceInput] = useState(currentMaxPrice);
 
   const navigate = useCallback((updates: Record<string, string | undefined>) => {
     const p = new URLSearchParams(searchParams.toString());
@@ -37,11 +45,11 @@ export default function FilterSidebar({
       if (val === undefined || val === '' || val === 'false') p.delete(key);
       else p.set(key, val);
     }
-    router.push(`/products?${p.toString()}`);
+    router.push(`${basePath}?${p.toString()}`);
     setDrawerOpen(false);
-  }, [router, searchParams]);
+  }, [router, searchParams, basePath]);
 
-  const hasFilters = !!(currentDept || currentSort !== 'nameAsc' || currentInStock);
+  const hasFilters = !!(currentDept || currentSort !== 'nameAsc' || currentInStock || currentMinPrice || currentMaxPrice);
 
   const FilterContent = () => (
     <>
@@ -69,6 +77,30 @@ export default function FilterSidebar({
           />
           In Stock Only
         </label>
+      </div>
+
+      {/* Price range */}
+      <div className="sidebar-section">
+        <p className="sidebar-label">Price range (₹)</p>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input
+            type="number" min="0" placeholder="Min"
+            value={minPriceInput}
+            onChange={e => setMinPriceInput(e.target.value)}
+            onBlur={() => navigate({ minPrice: minPriceInput || undefined, maxPrice: maxPriceInput || undefined })}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            style={{ width: '70px', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px' }}
+          />
+          <span style={{ color: 'var(--ink-soft)' }}>–</span>
+          <input
+            type="number" min="0" placeholder="Max"
+            value={maxPriceInput}
+            onChange={e => setMaxPriceInput(e.target.value)}
+            onBlur={() => navigate({ minPrice: minPriceInput || undefined, maxPrice: maxPriceInput || undefined })}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            style={{ width: '70px', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px' }}
+          />
+        </div>
       </div>
 
       {/* Department filter */}
@@ -101,7 +133,10 @@ export default function FilterSidebar({
       {hasFilters && (
         <button
           className="clear-filters"
-          onClick={() => navigate({ dept: undefined, sort: undefined, inStock: undefined })}
+          onClick={() => {
+            setMinPriceInput(''); setMaxPriceInput('');
+            navigate({ dept: undefined, sort: undefined, inStock: undefined, minPrice: undefined, maxPrice: undefined });
+          }}
         >
           Clear all filters
         </button>

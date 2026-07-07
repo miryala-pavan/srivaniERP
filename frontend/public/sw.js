@@ -21,12 +21,15 @@ self.addEventListener('fetch', (event) => {
   // Never intercept API calls — always go to network
   if (event.request.url.includes('/api/')) return;
 
-  // Network-first strategy: try network, fall back to cache
+  // Network-first strategy: try network, fall back to cache.
+  // Only GET responses are cacheable — the Cache API throws on POST/PUT/etc.
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        if (event.request.method === 'GET') {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
         return response;
       })
       .catch(() =>

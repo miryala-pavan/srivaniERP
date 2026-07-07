@@ -68,6 +68,8 @@ export interface ShopProduct {
   groupVariants?: ShopGroupVariant[];
   unitsSold?: number;   // real: times purchased in last 90 days
   stockLeft?: number;   // real: effective online qty available
+  avgRating?: number | null;
+  reviewCount?: number;
 }
 
 export interface NavSubcategory { code: string; name: string; productCount: number; }
@@ -131,6 +133,8 @@ export async function getProducts(params?: {
   sort?: SortOption;
   page?: number;
   limit?: number;
+  minPrice?: number;
+  maxPrice?: number;
 }): Promise<ProductsResult> {
   try {
     const url = new URL(`${API_BASE}/shop/products`);
@@ -143,6 +147,8 @@ export async function getProducts(params?: {
     if (params?.dealsOnly)       url.searchParams.set('dealsOnly', 'true');
     if (params?.page)            url.searchParams.set('page', String(params.page));
     if (params?.limit)           url.searchParams.set('limit', String(params.limit));
+    if (params?.minPrice != null) url.searchParams.set('minPrice', String(params.minPrice));
+    if (params?.maxPrice != null) url.searchParams.set('maxPrice', String(params.maxPrice));
 
     const res = await fetch(url.toString(), { next: { revalidate: 30 }, signal: AbortSignal.timeout(5000) });
     if (!res.ok) return { data: [], total: 0, page: 1, totalPages: 0 };
@@ -203,6 +209,35 @@ export async function getFrequentlyBoughtWith(pluBarcode: string, limit = 4): Pr
     const url = new URL(`${API_BASE}/shop/frequently-bought-with/${encodeURIComponent(pluBarcode)}`);
     url.searchParams.set('limit', String(limit));
     const res = await fetch(url.toString(), { next: { revalidate: 300 }, signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+// Checkout serviceability check. Fails open (treats as serviceable) on any
+// network error — a transient glitch shouldn't block a paying customer.
+export async function checkPincodeServiceable(pincode: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/shop/check-pincode/${encodeURIComponent(pincode)}`, {
+      cache: 'no-store', signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return true;
+    const data = await res.json();
+    return data.serviceable !== false;
+  } catch {
+    return true;
+  }
+}
+
+export interface DeliverySlotOption { id: string; label: string; timeRange: string; available: boolean; }
+
+export async function getDeliverySlots(date: 'today' | 'tomorrow'): Promise<DeliverySlotOption[]> {
+  try {
+    const res = await fetch(`${API_BASE}/shop/delivery-slots?date=${date}`, {
+      cache: 'no-store', signal: AbortSignal.timeout(4000),
+    });
     if (!res.ok) return [];
     return res.json();
   } catch {

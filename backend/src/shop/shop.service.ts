@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { wildcardFilter } from '../common/helpers/search.helper';
+import { wildcardFilter, hasWildcard } from '../common/helpers/search.helper';
 import { ShopCacheService } from './shop-cache.service';
+import { ServiceablePincodesService } from '../serviceable-pincodes/serviceable-pincodes.service';
+import { SettingsService } from '../settings/settings.service';
 
 // ─── Whitelisted output types ─────────────────────────────────────────────────
 
@@ -64,6 +66,8 @@ export interface ShopProduct {
   // Real social-proof signals (frontend decides whether to show, by threshold)
   unitsSold?: number;   // times purchased in the last 90 days (real)
   stockLeft?: number;   // effective online quantity available now
+  avgRating?: number | null; // average of published ProductReview.rating, null if no reviews
+  reviewCount?: number;
 }
 
 export interface NavSubcategory {
@@ -176,7 +180,36 @@ export class ShopService {
   constructor(
     private prisma: PrismaService,
     private cache: ShopCacheService,
+    private servicePincodes: ServiceablePincodesService,
+    private settings: SettingsService,
   ) {}
+
+  // Public — used by storefront checkout before an order is placed.
+  async checkPincode(pincode: string): Promise<{ serviceable: boolean }> {
+    const businessId = await this.getBusinessId();
+    const serviceable = await this.servicePincodes.isServiceable(businessId, pincode);
+    return { serviceable };
+  }
+
+  // Public — used by storefront checkout to offer a delivery window.
+  // Fixed daily windows, today + tomorrow only. A "today" slot whose end
+  // time has already passed is marked unavailable (no capacity limits).
+  async getDeliverySlots(date: 'today' | 'tomorrow'): Promise<{ id: string; label: string; timeRange: string; available: boolean }[]> {
+    const businessId = await this.getBusinessId();
+    const slots = await this.settings.getDeliverySlots(businessId);
+    const nowHour = new Date().getHours();
+    const fmt = (h: number) => {
+      const period = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 === 0 ? 12 : h % 12;
+      return `${h12} ${period}`;
+    };
+    return slots.map(s => ({
+      id: s.id,
+      label: s.label,
+      timeRange: `${fmt(s.startHour)} - ${fmt(s.endHour)}`,
+      available: date === 'tomorrow' || nowHour < s.endHour,
+    }));
+  }
 
   private async getBusinessId(): Promise<string> {
     const biz = await this.prisma.business.findFirst({
@@ -302,6 +335,8 @@ export class ShopService {
     sort?: string;
     page?: number;
     limit?: number;
+    minPrice?: number;
+    maxPrice?: number;
   }): Promise<{ data: ShopProduct[]; total: number; page: number; totalPages: number }> {
     const businessId = await this.getBusinessId();
     const page  = Math.max(1, query.page ?? 1);
@@ -356,10 +391,18 @@ export class ShopService {
       where.mrp = { gt: 0 };
     }
 
+    // Price range filter
+    if (query.minPrice != null || query.maxPrice != null) {
+      where.sellingPrice = {
+        ...(query.minPrice != null ? { gte: query.minPrice } : {}),
+        ...(query.maxPrice != null ? { lte: query.maxPrice } : {}),
+      };
+    }
+
     // Search — supports * wildcard
-    if (query.search?.trim()) {
-      const q = query.search.trim();
-      const wf = wildcardFilter(q);
+    const searchTerm = query.search?.trim();
+    if (searchTerm) {
+      const wf = wildcardFilter(searchTerm);
       where.OR = [
         { name:        wf },
         { productCode: wf },
@@ -377,35 +420,57 @@ export class ShopService {
     if (query.sort === 'priceDesc') orderBy = [{ totalStock: 'desc' }, { sellingPrice: 'desc' }, { name: 'asc' }];
     if (query.sort === 'savings')   orderBy = [{ totalStock: 'desc' }, { mrp: 'desc' }, { sellingPrice: 'asc' }];
 
-    const [products, total] = await Promise.all([
-      this.prisma.product.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy,
+    const productSelect = {
+      productCode: true,
+      name: true,
+      unitOfMeasure: true,
+      imageUrl: true,
+      allowNegativeStock: true,
+      totalStock: true,
+      category: {
         select: {
-          productCode: true,
           name: true,
-          unitOfMeasure: true,
-          imageUrl: true,
-          allowNegativeStock: true,
-          totalStock: true,
-          category: {
-            select: {
-              name: true,
-              label: true,
-              parent: { select: { name: true, label: true } },
-            },
-          },
-          plusList: {
-            where: pluFilter,
-            orderBy: [{ mrp: 'asc' }, { createdAt: 'asc' }],
-            select: PLU_SELECT,
-          },
+          label: true,
+          parent: { select: { name: true, label: true } },
         },
-      }),
+      },
+      plusList: {
+        where: pluFilter,
+        orderBy: [{ mrp: 'asc' as const }, { createdAt: 'asc' as const }],
+        select: PLU_SELECT,
+      },
+    };
+
+    let [products, total] = await Promise.all([
+      this.prisma.product.findMany({ where, skip, take: limit, orderBy, select: productSelect }),
       this.prisma.product.count({ where }),
     ]);
+
+    // Typo-tolerant fallback: only kicks in when the exact/substring search above
+    // found nothing and the user didn't type an explicit wildcard pattern. Uses
+    // word_similarity (not plain similarity) because product names are multi-word
+    // ("MAGGI MASALA NOODLES 560 G") — plain similarity() dilutes a typo on the
+    // first word across the whole string, while word_similarity finds the best-
+    // matching substring so "magee"/"magi" still surfaces "Maggi ...".
+    if (total === 0 && searchTerm && !hasWildcard(searchTerm)) {
+      const fuzzyMatches = await this.prisma.$queryRaw<{ productCode: string }[]>`
+        SELECT "productCode" FROM product
+        WHERE "businessId" = ${businessId}
+          AND "isActive" = true
+          AND "isManuallyDisabled" = false
+          AND "productCode" IS NOT NULL
+          AND word_similarity(${searchTerm}, name) > 0.35
+        ORDER BY word_similarity(${searchTerm}, name) DESC
+        LIMIT 100`;
+      const fuzzyCodes = fuzzyMatches.map(m => m.productCode);
+      if (fuzzyCodes.length > 0) {
+        const fuzzyWhere = { ...where, OR: undefined, productCode: { in: fuzzyCodes } };
+        [products, total] = await Promise.all([
+          this.prisma.product.findMany({ where: fuzzyWhere, skip, take: limit, orderBy, select: productSelect }),
+          this.prisma.product.count({ where: fuzzyWhere }),
+        ]);
+      }
+    }
 
     const data: ShopProduct[] = products
       .map((p): ShopProduct | null => {
@@ -428,7 +493,31 @@ export class ShopService {
       })
       .filter((p): p is ShopProduct => p !== null);
 
+    await this.attachRatings(businessId, data);
+
     return { data, total, page, totalPages: Math.ceil(total / limit) };
+  }
+
+  // Batch-fetches average rating + review count for a page of products in one
+  // query and merges them in place — avoids an N+1 query per grid card.
+  private async attachRatings(businessId: string, data: ShopProduct[]): Promise<void> {
+    const codes = data.map(p => p.code).filter(Boolean);
+    if (codes.length === 0) return;
+    const agg = await this.prisma.productReview.groupBy({
+      by: ['productCode'],
+      where: { businessId, productCode: { in: codes }, isPublished: true },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+    const ratingMap = new Map(agg.map(r => [r.productCode, {
+      avg: r._avg.rating !== null ? Math.round(r._avg.rating * 10) / 10 : null,
+      count: r._count.rating,
+    }]));
+    for (const p of data) {
+      const r = ratingMap.get(p.code);
+      p.avgRating = r?.avg ?? null;
+      p.reviewCount = r?.count ?? 0;
+    }
   }
 
   // ─── Single product ─────────────────────────────────────────────────────────
@@ -582,6 +671,7 @@ export class ShopService {
       stockLeft,
       ...(groupVariants ? { groupVariants } : {}),
     };
+    await this.attachRatings(businessId, [result]);
     await this.cache.set(cacheKey, result, CACHE_TTL.product);
     return result;
   }

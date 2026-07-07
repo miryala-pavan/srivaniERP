@@ -77,6 +77,7 @@ model Business {
   bankTransactions    BankTransaction[]
   onlineOrders        OnlineOrder[]
   waIncomingLists     WaIncomingList[]
+  serviceablePincodes ServiceablePincode[]
   systemSettings      SystemSetting[]
   productReviews      ProductReview[]
   stockAlerts         StockAlert[]
@@ -1965,6 +1966,24 @@ model StorefrontAddress {
   @@map("storefront_address")
 }
 
+// Pincodes the business actually delivers to. Checked at storefront checkout
+// before an order is placed — an address outside this list is rejected with a
+// clear message instead of silently accepting an unfulfillable order.
+model ServiceablePincode {
+  id         String   @id @default(cuid())
+  businessId String
+  pincode    String   @db.VarChar(6)
+  areaLabel  String?  // optional, e.g. "Sangareddy Town" — for admin readability only
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  business   Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, pincode])
+  @@index([businessId])
+  @@map("serviceable_pincode")
+}
+
 model OnlineOrder {
   id                String              @id @default(cuid())
   orderNumber       String              @unique
@@ -1974,6 +1993,7 @@ model OnlineOrder {
   customerEmail     String?
   deliveryType      DeliveryType
   deliveryAddress   Json?
+  deliverySlot      String?             // human-readable, e.g. "Today · Evening (4 PM - 8 PM)"; HOME_DELIVERY only
   paymentMethod     OnlinePaymentMethod
   paymentStatus     OnlinePaymentStatus @default(PENDING)
   razorpayOrderId   String?
