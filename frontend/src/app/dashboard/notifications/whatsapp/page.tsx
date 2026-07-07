@@ -5,7 +5,7 @@ import {
   MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle,
   Send, KeyRound, PlayCircle, X, Wifi, WifiOff, AlertCircle,
   CheckCheck, ArrowUpRight, ArrowDownLeft, MousePointerClick,
-  MessagesSquare, FileText, Settings as SettingsIcon,
+  MessagesSquare, FileText, Settings as SettingsIcon, Bot,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -88,6 +88,10 @@ export default function WhatsAppTemplatesPage() {
     tokenConfigured: boolean; phoneId: string | null; storeNum: string | null; source: string;
   } | null>(null);
   const [savingCreds, setSavingCreds] = useState(false);
+  const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
+  const [storeHours, setStoreHours]             = useState('');
+  const [autoReplyLoaded, setAutoReplyLoaded]   = useState(false);
+  const [savingAutoReply, setSavingAutoReply]   = useState(false);
   const [sendModal, setSendModal]     = useState<{
     template: WaTemplate; phone: string; params: string[]; sending: boolean;
   } | null>(null);
@@ -142,13 +146,37 @@ export default function WhatsAppTemplatesPage() {
     }
   }, []);
 
-  useEffect(() => { load(); loadCreds(); }, [load]);
+  useEffect(() => { load(); loadCreds(); loadAutoReply(); }, [load]);
 
   async function loadCreds() {
     try {
       const { data } = await api.get('/notifications/whatsapp/credentials');
       setCredsStatus(data);
     } catch { /* ignore */ }
+  }
+
+  async function loadAutoReply() {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/autoreply');
+      setAutoReplyEnabled(!!data?.enabled);
+      setStoreHours(data?.storeHours ?? '');
+    } catch { /* ignore */ } finally {
+      setAutoReplyLoaded(true);
+    }
+  }
+
+  async function saveAutoReply(next: { enabled?: boolean; storeHours?: string }) {
+    setSavingAutoReply(true);
+    try {
+      const { data } = await api.patch('/notifications/whatsapp/autoreply', next);
+      setAutoReplyEnabled(!!data?.enabled);
+      setStoreHours(data?.storeHours ?? '');
+      toast.success('Auto-reply settings saved');
+    } catch {
+      toast.error('Failed to save auto-reply settings');
+    } finally {
+      setSavingAutoReply(false);
+    }
   }
 
   async function saveCreds() {
@@ -370,6 +398,40 @@ export default function WhatsAppTemplatesPage() {
             className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 whitespace-nowrap transition-colors">
             <Send size={12} /> {testing ? 'Sending…' : 'Send hello_world'}
           </button>
+        </div>
+      </div>
+      )}
+
+      {/* ── Settings tab: auto-reply ── */}
+      {tab === 'settings' && autoReplyLoaded && (
+      <div className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <Bot size={16} className="text-indigo-500" />
+            <p className="text-sm font-semibold text-gray-800">Auto-Reply</p>
+            <span
+              title="Rule-based, no AI. On a first-ever message it sends a welcome menu (Track Order / Store Hours / Talk to Staff). Keywords like 'order'/'status' trigger an order-status lookup; 'hours'/'timing' reply with your store hours below. Every automated message is tagged 'Auto' in the Chat tab so staff can tell it apart from a human reply."
+              className="cursor-help text-gray-400">ⓘ</span>
+          </div>
+          <button
+            onClick={() => saveAutoReply({ enabled: !autoReplyEnabled })}
+            disabled={savingAutoReply}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${autoReplyEnabled ? 'bg-green-500' : 'bg-gray-300'} disabled:opacity-50`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoReplyEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+        <div>
+          <label className="label text-sm">Store Hours <span className="text-gray-400 font-normal text-xs">(shown when a customer asks about timings)</span></label>
+          <div className="flex gap-2">
+            <input
+              className="input flex-1 text-sm"
+              placeholder="Mon–Sat, 9 AM – 9 PM"
+              value={storeHours}
+              onChange={e => setStoreHours(e.target.value)}
+              onBlur={() => { if (storeHours.trim()) saveAutoReply({ storeHours: storeHours.trim() }); }}
+            />
+          </div>
         </div>
       </div>
       )}

@@ -12,6 +12,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
+import { WhatsAppService } from '../notifications/whatsapp.service';
 import * as crypto from 'crypto';
 
 const WH_VERIFY_TOKEN = process.env.WA_WEBHOOK_VERIFY_TOKEN ?? 'srivani-wa-verify-2026';
@@ -28,6 +29,7 @@ export class WebhookController implements OnModuleInit {
     private prisma: PrismaService,
     private onlineOrders: OnlineOrdersService,
     private events: EventsService,
+    private whatsapp: WhatsAppService,
   ) {}
 
   onModuleInit() {
@@ -102,7 +104,7 @@ export class WebhookController implements OnModuleInit {
   }
 
   private async logInbound(businessId: string, waMessageId: string, data: {
-    phone: string; messageType: string; bodyPreview?: string; buttonId?: string;
+    phone: string; messageType: string; bodyPreview?: string; buttonId?: string; mediaId?: string;
   }): Promise<boolean> {
     // Returns false if this message id was already processed (webhook retry).
     try {
@@ -115,6 +117,7 @@ export class WebhookController implements OnModuleInit {
           messageType: data.messageType,
           bodyPreview: data.bodyPreview?.slice(0, 200),
           buttonId: data.buttonId,
+          mediaId: data.mediaId,
           status: 'DELIVERED',
         },
       });
@@ -176,11 +179,13 @@ export class WebhookController implements OnModuleInit {
       // Dedup: Meta retries webhook delivery at-least-once for the same message.
       const bodyPreview = msg.text?.body ?? msg.interactive?.button_reply?.title;
       const messageType = msg.type === 'interactive' ? 'BUTTON_REPLY' : msg.type.toUpperCase();
+      const mediaId = msg.type === 'image' ? msg.image?.id : msg.type === 'document' ? msg.document?.id : undefined;
       const isNew = await this.logInbound(businessId, msg.id, {
         phone: senderPhone,
         messageType,
         bodyPreview,
         buttonId: msg.interactive?.button_reply?.id,
+        mediaId,
       });
       if (!isNew) return;
 
@@ -193,6 +198,14 @@ export class WebhookController implements OnModuleInit {
           createdAt: new Date().toISOString(),
         });
       } catch { /* fire-and-forget */ }
+
+      // Rule-based auto-reply — layered alongside the existing handlers below,
+      // not a replacement for them (e.g. a text list-order can still be
+      // processed by ListsService even if a keyword also triggers an auto-reply).
+      this.whatsapp.handleAutoReply(businessId, senderPhone, {
+        messageBody: msg.text?.body as string | undefined,
+        buttonId: msg.interactive?.button_reply?.id as string | undefined,
+      }).catch(err => this.logger.error(`Auto-reply failed for ${senderPhone}: ${err}`));
 
       if (msg.type === 'interactive' && msg.interactive?.type === 'button_reply') {
         await this.handleButtonReply(msg.interactive.button_reply.id as string);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Send, Search, Clock, MessageSquare } from 'lucide-react';
+import { Send, Search, Clock, MessageSquare, Paperclip, Bot } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
@@ -25,9 +25,40 @@ interface ThreadMessage {
   templateName: string | null;
   bodyPreview: string | null;
   buttonId: string | null;
+  mediaId: string | null;
+  isAutoReply: boolean;
   status: string;
   errorMessage: string | null;
   createdAt: string;
+}
+
+function ChatImage({ mediaId }: { mediaId: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    api.get(`/notifications/whatsapp/media/${mediaId}`, { responseType: 'blob' })
+      .then(res => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(res.data);
+        setSrc(objectUrl);
+      })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [mediaId]);
+
+  if (failed) return <p className="text-xs text-gray-400 italic">Image unavailable</p>;
+  if (!src) return <div className="w-48 h-48 bg-gray-100 rounded-lg animate-pulse" />;
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer">
+      <img src={src} alt="Sent image" className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
+    </a>
+  );
 }
 
 interface WaMessageEvent {
@@ -66,8 +97,10 @@ export default function WhatsAppChat() {
   const [windowExpiresAt, setWindowExpiresAt] = useState<string | null>(null);
   const [replyText, setReplyText]       = useState('');
   const [sending, setSending]           = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef  = useRef<HTMLInputElement>(null);
   const selectedPhoneRef = useRef<string | null>(null);
   selectedPhoneRef.current = selectedPhone;
 
@@ -144,6 +177,27 @@ export default function WhatsAppChat() {
       toast.error(e?.response?.data?.message ?? 'Send failed');
     } finally {
       setSending(false);
+    }
+  }
+
+  async function sendImage(file: File) {
+    if (!selectedPhone) return;
+    setUploadingImage(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const { data } = await api.post(`/notifications/whatsapp/conversations/${selectedPhone}/send-image`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (data?.ok) {
+        await loadThread(selectedPhone);
+      } else {
+        toast.error(data?.reason ?? 'Image send failed — session window may be closed');
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Image send failed');
+    } finally {
+      setUploadingImage(false);
     }
   }
 
@@ -254,10 +308,21 @@ export default function WhatsAppChat() {
                         ? 'bg-[#dcf8c6] text-gray-900 rounded-br-sm'
                         : 'bg-white text-gray-900 rounded-bl-sm border border-gray-100'
                     }`}>
-                      {m.templateName && (
-                        <p className="text-[10px] font-semibold text-gray-500 uppercase mb-0.5">{m.templateName}</p>
+                      {(m.templateName || m.isAutoReply) && (
+                        <p className="text-[10px] font-semibold text-gray-500 uppercase mb-0.5 flex items-center gap-1">
+                          {m.templateName}
+                          {m.isAutoReply && (
+                            <span title="Sent automatically by the rule-based auto-reply, not a staff member" className="cursor-help inline-flex items-center gap-0.5 text-indigo-600 normal-case font-medium">
+                              <Bot size={10} /> Auto
+                            </span>
+                          )}
+                        </p>
                       )}
-                      <p className="whitespace-pre-wrap break-words leading-relaxed">{m.bodyPreview || `[${m.messageType}]`}</p>
+                      {m.messageType === 'IMAGE' && m.mediaId ? (
+                        <ChatImage mediaId={m.mediaId} />
+                      ) : (
+                        <p className="whitespace-pre-wrap break-words leading-relaxed">{m.bodyPreview || `[${m.messageType}]`}</p>
+                      )}
                       {m.errorMessage && (
                         <p className="text-[10px] text-red-500 mt-1">{m.errorMessage}</p>
                       )}
@@ -270,6 +335,25 @@ export default function WhatsAppChat() {
             </div>
 
             <div className="p-3 border-t border-gray-100 flex gap-2 shrink-0">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) sendImage(file);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingImage || !sessionOpen}
+                title={sessionOpen ? 'Send an image' : 'Reply unavailable — session closed'}
+                className="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 shrink-0"
+              >
+                <Paperclip size={15} />
+              </button>
               <input
                 className="input flex-1 text-sm"
                 placeholder={sessionOpen ? 'Type a message…' : 'Reply unavailable — session closed, use a template'}

@@ -1,4 +1,7 @@
-import { Controller, Get, Put, Patch, Post, Delete, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Put, Patch, Post, Delete, Param, Query, Body, UseGuards, UseInterceptors, UploadedFile, Request, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { NotificationsService } from './notifications.service';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -165,5 +168,51 @@ export class NotificationsController {
   @Patch('whatsapp/conversations/:phone/read')
   markConversationRead(@Request() req: any, @Param('phone') phone: string) {
     return this.whatsapp.markConversationRead(req.user.businessId, phone);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/conversations/:phone/send-image')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  }))
+  sendImageReply(
+    @Request() req: any,
+    @Param('phone') phone: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) return { ok: false, reason: 'No file uploaded' };
+    return this.whatsapp.sendImageReply(req.user.businessId, phone, {
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      filename: file.originalname,
+    });
+  }
+
+  // JWT-protected but not @Roles-gated the same way images are served for an
+  // <img> tag via a blob fetch (with the Authorization header) from the
+  // frontend, not a bare <img src>, since Meta's media URLs require the
+  // bearer token and can't be hotlinked directly.
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/media/:mediaId')
+  async getMedia(@Param('mediaId') mediaId: string, @Res() res: Response) {
+    const media = await this.whatsapp.getMediaBuffer(mediaId);
+    if (!media) { res.status(404).send(); return; }
+    res.set({ 'Content-Type': media.mimeType, 'Cache-Control': 'private, max-age=86400' });
+    res.send(media.buffer);
+  }
+
+  // ── Auto-reply settings ─────────────────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/autoreply')
+  getAutoReplySettings(@Request() req: any) {
+    return this.whatsapp.getAutoReplySettings(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('whatsapp/autoreply')
+  updateAutoReplySettings(@Request() req: any, @Body() body: { enabled?: boolean; storeHours?: string }) {
+    return this.whatsapp.updateAutoReplySettings(req.user.businessId, body);
   }
 }

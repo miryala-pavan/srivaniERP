@@ -214,6 +214,195 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
+  /** Sends an image reply within an open session window. Uploads the file to Meta first, then references it by media id. */
+  async sendImageReply(
+    businessId: string,
+    phone: string,
+    file: { buffer: Buffer; mimeType: string; filename: string },
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const window = await this.getSessionWindowStatus(businessId, phone);
+    if (!window.open) {
+      return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule). Send a template instead.' };
+    }
+    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    const to = this.e164(phone);
+    if (!to) return { ok: false, reason: 'Invalid phone number' };
+
+    try {
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('file', new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }), file.filename);
+      const uploadRes = await fetch(`https://graph.facebook.com/${API_VERSION}/${this.phoneId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}` },
+        body: form,
+      });
+      const uploadData = await uploadRes.json() as { id?: string; error?: unknown };
+      if (!uploadRes.ok || !uploadData.id) {
+        return { ok: false, reason: JSON.stringify(uploadData) };
+      }
+
+      const result = await this.logAndSend(
+        businessId,
+        { to, type: 'image', image: { id: uploadData.id } },
+        { phone: to, messageType: 'IMAGE', bodyPreview: '[Image]', mediaId: uploadData.id },
+      );
+      if (!result.ok) return { ok: false, reason: JSON.stringify(result.data) };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: String(err) };
+    }
+  }
+
+  /**
+   * Downloads a media object's bytes from Meta so it can be proxied to the
+   * browser — Meta's media URLs are short-lived and require the same bearer
+   * token, so they can't be hotlinked directly in an <img> tag.
+   */
+  async getMediaBuffer(mediaId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    if (!this.token) return null;
+    try {
+      const metaRes = await fetch(`https://graph.facebook.com/${API_VERSION}/${mediaId}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (!metaRes.ok) return null;
+      const meta = await metaRes.json() as { url?: string; mime_type?: string };
+      if (!meta.url) return null;
+
+      const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${this.token}` } });
+      if (!fileRes.ok) return null;
+      const buffer = Buffer.from(await fileRes.arrayBuffer());
+      return { buffer, mimeType: meta.mime_type ?? 'application/octet-stream' };
+    } catch (err) {
+      this.logger.error(`Failed to fetch WhatsApp media ${mediaId}: ${err}`);
+      return null;
+    }
+  }
+
+  // ── Auto-reply (rule-based) ─────────────────────────────────────────────────
+
+  private static readonly AUTOREPLY_KEYS = {
+    enabled:    'wa.autoreply_enabled',
+    storeHours: 'wa.store_hours_text',
+  } as const;
+
+  async getAutoReplySettings(businessId: string) {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { businessId, key: { in: Object.values(WhatsAppService.AUTOREPLY_KEYS) } },
+    });
+    const map = new Map(rows.map(r => [r.key, r.value]));
+    return {
+      enabled:    map.get(WhatsAppService.AUTOREPLY_KEYS.enabled) === 'true',
+      storeHours: map.get(WhatsAppService.AUTOREPLY_KEYS.storeHours) ?? '',
+    };
+  }
+
+  async updateAutoReplySettings(businessId: string, data: { enabled?: boolean; storeHours?: string }) {
+    const ops: Promise<any>[] = [];
+    const upsert = (key: string, value: string) =>
+      this.prisma.systemSetting.upsert({
+        where:  { businessId_key: { businessId, key } },
+        update: { value },
+        create: { businessId, key, value },
+      });
+    if (data.enabled !== undefined)    ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.enabled, String(data.enabled)));
+    if (data.storeHours !== undefined) ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.storeHours, data.storeHours));
+    await Promise.all(ops);
+    return this.getAutoReplySettings(businessId);
+  }
+
+  /**
+   * Called from the webhook right after an inbound message is logged.
+   * Rule-based only — no AI — so behavior is predictable and auditable:
+   *   1. A recognized menu button tap (Track Order / Store Hours / Talk to Staff)
+   *   2. Keyword match in free text (order/status/track, hours/timing)
+   *   3. First-ever inbound message from this number → welcome menu
+   */
+  async handleAutoReply(businessId: string, phone: string, opts: { messageBody?: string; buttonId?: string }): Promise<void> {
+    if (!(await this.getAutoReplySettings(businessId)).enabled) return;
+
+    if (opts.buttonId === 'WA_TRACK_ORDER') return this.autoReplyOrderStatus(businessId, phone);
+    if (opts.buttonId === 'WA_STORE_HOURS') return this.autoReplyStoreHours(businessId, phone);
+    if (opts.buttonId === 'WA_TALK_STAFF')  return this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
+
+    const body = (opts.messageBody ?? '').toLowerCase();
+    if (/order|status|track/.test(body)) return this.autoReplyOrderStatus(businessId, phone);
+    if (/hour|timing|open|close/.test(body)) return this.autoReplyStoreHours(businessId, phone);
+
+    // Greet only on the very first inbound message ever received from this number
+    // (the current message has already been logged by the time this runs).
+    const inboundCount = await this.prisma.waMessage.count({ where: { businessId, phone: this.e164(phone) ?? phone, direction: 'INBOUND' } });
+    if (inboundCount <= 1) return this.autoReplyWelcome(businessId, phone);
+  }
+
+  private async autoReplyWelcome(businessId: string, phone: string) {
+    await this.autoReplyInteractiveButtons(
+      businessId, phone,
+      "Hi! 👋 Welcome to Srivani Stores. How can we help you today?",
+      [
+        { id: 'WA_TRACK_ORDER', title: 'Track Order' },
+        { id: 'WA_STORE_HOURS', title: 'Store Hours' },
+        { id: 'WA_TALK_STAFF',  title: 'Talk to Staff' },
+      ],
+    );
+  }
+
+  private async autoReplyStoreHours(businessId: string, phone: string) {
+    const { storeHours } = await this.getAutoReplySettings(businessId);
+    const hours = storeHours || 'Please contact the store directly for our timings.';
+    await this.autoReplyText(businessId, phone, `🕒 Our store hours:\n${hours}`);
+  }
+
+  private async autoReplyOrderStatus(businessId: string, phone: string) {
+    const to = this.e164(phone);
+    const order = to
+      ? await this.prisma.onlineOrder.findFirst({
+          where: { businessId, customerPhone: to },
+          orderBy: { createdAt: 'desc' },
+          select: { orderNumber: true, status: true, total: true },
+        })
+      : null;
+    if (!order) {
+      await this.autoReplyText(
+        businessId, phone,
+        "We couldn't find a recent order for this number. If you've just placed one, it may take a minute to show — reply here and our team will check for you.",
+      );
+      return;
+    }
+    await this.autoReplyText(
+      businessId, phone,
+      `📦 Your latest order *${order.orderNumber}* — Total ₹${order.total.toFixed(0)}\nStatus: *${order.status}*`,
+    );
+  }
+
+  private async autoReplyText(businessId: string, phone: string, body: string) {
+    const to = this.e164(phone);
+    if (!to) return;
+    await this.logAndSend(
+      businessId,
+      { to, type: 'text', text: { body, preview_url: false } },
+      { phone: to, messageType: 'TEXT', bodyPreview: body, isAutoReply: true },
+    );
+  }
+
+  private async autoReplyInteractiveButtons(businessId: string, phone: string, bodyText: string, buttons: { id: string; title: string }[]) {
+    const to = this.e164(phone);
+    if (!to) return;
+    await this.logAndSend(
+      businessId,
+      {
+        to,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: bodyText },
+          action: { buttons: buttons.map(b => ({ type: 'reply', reply: { id: b.id, title: b.title } })) },
+        },
+      },
+      { phone: to, messageType: 'INTERACTIVE_BUTTON', bodyPreview: bodyText, isAutoReply: true },
+    );
+  }
+
   // ── Core sender ────────────────────────────────────────────────────────────
 
   private async post(payload: object): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
@@ -260,6 +449,8 @@ export class WhatsAppService implements OnModuleInit {
       bodyPreview?: string;
       relatedType?: string;
       relatedId?: string;
+      mediaId?: string;
+      isAutoReply?: boolean;
     },
   ): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
     const result = await this.post(payload);
@@ -276,6 +467,8 @@ export class WhatsAppService implements OnModuleInit {
           messageType: meta.messageType,
           templateName: meta.templateName,
           bodyPreview: meta.bodyPreview?.slice(0, 200),
+          mediaId: meta.mediaId,
+          isAutoReply: meta.isAutoReply ?? false,
           status: result.ok ? 'SENT' : 'FAILED',
           errorMessage: result.ok ? undefined : JSON.stringify(result.data).slice(0, 500),
           relatedType: meta.relatedType,
