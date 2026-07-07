@@ -78,10 +78,15 @@ export class WhatsAppService implements OnModuleInit {
         create: { businessId, key, value },
       });
 
-    if (data.token)    { ops.push(upsert(WA_KEYS.token,    data.token));    this._token    = data.token; }
-    if (data.phoneId)  { ops.push(upsert(WA_KEYS.phoneId,  data.phoneId));  this._phoneId  = data.phoneId; }
-    if (data.wabaId)   { ops.push(upsert(WA_KEYS.wabaId,   data.wabaId));   this._wabaId   = data.wabaId; }
-    if (data.storeNum) { ops.push(upsert(WA_KEYS.storeNum, data.storeNum)); this._storeNum = data.storeNum; }
+    const token    = data.token?.trim();
+    const phoneId  = data.phoneId?.trim();
+    const wabaId   = data.wabaId?.trim();
+    const storeNum = data.storeNum?.trim();
+
+    if (token)    { ops.push(upsert(WA_KEYS.token,    token));    this._token    = token; }
+    if (phoneId)  { ops.push(upsert(WA_KEYS.phoneId,  phoneId));  this._phoneId  = phoneId; }
+    if (wabaId)   { ops.push(upsert(WA_KEYS.wabaId,   wabaId));   this._wabaId   = wabaId; }
+    if (storeNum) { ops.push(upsert(WA_KEYS.storeNum, storeNum)); this._storeNum = storeNum; }
 
     await Promise.all(ops);
     return this.getCredentials();
