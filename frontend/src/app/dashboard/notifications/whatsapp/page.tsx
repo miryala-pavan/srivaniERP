@@ -5,7 +5,7 @@ import {
   MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle,
   Send, KeyRound, PlayCircle, X, Wifi, WifiOff, AlertCircle,
   CheckCheck, ArrowUpRight, ArrowDownLeft, MousePointerClick,
-  MessagesSquare, FileText, Settings as SettingsIcon, Bot,
+  MessagesSquare, FileText, Settings as SettingsIcon, Bot, Cake, Phone,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -45,7 +45,12 @@ const REQUIRED_TEMPLATES = [
   { name: 'svn_order_update', body: 'Hello {{1}}, your order *{{2}}* update: {{3}} - Team Srivani Stores',                                                                                      footer: '' },
 ];
 
-const BLANK_FORM  = { name: '', category: 'UTILITY' as const, language: 'en', headerText: '', bodyText: '', footerText: '' };
+const BLANK_FORM  = {
+  name: '', category: 'UTILITY' as const, language: 'en', headerText: '', bodyText: '', footerText: '',
+  buttonMode: 'none' as 'none' | 'quick_reply' | 'cta',
+  quickReplies: ['', '', ''],
+  ctaCallText: '', ctaCallPhone: '', ctaWebText: '', ctaWebUrl: '',
+};
 const BLANK_CREDS = { token: '', phoneId: '', wabaId: '', storeNum: '' };
 
 interface WaMessage {
@@ -73,8 +78,14 @@ const MSG_STATUS_CONFIG = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+interface BirthdayCustomer { id: string; name: string; phone: string | null; dateOfBirth: string }
+
 export default function WhatsAppTemplatesPage() {
-  const [tab, setTab] = useState<'chat' | 'templates' | 'settings'>('chat');
+  const [tab, setTab] = useState<'chat' | 'templates' | 'campaigns' | 'settings'>('chat');
+  const [birthdays, setBirthdays] = useState<BirthdayCustomer[]>([]);
+  const [birthdaysLoading, setBirthdaysLoading] = useState(false);
+  const [birthdaysLoaded, setBirthdaysLoaded] = useState(false);
+  const [birthdayTemplatePick, setBirthdayTemplatePick] = useState<Record<string, string>>({});
   const [templates, setTemplates]     = useState<WaTemplate[]>([]);
   const [loading, setLoading]         = useState(true);
   const [showForm, setShowForm]       = useState(false);
@@ -92,6 +103,8 @@ export default function WhatsAppTemplatesPage() {
   const [storeHours, setStoreHours]             = useState('');
   const [autoReplyLoaded, setAutoReplyLoaded]   = useState(false);
   const [savingAutoReply, setSavingAutoReply]   = useState(false);
+  const [registerPin, setRegisterPin]           = useState('');
+  const [registering, setRegistering]           = useState(false);
   const [sendModal, setSendModal]     = useState<{
     template: WaTemplate; phone: string; params: string[]; sending: boolean;
   } | null>(null);
@@ -155,6 +168,23 @@ export default function WhatsAppTemplatesPage() {
     } catch { /* ignore */ }
   }
 
+  const loadBirthdays = useCallback(async () => {
+    setBirthdaysLoading(true);
+    try {
+      const { data } = await api.get('/notifications/whatsapp/campaigns/birthdays-today');
+      setBirthdays(Array.isArray(data) ? data : []);
+    } catch {
+      toast.error('Failed to load birthdays');
+    } finally {
+      setBirthdaysLoading(false);
+      setBirthdaysLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'campaigns' && !birthdaysLoaded) loadBirthdays();
+  }, [tab, birthdaysLoaded, loadBirthdays]);
+
   async function loadAutoReply() {
     try {
       const { data } = await api.get('/notifications/whatsapp/autoreply');
@@ -162,6 +192,24 @@ export default function WhatsAppTemplatesPage() {
       setStoreHours(data?.storeHours ?? '');
     } catch { /* ignore */ } finally {
       setAutoReplyLoaded(true);
+    }
+  }
+
+  async function registerNumber() {
+    if (!/^\d{6}$/.test(registerPin)) return toast.error('PIN must be exactly 6 digits');
+    setRegistering(true);
+    try {
+      const { data } = await api.post('/notifications/whatsapp/register-number', { pin: registerPin });
+      if (data?.ok) {
+        toast.success('Number registered! It should now be active on the Cloud API.');
+        setRegisterPin('');
+      } else {
+        toast.error(data?.reason ?? 'Registration failed');
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Registration failed');
+    } finally {
+      setRegistering(false);
     }
   }
 
@@ -205,6 +253,25 @@ export default function WhatsAppTemplatesPage() {
       toast.error('Name must be lowercase letters, numbers and underscores only');
       return;
     }
+    let buttons: Array<
+      | { type: 'QUICK_REPLY'; text: string }
+      | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
+      | { type: 'URL'; text: string; url: string }
+    > | undefined;
+    if (form.buttonMode === 'quick_reply') {
+      const qr = form.quickReplies.map(q => q.trim()).filter(Boolean);
+      if (qr.length > 0) buttons = qr.map(text => ({ type: 'QUICK_REPLY' as const, text }));
+    } else if (form.buttonMode === 'cta') {
+      const cta: typeof buttons = [];
+      if (form.ctaCallText.trim() && form.ctaCallPhone.trim()) {
+        cta!.push({ type: 'PHONE_NUMBER', text: form.ctaCallText.trim(), phone_number: form.ctaCallPhone.trim() });
+      }
+      if (form.ctaWebText.trim() && form.ctaWebUrl.trim()) {
+        cta!.push({ type: 'URL', text: form.ctaWebText.trim(), url: form.ctaWebUrl.trim() });
+      }
+      if (cta!.length > 0) buttons = cta;
+    }
+
     setSubmitting(true);
     try {
       const { data } = await api.post('/notifications/whatsapp/templates', {
@@ -214,6 +281,7 @@ export default function WhatsAppTemplatesPage() {
         bodyText:   form.bodyText.trim(),
         headerText: form.headerText.trim() || undefined,
         footerText: form.footerText.trim() || undefined,
+        buttons,
       });
       if (data?.id || data?.status === 'PENDING') {
         toast.success('Template submitted to Meta for approval!');
@@ -266,6 +334,10 @@ export default function WhatsAppTemplatesPage() {
 
   function openSendModal(t: WaTemplate) {
     setSendModal({ template: t, phone: testPhone || '', params: Array(varCount(t)).fill(''), sending: false });
+  }
+
+  function openSendModalForPhone(t: WaTemplate, phone: string) {
+    setSendModal({ template: t, phone, params: Array(varCount(t)).fill(''), sending: false });
   }
 
   async function sendFromModal() {
@@ -337,6 +409,7 @@ export default function WhatsAppTemplatesPage() {
         {([
           { key: 'chat' as const,      label: 'Chat',      icon: <MessagesSquare size={14} /> },
           { key: 'templates' as const, label: 'Templates', icon: <FileText size={14} /> },
+          { key: 'campaigns' as const, label: 'Campaigns', icon: <Cake size={14} /> },
           { key: 'settings' as const,  label: 'Settings',  icon: <SettingsIcon size={14} /> },
         ]).map(t => (
           <button
@@ -439,6 +512,32 @@ export default function WhatsAppTemplatesPage() {
       </div>
       )}
 
+      {/* ── Settings tab: phone number registration ── */}
+      {tab === 'settings' && (
+      <div className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Phone size={16} className="text-gray-500" />
+          <p className="text-sm font-semibold text-gray-800">Register This Number</p>
+          <span
+            title="A one-time Meta requirement to activate a phone number for Cloud API sending/receiving — the same thing the 'Register' button in Meta's own dashboard does. Only needed if the connected number shows as 'Pending' in Meta Business Manager. Choose any 6-digit PIN you'll remember; this is a two-step-verification PIN for the number, not your Meta login password."
+            className="cursor-help text-gray-400">ⓘ</span>
+        </div>
+        <div className="flex gap-2">
+          <input
+            className="input flex-1 text-sm"
+            placeholder="6-digit PIN (e.g. 123456)"
+            maxLength={6}
+            value={registerPin}
+            onChange={e => setRegisterPin(e.target.value.replace(/\D/g, ''))}
+          />
+          <button onClick={registerNumber} disabled={registering || registerPin.length !== 6}
+            className="btn-primary text-sm px-4 disabled:opacity-50 whitespace-nowrap">
+            {registering ? 'Registering…' : 'Register'}
+          </button>
+        </div>
+      </div>
+      )}
+
       {/* ── Templates tab ── */}
       {tab === 'templates' && <>
 
@@ -495,6 +594,46 @@ export default function WhatsAppTemplatesPage() {
             <input className="input" placeholder="- Team Srivani Stores"
               value={form.footerText}
               onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))} />
+          </div>
+
+          <div>
+            <label className="label text-sm">Buttons <span className="text-gray-400 font-normal text-xs">(optional — Meta doesn&apos;t allow mixing Quick Reply with Call/Website)</span></label>
+            <div className="flex gap-2 mb-2">
+              {(['none', 'quick_reply', 'cta'] as const).map(mode => (
+                <button key={mode} type="button"
+                  onClick={() => setForm(f => ({ ...f, buttonMode: mode }))}
+                  className={`text-xs px-2.5 py-1 rounded-lg border ${form.buttonMode === mode ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                  {mode === 'none' ? 'No buttons' : mode === 'quick_reply' ? 'Quick Reply' : 'Call / Website'}
+                </button>
+              ))}
+            </div>
+
+            {form.buttonMode === 'quick_reply' && (
+              <div className="space-y-1.5">
+                {form.quickReplies.map((q, i) => (
+                  <input key={i} className="input text-sm" placeholder={`Button ${i + 1} (e.g. "Confirm")`}
+                    value={q}
+                    onChange={e => setForm(f => { const qr = [...f.quickReplies]; qr[i] = e.target.value; return { ...f, quickReplies: qr }; })} />
+                ))}
+              </div>
+            )}
+
+            {form.buttonMode === 'cta' && (
+              <div className="grid grid-cols-2 gap-2">
+                <input className="input text-sm" placeholder="Call button text (e.g. Call Store)"
+                  value={form.ctaCallText}
+                  onChange={e => setForm(f => ({ ...f, ctaCallText: e.target.value }))} />
+                <input className="input text-sm" placeholder="Phone number (91XXXXXXXXXX)"
+                  value={form.ctaCallPhone}
+                  onChange={e => setForm(f => ({ ...f, ctaCallPhone: e.target.value }))} />
+                <input className="input text-sm" placeholder="Website button text (e.g. Track Order)"
+                  value={form.ctaWebText}
+                  onChange={e => setForm(f => ({ ...f, ctaWebText: e.target.value }))} />
+                <input className="input text-sm" placeholder="https://shop.srivani.com"
+                  value={form.ctaWebUrl}
+                  onChange={e => setForm(f => ({ ...f, ctaWebUrl: e.target.value }))} />
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 justify-end pt-1">
@@ -606,7 +745,7 @@ export default function WhatsAppTemplatesPage() {
                 {!exists && (
                   <button
                     onClick={() => {
-                      setForm({ name: r.name, category: 'UTILITY', language: 'en', headerText: 'Srivani Stores', bodyText: r.body, footerText: r.footer });
+                      setForm({ ...BLANK_FORM, name: r.name, category: 'UTILITY', language: 'en', headerText: 'Srivani Stores', bodyText: r.body, footerText: r.footer });
                       setShowForm(true);
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
@@ -621,6 +760,65 @@ export default function WhatsAppTemplatesPage() {
       </div>
 
       </>}
+
+      {/* ── Campaigns tab ── */}
+      {tab === 'campaigns' && (
+      <div>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+            <Cake size={13} className="text-pink-400" /> Today&apos;s Birthdays {!birthdaysLoading && `(${birthdays.length})`}
+            <span
+              title="Customers need a saved Date of Birth and WhatsApp opt-in (both set on their customer profile) to appear here. Sending uses an approved template — free-text greetings can't reach customers outside the 24h session window."
+              className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
+          </p>
+          <button onClick={loadBirthdays} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
+            <RefreshCw size={12} />
+          </button>
+        </div>
+
+        {birthdaysLoading ? (
+          <div className="text-center py-10 text-gray-400 text-sm">Loading…</div>
+        ) : birthdays.length === 0 ? (
+          <div className="text-center py-10 border border-dashed border-gray-200 rounded-xl text-gray-400">
+            <Cake size={30} className="mx-auto mb-2 text-gray-300" />
+            <p className="text-sm">No birthdays today.</p>
+            <p className="text-xs mt-1">Customers need a Date of Birth saved and WhatsApp opt-in enabled to show up here.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {birthdays.map(c => {
+              const approved = templates.filter(t => t.status === 'APPROVED');
+              const picked = approved.find(t => t.name === birthdayTemplatePick[c.id]);
+              return (
+                <div key={c.id} className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
+                    <p className="text-xs text-gray-400">{c.phone ? `+${c.phone}` : 'No phone on file'}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <select
+                      className="input text-xs h-7 py-0"
+                      value={birthdayTemplatePick[c.id] ?? ''}
+                      onChange={e => setBirthdayTemplatePick(m => ({ ...m, [c.id]: e.target.value }))}
+                    >
+                      <option value="">Choose template…</option>
+                      {approved.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                    </select>
+                    <button
+                      onClick={() => { if (picked && c.phone) openSendModalForPhone(picked, c.phone); }}
+                      disabled={!picked || !c.phone}
+                      className="btn-primary flex items-center gap-1.5 text-xs px-3 py-1.5 disabled:opacity-40"
+                    >
+                      <Send size={12} /> Send
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      )}
 
       {/* ── Settings tab: message log ── */}
       {tab === 'settings' && (

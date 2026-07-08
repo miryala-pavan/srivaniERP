@@ -78,6 +78,11 @@ export class NotificationsController {
     bodyText: string;
     headerText?: string;
     footerText?: string;
+    buttons?: Array<
+      | { type: 'QUICK_REPLY'; text: string }
+      | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
+      | { type: 'URL'; text: string; url: string }
+    >;
   }) {
     return this.whatsapp.createTemplate(body);
   }
@@ -212,6 +217,20 @@ export class NotificationsController {
     if (!media) { res.status(404).send(); return; }
     res.set({ 'Content-Type': media.mimeType, 'Cache-Control': 'private, max-age=86400' });
     res.send(media.buffer);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/register-number')
+  registerPhoneNumber(@Body() body: { pin: string }) {
+    return this.whatsapp.registerPhoneNumber(body.pin ?? '');
+  }
+
+  // ── Campaigns ────────────────────────────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/campaigns/birthdays-today')
+  getTodaysBirthdays(@Request() req: any) {
+    return this.whatsapp.getTodaysBirthdays(req.user.businessId);
   }
 
   // ── Auto-reply settings ─────────────────────────────────────────────────────

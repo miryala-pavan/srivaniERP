@@ -336,6 +336,27 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
+  // ── Campaigns ────────────────────────────────────────────────────────────────
+
+  /**
+   * Customers whose birthday is today, opted in to WhatsApp. Month/day match
+   * (not full date) since we only care about the anniversary, not the year —
+   * Prisma has no date-part filter, hence the raw query.
+   */
+  async getTodaysBirthdays(businessId: string) {
+    return this.prisma.$queryRaw<{
+      id: string; name: string; phone: string | null; dateOfBirth: Date;
+    }[]>`
+      SELECT id, name, phone, "dateOfBirth"
+      FROM customer
+      WHERE "businessId" = ${businessId}
+        AND "whatsappOptIn" = true
+        AND "dateOfBirth" IS NOT NULL
+        AND EXTRACT(MONTH FROM "dateOfBirth") = EXTRACT(MONTH FROM CURRENT_DATE)
+        AND EXTRACT(DAY FROM "dateOfBirth") = EXTRACT(DAY FROM CURRENT_DATE)
+      ORDER BY name`;
+  }
+
   // ── Auto-reply (rule-based) ─────────────────────────────────────────────────
 
   private static readonly AUTOREPLY_KEYS = {
@@ -375,12 +396,14 @@ export class WhatsAppService implements OnModuleInit {
    *   2. Keyword match in free text (order/status/track, hours/timing)
    *   3. First-ever inbound message from this number → welcome menu
    */
-  async handleAutoReply(businessId: string, phone: string, opts: { messageBody?: string; buttonId?: string }): Promise<void> {
+  async handleAutoReply(businessId: string, phone: string, opts: { messageBody?: string; buttonId?: string; listReplyId?: string }): Promise<void> {
     if (!(await this.getAutoReplySettings(businessId)).enabled) return;
 
-    if (opts.buttonId === 'WA_TRACK_ORDER') return this.autoReplyOrderStatus(businessId, phone);
-    if (opts.buttonId === 'WA_STORE_HOURS') return this.autoReplyStoreHours(businessId, phone);
-    if (opts.buttonId === 'WA_TALK_STAFF')  return this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
+    const selection = opts.buttonId ?? opts.listReplyId;
+    if (selection === 'WA_TRACK_ORDER')  return this.autoReplyOrderStatus(businessId, phone);
+    if (selection === 'WA_STORE_HOURS')  return this.autoReplyStoreHours(businessId, phone);
+    if (selection === 'WA_TALK_STAFF')   return this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
+    if (selection === 'WA_BROWSE_STORE') return this.autoReplyText(businessId, phone, "🛒 Browse and order online here: https://shop.srivani.com");
 
     const body = (opts.messageBody ?? '').toLowerCase();
     if (/order|status|track/.test(body)) return this.autoReplyOrderStatus(businessId, phone);
@@ -393,13 +416,15 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   private async autoReplyWelcome(businessId: string, phone: string) {
-    await this.autoReplyInteractiveButtons(
+    await this.autoReplyInteractiveList(
       businessId, phone,
       "Hi! 👋 Welcome to Srivani Stores. How can we help you today?",
+      'Menu',
       [
-        { id: 'WA_TRACK_ORDER', title: 'Track Order' },
-        { id: 'WA_STORE_HOURS', title: 'Store Hours' },
-        { id: 'WA_TALK_STAFF',  title: 'Talk to Staff' },
+        { id: 'WA_TRACK_ORDER',  title: 'Track Order',   description: 'Check the status of your latest order' },
+        { id: 'WA_BROWSE_STORE', title: 'Browse Store',  description: 'Shop online at shop.srivani.com' },
+        { id: 'WA_STORE_HOURS',  title: 'Store Hours',   description: 'When we\'re open' },
+        { id: 'WA_TALK_STAFF',   title: 'Talk to Staff', description: 'Chat with our team directly' },
       ],
     );
   }
@@ -457,6 +482,30 @@ export class WhatsAppService implements OnModuleInit {
         },
       },
       { phone: to, messageType: 'INTERACTIVE_BUTTON', bodyPreview: bodyText, isAutoReply: true },
+    );
+  }
+
+  private async autoReplyInteractiveList(
+    businessId: string, phone: string, bodyText: string, buttonLabel: string,
+    rows: { id: string; title: string; description?: string }[],
+  ) {
+    const to = this.e164(phone);
+    if (!to) return;
+    await this.logAndSend(
+      businessId,
+      {
+        to,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: bodyText },
+          action: {
+            button: buttonLabel,
+            sections: [{ title: 'Options', rows: rows.map(r => ({ id: r.id, title: r.title, description: r.description })) }],
+          },
+        },
+      },
+      { phone: to, messageType: 'INTERACTIVE_LIST', bodyPreview: bodyText, isAutoReply: true },
     );
   }
 
@@ -603,6 +652,49 @@ export class WhatsAppService implements OnModuleInit {
       {
         phone: to,
         messageType: 'INTERACTIVE_BUTTON',
+        bodyPreview: bodyText,
+        relatedType: meta?.relatedType,
+        relatedId: meta?.relatedId,
+      },
+    );
+  }
+
+  /**
+   * Interactive list message — up to 10 rows total (across up to 10 sections),
+   * shown in a scrollable menu rather than the 3-button cap of sendInteractiveButtons.
+   * Same 24h session-window rule as free text.
+   */
+  async sendInteractiveList(
+    businessId: string,
+    phone: string,
+    bodyText: string,
+    buttonLabel: string,
+    sections: { title: string; rows: { id: string; title: string; description?: string }[] }[],
+    meta?: { relatedType?: string; relatedId?: string },
+  ): Promise<void> {
+    const to = this.e164(phone);
+    if (!to) return;
+    const totalRows = sections.reduce((n, s) => n + s.rows.length, 0);
+    if (sections.length === 0 || sections.length > 10) {
+      throw new Error('Interactive list messages support 1–10 sections');
+    }
+    if (totalRows === 0 || totalRows > 10) {
+      throw new Error('Interactive list messages support up to 10 rows total across all sections');
+    }
+    await this.logAndSend(
+      businessId,
+      {
+        to,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: bodyText },
+          action: { button: buttonLabel, sections },
+        },
+      },
+      {
+        phone: to,
+        messageType: 'INTERACTIVE_LIST',
         bodyPreview: bodyText,
         relatedType: meta?.relatedType,
         relatedId: meta?.relatedId,
@@ -839,6 +931,11 @@ export class WhatsAppService implements OnModuleInit {
     bodyText: string;
     headerText?: string;
     footerText?: string;
+    buttons?: Array<
+      | { type: 'QUICK_REPLY'; text: string }
+      | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
+      | { type: 'URL'; text: string; url: string }
+    >;
   }) {
     if (!this.token || !this.wabaId) {
       return { error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
@@ -850,6 +947,20 @@ export class WhatsAppService implements OnModuleInit {
     components.push({ type: 'BODY', text: dto.bodyText });
     if (dto.footerText) {
       components.push({ type: 'FOOTER', text: dto.footerText });
+    }
+    if (dto.buttons && dto.buttons.length > 0) {
+      const hasQuickReply = dto.buttons.some(b => b.type === 'QUICK_REPLY');
+      const hasCta        = dto.buttons.some(b => b.type === 'PHONE_NUMBER' || b.type === 'URL');
+      if (hasQuickReply && hasCta) {
+        return { error: 'Meta does not allow mixing Quick Reply buttons with Call/Website buttons in one template' };
+      }
+      if (hasQuickReply && dto.buttons.length > 3) {
+        return { error: 'Quick Reply templates support up to 3 buttons' };
+      }
+      if (hasCta && dto.buttons.length > 2) {
+        return { error: 'Call/Website button templates support up to 2 buttons' };
+      }
+      components.push({ type: 'BUTTONS', buttons: dto.buttons });
     }
     try {
       const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates`;
@@ -931,5 +1042,33 @@ export class WhatsAppService implements OnModuleInit {
     );
     if (!result.ok) return { ok: false, to, reason: JSON.stringify(result.data) };
     return { ok: true, to };
+  }
+
+  // ── Phone number registration ───────────────────────────────────────────────
+
+  /**
+   * Activates a phone number for Cloud API sending/receiving. Meta requires
+   * this one-time call (with a 6-digit two-step-verification PIN the business
+   * chooses) before a number can move out of "Pending" status — this is what
+   * the "Register phone number" button in Meta's own UI does under the hood.
+   */
+  async registerPhoneNumber(pin: string): Promise<{ ok: boolean; reason?: string }> {
+    if (!this.token || !this.phoneId) return { ok: false, reason: 'WhatsApp not configured' };
+    if (!/^\d{6}$/.test(pin)) return { ok: false, reason: 'PIN must be exactly 6 digits' };
+    try {
+      const res = await fetch(`https://graph.facebook.com/${API_VERSION}/${this.phoneId}/register`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ messaging_product: 'whatsapp', pin }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, reason: JSON.stringify(data) };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: String(err) };
+    }
   }
 }

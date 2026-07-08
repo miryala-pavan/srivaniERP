@@ -177,14 +177,17 @@ export class WebhookController implements OnModuleInit {
       const senderName  = contact?.profile?.name as string | undefined;
 
       // Dedup: Meta retries webhook delivery at-least-once for the same message.
-      const bodyPreview = msg.text?.body ?? msg.interactive?.button_reply?.title;
-      const messageType = msg.type === 'interactive' ? 'BUTTON_REPLY' : msg.type.toUpperCase();
+      const bodyPreview = msg.text?.body ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title;
+      const messageType = msg.type === 'interactive'
+        ? (msg.interactive?.list_reply ? 'LIST_REPLY' : 'BUTTON_REPLY')
+        : msg.type.toUpperCase();
       const mediaId = msg.type === 'image' ? msg.image?.id : msg.type === 'document' ? msg.document?.id : undefined;
+      const selectionId = msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id;
       const isNew = await this.logInbound(businessId, msg.id, {
         phone: senderPhone,
         messageType,
         bodyPreview,
-        buttonId: msg.interactive?.button_reply?.id,
+        buttonId: selectionId,
         mediaId,
       });
       if (!isNew) return;
@@ -205,6 +208,7 @@ export class WebhookController implements OnModuleInit {
       this.whatsapp.handleAutoReply(businessId, senderPhone, {
         messageBody: msg.text?.body as string | undefined,
         buttonId: msg.interactive?.button_reply?.id as string | undefined,
+        listReplyId: msg.interactive?.list_reply?.id as string | undefined,
       }).catch(err => this.logger.error(`Auto-reply failed for ${senderPhone}: ${err}`));
 
       if (msg.type === 'interactive' && msg.interactive?.type === 'button_reply') {
