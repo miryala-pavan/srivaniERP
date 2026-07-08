@@ -176,6 +176,63 @@ export class WhatsAppService implements OnModuleInit {
     return { items, total, page, limit };
   }
 
+  /** Contact card for the chat sidebar: linked Customer (if any), online orders, and POS purchase history. */
+  async getContactInfo(businessId: string, phone: string) {
+    const to = this.e164(phone) ?? phone;
+    const customer = await this.prisma.customer.findFirst({
+      where: { businessId, phone: to },
+      select: {
+        id: true, name: true, email: true, customerCode: true,
+        outstandingBalance: true, creditLimit: true, loyaltyPoints: true,
+      },
+    });
+    const [orderCount, lastOrder, posBillCount, lastPosBill] = await Promise.all([
+      this.prisma.onlineOrder.count({ where: { businessId, customerPhone: to } }),
+      this.prisma.onlineOrder.findFirst({
+        where: { businessId, customerPhone: to },
+        orderBy: { createdAt: 'desc' },
+        select: { orderNumber: true, status: true, total: true, createdAt: true },
+      }),
+      this.prisma.salesBill.count({ where: { businessId, customerPhone: to, status: { not: 'CANCELLED' } } }),
+      this.prisma.salesBill.findFirst({
+        where: { businessId, customerPhone: to, status: { not: 'CANCELLED' } },
+        orderBy: { billDate: 'desc' },
+        select: { billNumber: true, grandTotal: true, billDate: true },
+      }),
+    ]);
+    return {
+      phone: to,
+      customerId:   customer?.id ?? null,
+      name:         customer?.name ?? null,
+      email:        customer?.email ?? null,
+      customerCode: customer?.customerCode ?? null,
+      outstandingBalance: customer?.outstandingBalance ?? null,
+      creditLimit:        customer?.creditLimit ?? null,
+      loyaltyPoints:      customer?.loyaltyPoints ?? null,
+      orderCount,
+      lastOrder,
+      posBillCount,
+      lastPosBill,
+    };
+  }
+
+  /** Creates a Customer for this number if none exists yet, or renames the existing one. */
+  async saveContactName(businessId: string, phone: string, name: string) {
+    const to = this.e164(phone) ?? phone;
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Name is required');
+
+    const existing = await this.prisma.customer.findFirst({ where: { businessId, phone: to } });
+    if (existing) {
+      await this.prisma.customer.update({ where: { id: existing.id }, data: { name: trimmed } });
+    } else {
+      await this.prisma.customer.create({
+        data: { businessId, name: trimmed, phone: to, channel: 'ONLINE' },
+      });
+    }
+    return this.getContactInfo(businessId, phone);
+  }
+
   /** Marks all unread inbound messages in this conversation as read by staff. */
   async markConversationRead(businessId: string, phone: string) {
     const result = await this.prisma.waMessage.updateMany({

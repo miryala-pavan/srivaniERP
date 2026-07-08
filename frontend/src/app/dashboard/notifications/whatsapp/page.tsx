@@ -307,7 +307,10 @@ export default function WhatsAppTemplatesPage() {
         <div>
           <div className="flex items-center gap-2">
             <MessageSquare className="text-green-600" size={22} />
-            <h1 className="text-xl font-semibold text-gray-900">WhatsApp</h1>
+            <h1 className="text-xl font-semibold text-gray-900">PaVa Connect</h1>
+            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-gray-50 text-gray-500 border-gray-200">
+              WhatsApp
+            </span>
             <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium
               ${isConnected ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
               {isConnected ? <Wifi size={10} /> : <WifiOff size={10} />}

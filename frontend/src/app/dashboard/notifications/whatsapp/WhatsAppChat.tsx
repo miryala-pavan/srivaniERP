@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Send, Search, Clock, MessageSquare, Paperclip, Bot } from 'lucide-react';
+import Link from 'next/link';
+import {
+  Send, Search, Clock, MessageSquare, Paperclip, Bot,
+  Check, CheckCheck, AlertCircle, Pencil, ExternalLink, ShoppingBag, Award, Receipt,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
@@ -69,6 +73,29 @@ interface WaMessageEvent {
   createdAt: string;
 }
 
+interface ContactInfo {
+  phone: string;
+  customerId: string | null;
+  name: string | null;
+  email: string | null;
+  customerCode: string | null;
+  outstandingBalance: string | null;
+  creditLimit: string | null;
+  loyaltyPoints: number | null;
+  orderCount: number;
+  lastOrder: { orderNumber: string; status: string; total: string; createdAt: string } | null;
+  posBillCount: number;
+  lastPosBill: { billNumber: string | null; grandTotal: string; billDate: string } | null;
+}
+
+function StatusTick({ status }: { status: string }) {
+  if (status === 'FAILED') return <span title="Failed to send"><AlertCircle size={12} className="text-red-400" /></span>;
+  if (status === 'READ')   return <span title="Read"><CheckCheck size={13} className="text-blue-500" /></span>;
+  if (status === 'DELIVERED') return <span title="Delivered"><CheckCheck size={13} className="text-gray-400" /></span>;
+  if (status === 'SENT')   return <span title="Sent"><Check size={13} className="text-gray-400" /></span>;
+  return <span title="Queued"><Clock size={11} className="text-gray-300" /></span>;
+}
+
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -98,6 +125,11 @@ export default function WhatsAppChat() {
   const [replyText, setReplyText]       = useState('');
   const [sending, setSending]           = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  const [contact, setContact]           = useState<ContactInfo | null>(null);
+  const [editingName, setEditingName]   = useState(false);
+  const [nameInput, setNameInput]       = useState('');
+  const [savingName, setSavingName]     = useState(false);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef  = useRef<HTMLInputElement>(null);
@@ -136,9 +168,36 @@ export default function WhatsAppChat() {
     }
   }, []);
 
+  const loadContact = useCallback(async (phone: string) => {
+    try {
+      const { data } = await api.get(`/notifications/whatsapp/conversations/${phone}/contact`);
+      setContact(data);
+    } catch {
+      setContact(null);
+    }
+  }, []);
+
   useEffect(() => {
-    if (selectedPhone) loadThread(selectedPhone);
-  }, [selectedPhone, loadThread]);
+    if (selectedPhone) { loadThread(selectedPhone); loadContact(selectedPhone); setEditingName(false); }
+  }, [selectedPhone, loadThread, loadContact]);
+
+  async function saveName() {
+    if (!selectedPhone || !nameInput.trim()) return;
+    setSavingName(true);
+    try {
+      const { data } = await api.patch(`/notifications/whatsapp/conversations/${selectedPhone}/contact`, {
+        name: nameInput.trim(),
+      });
+      setContact(data);
+      setEditingName(false);
+      loadConversations();
+      toast.success('Contact saved');
+    } catch {
+      toast.error('Failed to save contact');
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -275,24 +334,88 @@ export default function WhatsAppChat() {
           </div>
         ) : (
           <>
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{selectedConv?.customerName ?? `+${selectedPhone}`}</p>
-                <p className="text-xs text-gray-500">+{selectedPhone}</p>
+            <div className="px-4 py-3 border-b border-gray-100 shrink-0">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  {editingName ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        autoFocus
+                        className="input text-sm h-7 py-0 flex-1"
+                        placeholder="Customer name"
+                        value={nameInput}
+                        onChange={e => setNameInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false); }}
+                      />
+                      <button onClick={saveName} disabled={savingName || !nameInput.trim()} className="btn-primary text-xs px-2 py-1 disabled:opacity-50">Save</button>
+                      <button onClick={() => setEditingName(false)} className="btn-outline text-xs px-2 py-1">Cancel</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setNameInput(contact?.name ?? ''); setEditingName(true); }}
+                      className="flex items-center gap-1.5 group"
+                      title="Click to name this contact"
+                    >
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {contact?.name ?? selectedConv?.customerName ?? `+${selectedPhone}`}
+                      </p>
+                      <Pencil size={11} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
+                    </button>
+                  )}
+                  <p className="text-xs text-gray-500">+{selectedPhone}</p>
+                </div>
+                {sessionOpen === false ? (
+                  <span
+                    title="Meta only allows free-text replies within 24h of the customer's last message. Outside that window, only pre-approved templates can be sent — use the Templates tab."
+                    className="cursor-help text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-1 flex items-center gap-1 shrink-0">
+                    <Clock size={10} /> Session closed
+                  </span>
+                ) : sessionOpen === true && windowExpiresAt ? (
+                  <span
+                    title={`Free-text replies allowed until ${new Date(windowExpiresAt).toLocaleString('en-IN')}`}
+                    className="cursor-help text-[10px] font-medium bg-green-50 text-green-700 border border-green-200 rounded-full px-2 py-1 flex items-center gap-1 shrink-0">
+                    <Clock size={10} /> Session open
+                  </span>
+                ) : null}
               </div>
-              {sessionOpen === false ? (
-                <span
-                  title="Meta only allows free-text replies within 24h of the customer's last message. Outside that window, only pre-approved templates can be sent — use the Templates tab."
-                  className="cursor-help text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-1 flex items-center gap-1">
-                  <Clock size={10} /> Session closed
-                </span>
-              ) : sessionOpen === true && windowExpiresAt ? (
-                <span
-                  title={`Free-text replies allowed until ${new Date(windowExpiresAt).toLocaleString('en-IN')}`}
-                  className="cursor-help text-[10px] font-medium bg-green-50 text-green-700 border border-green-200 rounded-full px-2 py-1 flex items-center gap-1">
-                  <Clock size={10} /> Session open
-                </span>
-              ) : null}
+              {contact && !editingName && (
+                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                  {contact.customerId ? (
+                    <Link href={`/dashboard/customers/${contact.customerId}`} target="_blank"
+                      className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:underline">
+                      <ExternalLink size={10} /> View profile
+                    </Link>
+                  ) : (
+                    <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-200 rounded-full px-1.5 py-0.5">New contact</span>
+                  )}
+                  {contact.orderCount > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-gray-500">
+                      <ShoppingBag size={10} />
+                      {contact.orderCount} online order{contact.orderCount > 1 ? 's' : ''}
+                      {contact.lastOrder && ` · last ₹${Number(contact.lastOrder.total).toFixed(0)} (${contact.lastOrder.status})`}
+                    </span>
+                  )}
+                  {contact.posBillCount > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-gray-500">
+                      <Receipt size={10} />
+                      {contact.posBillCount} in-store bill{contact.posBillCount > 1 ? 's' : ''}
+                      {contact.lastPosBill && ` · last ₹${Number(contact.lastPosBill.grandTotal).toFixed(0)}`}
+                    </span>
+                  )}
+                  {contact.loyaltyPoints !== null && contact.loyaltyPoints > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600">
+                      <Award size={10} /> {contact.loyaltyPoints} pts
+                    </span>
+                  )}
+                  {contact.outstandingBalance !== null && Number(contact.outstandingBalance) > 0 && (
+                    <span
+                      title={contact.creditLimit ? `Credit limit ₹${Number(contact.creditLimit).toFixed(0)}` : undefined}
+                      className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5">
+                      <AlertCircle size={10} /> ₹{Number(contact.outstandingBalance).toFixed(0)} due
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#e5ded8]/40">
@@ -326,7 +449,10 @@ export default function WhatsAppChat() {
                       {m.errorMessage && (
                         <p className="text-[10px] text-red-500 mt-1">{m.errorMessage}</p>
                       )}
-                      <p className="text-[10px] text-gray-400 text-right mt-1">{fmtTime(m.createdAt)}</p>
+                      <p className="text-[10px] text-gray-400 text-right mt-1 flex items-center justify-end gap-1">
+                        {fmtTime(m.createdAt)}
+                        {m.direction === 'OUTBOUND' && <StatusTick status={m.status} />}
+                      </p>
                     </div>
                   </div>
                 ))

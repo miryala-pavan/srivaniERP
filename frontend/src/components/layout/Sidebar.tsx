@@ -157,7 +157,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/business',                    label: 'Business',        icon: Building2,       roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/settings',                    label: 'Settings',        icon: Settings,        roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/settings/financial-year',     label: 'Financial Years', icon: CalendarRange,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
-      { href: '/dashboard/notifications/whatsapp',      label: 'WhatsApp Msgs',   icon: MessageSquare,   roles: ['SUPER_ADMIN'] },
+      { href: '/dashboard/notifications/whatsapp',      label: 'PaVa Connect',    icon: MessageSquare,   roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/lists',                        label: 'Order Lists',      icon: FileText,        roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/settings/roles',               label: 'Role Permissions', icon: ShieldCheck,     roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/billing',                      label: 'Subscription',     icon: CreditCard,      roles: ['SUPER_ADMIN'] },

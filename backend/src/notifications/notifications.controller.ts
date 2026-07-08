@@ -171,6 +171,18 @@ export class NotificationsController {
   }
 
   @Roles('SUPER_ADMIN')
+  @Get('whatsapp/conversations/:phone/contact')
+  getContactInfo(@Request() req: any, @Param('phone') phone: string) {
+    return this.whatsapp.getContactInfo(req.user.businessId, phone);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('whatsapp/conversations/:phone/contact')
+  saveContactName(@Request() req: any, @Param('phone') phone: string, @Body() body: { name: string }) {
+    return this.whatsapp.saveContactName(req.user.businessId, phone, body.name ?? '');
+  }
+
+  @Roles('SUPER_ADMIN')
   @Post('whatsapp/conversations/:phone/send-image')
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
