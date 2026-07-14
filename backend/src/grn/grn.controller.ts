@@ -8,10 +8,13 @@ import { GrnService } from './grn.service';
 import { CreateGrnDto } from './dto/create-grn.dto';
 import { UpdateGrnDto } from './dto/update-grn.dto';
 import { GrnQueryDto } from './dto/grn-query.dto';
+import { CreateSupplierCreditNoteDto } from './dto/create-credit-note.dto';
+import { CreatePurchaseDebitNoteDto } from './dto/create-debit-note.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { SuppliersService } from '../suppliers/suppliers.service';
+import { UpdatePaymentDetailsDto } from '../suppliers/dto/update-payment-details.dto';
 
 const GRN_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'ACCOUNTS_PERSON'];
 const APPROVE_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER'];
@@ -48,12 +51,22 @@ export class GrnController {
 
   @Post('credit-notes')
   @Roles(...GRN_ROLES)
-  createCreditNote(@Request() req: any, @Body() dto: any) {
+  createCreditNote(@Request() req: any, @Body() dto: CreateSupplierCreditNoteDto) {
     return this.grnService.createSupplierCreditNote(
       req.user.businessId,
       req.user.userId,
       req.user.fullName ?? req.user.username ?? 'Unknown',
       dto,
+    );
+  }
+
+  @Patch('credit-notes/:id/cancel')
+  @Roles(...APPROVE_ROLES)
+  cancelCreditNote(@Request() req: any, @Param('id') id: string) {
+    return this.grnService.cancelSupplierCreditNote(
+      req.user.businessId,
+      id,
+      req.user.fullName ?? req.user.username ?? 'Unknown',
     );
   }
 
@@ -76,6 +89,62 @@ export class GrnController {
       page:  page  ? Number(page)  : 1,
       limit: limit ? Number(limit) : 20,
     });
+  }
+
+  @Get('credit-notes/:id')
+  @Roles(...GRN_ROLES)
+  getCreditNote(@Request() req: any, @Param('id') id: string) {
+    return this.grnService.getSupplierCreditNoteById(req.user.businessId, id);
+  }
+
+  // ── Debit note routes (before /:id) — itemized goods returns ─────────────
+
+  @Post('debit-notes')
+  @Roles(...GRN_ROLES)
+  createDebitNote(@Request() req: any, @Body() dto: CreatePurchaseDebitNoteDto) {
+    return this.grnService.createPurchaseDebitNote(
+      req.user.businessId,
+      req.user.userId,
+      req.user.fullName ?? req.user.username ?? 'Unknown',
+      dto,
+    );
+  }
+
+  @Patch('debit-notes/:id/cancel')
+  @Roles(...APPROVE_ROLES)
+  cancelDebitNote(@Request() req: any, @Param('id') id: string) {
+    return this.grnService.cancelPurchaseDebitNote(
+      req.user.businessId,
+      id,
+      req.user.fullName ?? req.user.username ?? 'Unknown',
+    );
+  }
+
+  @Get('debit-notes')
+  @Roles(...GRN_ROLES)
+  getDebitNotes(
+    @Request() req: any,
+    @Query('supplierId') supplierId?: string,
+    @Query('originalGrnId') originalGrnId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.grnService.getPurchaseDebitNotes(req.user.businessId, {
+      supplierId,
+      originalGrnId,
+      dateFrom,
+      dateTo,
+      page:  page  ? Number(page)  : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+  }
+
+  @Get('debit-notes/:id')
+  @Roles(...GRN_ROLES)
+  getDebitNote(@Request() req: any, @Param('id') id: string) {
+    return this.grnService.getPurchaseDebitNoteById(req.user.businessId, id);
   }
 
   // ── Collection routes ─────────────────────────────────────────────────────
@@ -106,6 +175,12 @@ export class GrnController {
     return this.suppliersService.getGrnPaymentSummary(req.user.businessId, id);
   }
 
+  @Get(':id/rejected-summary')
+  @Roles(...GRN_ROLES)
+  getRejectedSummary(@Request() req: any, @Param('id') id: string) {
+    return this.grnService.getRejectedItemsSummary(req.user.businessId, id);
+  }
+
   @Get(':id/payments')
   @Roles(...GRN_ROLES)
   getGrnPayments(@Request() req: any, @Param('id') id: string) {
@@ -114,7 +189,7 @@ export class GrnController {
 
   @Patch('payments/:paymentId')
   @Roles(...GRN_ROLES)
-  updatePaymentDetails(@Request() req: any, @Param('paymentId') paymentId: string, @Body() body: any) {
+  updatePaymentDetails(@Request() req: any, @Param('paymentId') paymentId: string, @Body() body: UpdatePaymentDetailsDto) {
     return this.suppliersService.updatePaymentDetails(req.user.businessId, paymentId, body);
   }
 

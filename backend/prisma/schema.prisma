@@ -78,6 +78,8 @@ model Business {
   onlineOrders        OnlineOrder[]
   waIncomingLists     WaIncomingList[]
   waMessages          WaMessage[]
+  waPhoneNumbers      WaPhoneNumber[]
+  waConversations     WaConversation[]
   serviceablePincodes ServiceablePincode[]
   systemSettings      SystemSetting[]
   productReviews      ProductReview[]
@@ -527,7 +529,7 @@ model Supplier {
   pan                String?   // PAN mandatory for TDS; 20% flat rate applies without PAN (Sec 206AA)
   isTdsApplicable    Boolean   @default(false)
   tdsSection         String?   // 194C | 194J | 194I | 194H | 194D | 194IB | etc.
-  // udyamRegistration already present above — used for MSME 45-day rule (Sec 43B(h))
+  udyamRegistration  String?   // this supplier's own MSME registration — drives the 45-day payment rule (Sec 43B(h)) and Payables-MSME GL account selection
 
   // Legacy single bank account fields (kept for backwards compat)
   bankAccountNumber  String?
@@ -761,6 +763,7 @@ model SalesItem {
   id              String  @id @default(cuid())
   billId          String
   productId       String
+  pluId           String?
   taxId           String
   productName     String
   hsnCode         String?
@@ -1689,6 +1692,7 @@ model PurchaseDebitNote {
   supplierGstin    String?
   originalGrnId    String?
   originalInvoiceNo String?
+  supplierCnNumber String?
   reason           String
   taxableAmount    Decimal  @db.Decimal(15, 2) @default(0)
   cgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
@@ -1718,6 +1722,7 @@ model PurchaseDebitNoteItem {
   debitNoteId    String
   debitNote      PurchaseDebitNote @relation(fields: [debitNoteId], references: [id])
   productId      String?
+  pluId          String?
   productName    String
   hsnCode        String?
   quantity       Decimal           @db.Decimal(10, 3)
@@ -2148,6 +2153,51 @@ model WaMessage {
   @@map("wa_message")
 }
 
+// Saved WhatsApp number presets — lets staff switch which number is "live"
+// (copied into the wa.* SystemSetting keys the sending pipeline reads) via a
+// one-click Activate instead of retyping credentials in Settings every time.
+model WaPhoneNumber {
+  id                 String   @id @default(cuid())
+  businessId         String
+  label              String              // e.g. "Sangareddy Store", "Test Sandbox"
+  accessToken        String
+  phoneNumberId      String
+  businessAccountId  String
+  storeNotifyNumber  String?
+  isActive           Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, phoneNumberId])
+  @@index([businessId])
+  @@map("wa_phone_number")
+}
+
+enum WaConversationStatus {
+  OPEN
+  RESOLVED
+}
+
+// Per-conversation organization state (labels, resolved/open, pinned) — kept
+// separate from Customer since a phone can have an active conversation before
+// it's ever saved as a named Customer.
+model WaConversation {
+  id         String               @id @default(cuid())
+  businessId String
+  phone      String
+  status     WaConversationStatus @default(OPEN)
+  pinned     Boolean              @default(false)
+  labels     String[]             @default([])
+  updatedAt  DateTime             @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, phone])
+  @@index([businessId])
+  @@map("wa_conversation")
+}
 
 // ─── PRODUCT REVIEWS ────────────────────────────────
 model ProductReview {
@@ -3275,7 +3325,7 @@ model ItcLedger {
   id              String   @id @default(cuid())
   businessId      String
   taxPeriod       String
-  sourceType      String   // PURCHASE_INVOICE | DEBIT_NOTE | ITC_CLAIM
+  sourceType      String   // PURCHASE_INVOICE | DEBIT_NOTE | CREDIT_NOTE | ITC_CLAIM
   sourceId        String
   cgst            Decimal  @db.Decimal(19, 4) @default(0)
   sgst            Decimal  @db.Decimal(19, 4) @default(0)

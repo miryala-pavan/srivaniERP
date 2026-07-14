@@ -78,6 +78,16 @@ export default function PurchaseOrderDetailPage() {
     }),
     onSuccess: (res) => {
       toast.success(`GRN ${res.data.grnNumber} created — pending approval`);
+      const w = res.data?.warning;
+      if (w?.type === 'PO_PRICE_VARIANCE') {
+        const lines = w.items.map((it: any) =>
+          `${it.productName}: PO Rs.${it.poPrice} vs current Rs.${it.currentCost} (${it.variancePct > 0 ? '+' : ''}${it.variancePct}%)`
+        ).join('\n');
+        toast(
+          `This PO's price differs from what you're currently paying by more than ${w.threshold}% on ${w.items.length} item(s):\n${lines}`,
+          { duration: 10000 },
+        );
+      }
       router.push(`/dashboard/grn/${res.data.grnId}`);
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to create GRN'),

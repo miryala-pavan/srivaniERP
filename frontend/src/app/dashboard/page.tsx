@@ -27,18 +27,19 @@ interface StatCardProps {
   subtitle?: string;
   icon: React.ElementType;
   iconBg: string;
+  iconColor: string;
   trend?: number | null;
 }
 
-function StatCard({ title, value, subtitle, icon: Icon, iconBg, trend }: StatCardProps) {
+function StatCard({ title, value, subtitle, icon: Icon, iconBg, iconColor, trend }: StatCardProps) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-start gap-4">
-      <div className={`${iconBg} w-11 h-11 rounded-xl flex items-center justify-center shrink-0`}>
-        <Icon className="w-5 h-5 text-white" />
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-start gap-4 hover:shadow-md transition-shadow">
+      <div className={`${iconBg} w-10 h-10 rounded-xl flex items-center justify-center shrink-0`}>
+        <Icon className={`w-5 h-5 ${iconColor}`} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{title}</p>
-        <p className="text-2xl font-bold text-gray-900 mt-0.5">{value}</p>
+        <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">{title}</p>
+        <p className="text-2xl font-semibold text-gray-900 mt-0.5 tracking-tight">{value}</p>
         {trend !== undefined && trend !== null && (
           <div className={`flex items-center gap-1 mt-1 text-xs font-medium ${
             trend > 0 ? 'text-green-600' : trend < 0 ? 'text-red-500' : 'text-gray-400'
@@ -80,36 +81,36 @@ interface MarginStats {
 function MarginCard({ stats }: { stats: MarginStats }) {
   const marginColor = stats.avgMargin >= 20 ? 'text-green-600' : stats.avgMargin >= 10 ? 'text-amber-600' : 'text-red-600';
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="bg-indigo-600 w-8 h-8 rounded-lg flex items-center justify-center">
-            <BarChart2 className="w-4 h-4 text-white" />
+        <div className="flex items-center gap-2.5">
+          <div className="bg-indigo-50 w-8 h-8 rounded-lg flex items-center justify-center">
+            <BarChart2 className="w-4 h-4 text-indigo-600" />
           </div>
-          <h3 className="text-sm font-semibold text-gray-700">Product Margin Overview</h3>
+          <h3 className="text-sm font-semibold text-gray-800">Product Margin Overview</h3>
         </div>
         <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full">Owner only</span>
       </div>
 
       {/* Summary row */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="bg-indigo-50 rounded-lg p-3 text-center">
-          <p className={`text-2xl font-bold ${marginColor}`}>{stats.avgMargin}%</p>
+        <div className="bg-indigo-50 rounded-xl p-3 text-center">
+          <p className={`text-2xl font-semibold tracking-tight ${marginColor}`}>{stats.avgMargin}%</p>
           <p className="text-xs text-gray-500 mt-0.5">Gross margin</p>
           {stats.suspectCount > 0 && (
             <p className="text-xs text-gray-400 mt-0.5">({stats.suspectCount} outliers excluded)</p>
           )}
         </div>
-        <div className="bg-gray-50 rounded-lg p-3 text-center">
-          <p className="text-2xl font-bold text-gray-800">{stats.withCostPrice}</p>
+        <div className="bg-gray-50 rounded-xl p-3 text-center">
+          <p className="text-2xl font-semibold text-gray-800 tracking-tight">{stats.withCostPrice}</p>
           <p className="text-xs text-gray-500 mt-0.5">With cost price</p>
         </div>
-        <div className={`${stats.zeroCostCount > 0 ? 'bg-amber-50' : 'bg-gray-50'} rounded-lg p-3 text-center`}>
-          <p className={`text-2xl font-bold ${stats.zeroCostCount > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{stats.zeroCostCount}</p>
+        <div className={`${stats.zeroCostCount > 0 ? 'bg-amber-50' : 'bg-gray-50'} rounded-xl p-3 text-center`}>
+          <p className={`text-2xl font-semibold tracking-tight ${stats.zeroCostCount > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{stats.zeroCostCount}</p>
           <p className="text-xs text-gray-500 mt-0.5">No cost price</p>
         </div>
-        <div className={`${stats.negativeCount > 0 ? 'bg-red-50' : 'bg-gray-50'} rounded-lg p-3 text-center`}>
-          <p className={`text-2xl font-bold ${stats.negativeCount > 0 ? 'text-red-600' : 'text-gray-800'}`}>{stats.negativeCount}</p>
+        <div className={`${stats.negativeCount > 0 ? 'bg-red-50' : 'bg-gray-50'} rounded-xl p-3 text-center`}>
+          <p className={`text-2xl font-semibold tracking-tight ${stats.negativeCount > 0 ? 'text-red-600' : 'text-gray-800'}`}>{stats.negativeCount}</p>
           <p className="text-xs text-gray-500 mt-0.5">Below cost</p>
         </div>
       </div>
@@ -248,7 +249,7 @@ export default function DashboardPage() {
 
       <main className="flex-1 p-6 space-y-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-800">Today&apos;s Overview</h2>
+          <h2 className="text-lg font-semibold text-gray-900 tracking-tight">Today&apos;s Overview</h2>
         </div>
 
         {isError && (
@@ -260,7 +261,7 @@ export default function DashboardPage() {
         {isLoading && !data && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 p-5 h-24 animate-pulse">
+              <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 h-24 animate-pulse">
                 <div className="h-3 bg-gray-100 rounded w-2/3 mb-3" />
                 <div className="h-7 bg-gray-100 rounded w-1/2" />
               </div>
@@ -276,7 +277,8 @@ export default function DashboardPage() {
                 title="Today's Sales"
                 value={`₹${fmt(data.sales.todaySales)}`}
                 icon={IndianRupee}
-                iconBg="bg-[#1B4F8A]"
+                iconBg="bg-blue-50"
+                iconColor="text-[#1B4F8A]"
                 trend={data.sales.salesGrowth}
               />
               <StatCard
@@ -284,21 +286,24 @@ export default function DashboardPage() {
                 value={String(data.sales.todayBills)}
                 subtitle={`Yesterday: ${data.sales.yesterdayBills} bills`}
                 icon={ShoppingBag}
-                iconBg="bg-emerald-500"
+                iconBg="bg-emerald-50"
+                iconColor="text-emerald-600"
               />
               <StatCard
                 title="Low Stock Alerts"
                 value={String(data.alerts.lowStockCount)}
                 subtitle="Products below reorder level"
                 icon={AlertTriangle}
-                iconBg={data.alerts.lowStockCount > 0 ? 'bg-amber-500' : 'bg-gray-400'}
+                iconBg={data.alerts.lowStockCount > 0 ? 'bg-amber-50' : 'bg-gray-50'}
+                iconColor={data.alerts.lowStockCount > 0 ? 'text-amber-500' : 'text-gray-400'}
               />
               <StatCard
                 title="Pending GRNs"
                 value={String(data.alerts.pendingGRNs)}
                 subtitle="Awaiting approval"
                 icon={PackageCheck}
-                iconBg={data.alerts.pendingGRNs > 0 ? 'bg-orange-500' : 'bg-gray-400'}
+                iconBg={data.alerts.pendingGRNs > 0 ? 'bg-orange-50' : 'bg-gray-50'}
+                iconColor={data.alerts.pendingGRNs > 0 ? 'text-orange-500' : 'text-gray-400'}
               />
             </div>
 
@@ -309,17 +314,19 @@ export default function DashboardPage() {
                 value={`₹${fmt(data.thisMonth.revenue)}`}
                 subtitle={`${data.thisMonth.bills} bills MTD`}
                 icon={CalendarRange}
-                iconBg="bg-indigo-500"
+                iconBg="bg-indigo-50"
+                iconColor="text-indigo-500"
               />
               <StatCard
                 title="Avg Basket"
                 value={`₹${fmt(data.avgBasket.today)}`}
                 icon={ShoppingBag}
-                iconBg="bg-teal-500"
+                iconBg="bg-teal-50"
+                iconColor="text-teal-500"
                 trend={data.avgBasket.growth}
               />
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-3">Payments Today</p>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-3">Payments Today</p>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="flex items-center gap-2 text-gray-600">
@@ -343,10 +350,10 @@ export default function DashboardPage() {
               </div>
               <Link
                 href="/dashboard/online-orders"
-                className="bg-white rounded-xl border border-gray-200 p-5 hover:border-[#1B4F8A] hover:shadow-md transition-all group"
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:border-[#1B4F8A]/30 hover:shadow-md transition-all group"
               >
                 <div className="flex items-start justify-between mb-3">
-                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Online Orders</p>
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Online Orders</p>
                   <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-[#1B4F8A] transition-colors" />
                 </div>
                 <div className="flex items-center gap-2 mb-2">
@@ -354,7 +361,7 @@ export default function DashboardPage() {
                     <Globe className="w-4 h-4 text-white" />
                   </div>
                   <div>
-                    <p className="text-xl font-bold text-gray-900 leading-tight">{data.onlineOrders.todayCount}</p>
+                    <p className="text-xl font-semibold text-gray-900 leading-tight tracking-tight">{data.onlineOrders.todayCount}</p>
                     <p className="text-xs text-gray-400">orders today</p>
                   </div>
                 </div>
@@ -371,8 +378,8 @@ export default function DashboardPage() {
             {/* Charts + Top Products */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
               {/* Sales chart */}
-              <div className="lg:col-span-3 bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="text-sm font-semibold text-gray-700 mb-4">Sales Comparison</h3>
+              <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="text-sm font-semibold text-gray-800 mb-4">Sales Comparison</h3>
                 {chartData[0].sales === 0 && chartData[1].sales === 0 ? (
                   <div className="h-48 flex items-center justify-center text-gray-400 text-sm">
                     No sales data yet for this period
@@ -399,8 +406,8 @@ export default function DashboardPage() {
               </div>
 
               {/* Top products */}
-              <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="text-sm font-semibold text-gray-700 mb-4">Top Products Today</h3>
+              <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="text-sm font-semibold text-gray-800 mb-4">Top Products Today</h3>
                 {data.topSellingProducts.length === 0 ? (
                   <div className="h-48 flex items-center justify-center text-gray-400 text-sm">
                     No sales recorded today
@@ -430,7 +437,7 @@ export default function DashboardPage() {
             {(data.alerts.cashMismatch > 0 || data.alerts.pendingPayments > 0) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {data.alerts.cashMismatch > 0 && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+                  <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-center gap-3">
                     <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
                     <div>
                       <p className="text-sm font-semibold text-red-700">Cash Mismatch</p>
@@ -439,7 +446,7 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {data.alerts.pendingPayments > 0 && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-center gap-3">
                     <IndianRupee className="w-5 h-5 text-amber-600 shrink-0" />
                     <div>
                       <p className="text-sm font-semibold text-amber-700">Supplier Payments Due</p>

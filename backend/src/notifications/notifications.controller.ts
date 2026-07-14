@@ -124,6 +124,34 @@ export class NotificationsController {
     return this.whatsapp.saveCredentials(req.user.businessId, body);
   }
 
+  // ── Saved phone number presets ──────────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/phone-numbers')
+  listPhoneNumbers(@Request() req: any) {
+    return this.whatsapp.listPhoneNumbers(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/phone-numbers')
+  savePhoneNumber(@Request() req: any, @Body() body: {
+    id?: string; label: string; accessToken?: string; phoneNumberId: string; businessAccountId: string; storeNotifyNumber?: string;
+  }) {
+    return this.whatsapp.savePhoneNumber(req.user.businessId, body);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Delete('whatsapp/phone-numbers/:id')
+  deletePhoneNumber(@Request() req: any, @Param('id') id: string) {
+    return this.whatsapp.deletePhoneNumber(req.user.businessId, id);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/phone-numbers/:id/activate')
+  activatePhoneNumber(@Request() req: any, @Param('id') id: string) {
+    return this.whatsapp.activatePhoneNumber(req.user.businessId, id);
+  }
+
   // ── WhatsApp message log ───────────────────────────────────────────────────
 
   @Roles('SUPER_ADMIN')
@@ -144,6 +172,12 @@ export class NotificationsController {
   @Get('whatsapp/conversations')
   listConversations(@Request() req: any) {
     return this.whatsapp.listConversations(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/conversations/search')
+  searchMessages(@Request() req: any, @Query('q') q: string) {
+    return this.whatsapp.searchMessages(req.user.businessId, q ?? '');
   }
 
   @Roles('SUPER_ADMIN')
@@ -173,6 +207,20 @@ export class NotificationsController {
   @Patch('whatsapp/conversations/:phone/read')
   markConversationRead(@Request() req: any, @Param('phone') phone: string) {
     return this.whatsapp.markConversationRead(req.user.businessId, phone);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/conversations/:phone/meta')
+  getConversationMeta(@Request() req: any, @Param('phone') phone: string) {
+    return this.whatsapp.getConversationMeta(req.user.businessId, phone);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('whatsapp/conversations/:phone/meta')
+  updateConversationMeta(@Request() req: any, @Param('phone') phone: string, @Body() body: {
+    status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[];
+  }) {
+    return this.whatsapp.updateConversationMeta(req.user.businessId, phone, body);
   }
 
   @Roles('SUPER_ADMIN')
@@ -206,6 +254,31 @@ export class NotificationsController {
     });
   }
 
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/conversations/:phone/send-document')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024 },
+  }))
+  sendDocumentReply(
+    @Request() req: any,
+    @Param('phone') phone: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) return { ok: false, reason: 'No file uploaded' };
+    return this.whatsapp.sendDocumentReply(req.user.businessId, phone, {
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      filename: file.originalname,
+    });
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/conversations/:phone/react')
+  sendReaction(@Request() req: any, @Param('phone') phone: string, @Body() body: { messageId: string; emoji: string }) {
+    return this.whatsapp.sendReaction(req.user.businessId, phone, body.messageId, body.emoji ?? '');
+  }
+
   // JWT-protected but not @Roles-gated the same way images are served for an
   // <img> tag via a blob fetch (with the Authorization header) from the
   // frontend, not a bare <img src>, since Meta's media URLs require the
@@ -225,12 +298,42 @@ export class NotificationsController {
     return this.whatsapp.registerPhoneNumber(body.pin ?? '');
   }
 
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/business-profile')
+  getBusinessProfile() {
+    return this.whatsapp.getBusinessProfile();
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('whatsapp/business-profile')
+  updateBusinessProfile(@Body() body: { about?: string; address?: string; description?: string; email?: string; websites?: string[]; vertical?: string }) {
+    return this.whatsapp.updateBusinessProfile(body);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/conversations/:phone/typing')
+  sendTypingIndicator(@Request() req: any, @Param('phone') phone: string) {
+    return this.whatsapp.sendTypingIndicator(req.user.businessId, phone);
+  }
+
   // ── Campaigns ────────────────────────────────────────────────────────────────
 
   @Roles('SUPER_ADMIN')
   @Get('whatsapp/campaigns/birthdays-today')
   getTodaysBirthdays(@Request() req: any) {
     return this.whatsapp.getTodaysBirthdays(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/campaigns/segments')
+  getCampaignSegments(@Request() req: any) {
+    return this.whatsapp.getCampaignSegments(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/campaigns/send')
+  sendCampaign(@Request() req: any, @Body() body: { segmentId: string; template: string; language: string; params: string[] }) {
+    return this.whatsapp.sendCampaign(req.user.businessId, body.segmentId, body.template, body.language, body.params ?? []);
   }
 
   // ── Auto-reply settings ─────────────────────────────────────────────────────
@@ -243,7 +346,10 @@ export class NotificationsController {
 
   @Roles('SUPER_ADMIN')
   @Patch('whatsapp/autoreply')
-  updateAutoReplySettings(@Request() req: any, @Body() body: { enabled?: boolean; storeHours?: string }) {
+  updateAutoReplySettings(@Request() req: any, @Body() body: {
+    enabled?: boolean; storeHours?: string;
+    locationLat?: string; locationLng?: string; locationName?: string; locationAddr?: string;
+  }) {
     return this.whatsapp.updateAutoReplySettings(req.user.businessId, body);
   }
 }

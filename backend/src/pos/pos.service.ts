@@ -20,6 +20,9 @@ import { CreateBillDto, PaymentModeEnum } from './dto/create-bill.dto';
 import { BillQueryDto } from './dto/bill-query.dto';
 import { CreateHoldDto } from './dto/create-hold.dto';
 import { JournalBridgeService } from '../platform/journal-bridge/journal-bridge.service';
+import { CustomersService } from '../customers/customers.service';
+import { lockPluCandidatesForDeduction } from '../common/helpers/stock-lock.util';
+import { gstinStateCode } from '../common/gstin.util';
 
 // ─── Valid GST rates per Indian GST law ───────────────
 const VALID_GST_RATES = new Set([0, 0.1, 0.25, 1.5, 3, 5, 6, 12, 18, 28]);
@@ -72,6 +75,7 @@ export class PosService {
     private shopCache: ShopCacheService,
     private purchaseOrders: PurchaseOrdersService,
     private journalBridge: JournalBridgeService,
+    private customers: CustomersService,
   ) {}
 
   // ─── COUNTER ──────────────────────────────────────────
@@ -344,8 +348,8 @@ export class PosService {
     // ── 2. Determine intra/inter-state ───────────────────
     const businessState  = business.stateCode;  // '36' Telangana
     let   supplyState    = dto.supplyStateCode ?? businessState;
-    if (dto.customerGstin && dto.customerGstin.length >= 2) {
-      supplyState = dto.customerGstin.substring(0, 2);
+    if (dto.customerGstin) {
+      supplyState = gstinStateCode(dto.customerGstin, 'This customer');
     }
     const isIntraState = (supplyState === businessState);
 
@@ -444,23 +448,40 @@ export class PosService {
     // ── 4b. Loyalty points redemption ────────────────────
     const isEstimate = billType === 'ESTIMATE';
     let loyaltyDiscount = 0;
-    const loyaltyPointsToRedeem = dto.loyaltyPointsRedeemed ?? 0;
+    let loyaltyPointsToRedeem = dto.loyaltyPointsRedeemed ?? 0;
     if (loyaltyPointsToRedeem > 0 && dto.customerId && !isEstimate) {
-      const loyaltyConfig = await this.prisma.systemSetting.findMany({
-        where: {
-          businessId,
-          key: { in: ['loyalty.enabled', 'loyalty.value_per_point', 'loyalty.max_redeem_pct'] },
-        },
+      const redeemingCustomer = await this.prisma.customer.findFirst({
+        where: { id: dto.customerId, businessId },
+        select: { loyaltyPoints: true },
       });
-      const loyaltyCfg = Object.fromEntries(loyaltyConfig.map((r) => [r.key.replace('loyalty.', ''), r.value]));
-      if (loyaltyCfg.enabled === 'true') {
-        const valuePerPoint = parseFloat(loyaltyCfg.value_per_point ?? '0.50');
-        const maxPct        = parseFloat(loyaltyCfg.max_redeem_pct ?? '20');
-        const maxDiscount   = r2(grandTotal * maxPct / 100);
-        loyaltyDiscount     = Math.min(r2(loyaltyPointsToRedeem * valuePerPoint), maxDiscount, grandTotal);
-        loyaltyDiscount     = r2(loyaltyDiscount);
-        grandTotal          = r2(grandTotal - loyaltyDiscount);
+      loyaltyPointsToRedeem = Math.min(loyaltyPointsToRedeem, redeemingCustomer?.loyaltyPoints ?? 0);
+      if (loyaltyPointsToRedeem > 0) {
+        const loyaltyConfig = await this.prisma.systemSetting.findMany({
+          where: {
+            businessId,
+            key: { in: ['loyalty.enabled', 'loyalty.value_per_point', 'loyalty.max_redeem_pct'] },
+          },
+        });
+        const loyaltyCfg = Object.fromEntries(loyaltyConfig.map((r) => [r.key.replace('loyalty.', ''), r.value]));
+        if (loyaltyCfg.enabled === 'true') {
+          const valuePerPoint = parseFloat(loyaltyCfg.value_per_point ?? '0.50');
+          const maxPct        = parseFloat(loyaltyCfg.max_redeem_pct ?? '20');
+          const maxDiscount   = r2(grandTotal * maxPct / 100);
+          loyaltyDiscount     = Math.min(r2(loyaltyPointsToRedeem * valuePerPoint), maxDiscount, grandTotal);
+          loyaltyDiscount     = r2(loyaltyDiscount);
+          grandTotal          = r2(grandTotal - loyaltyDiscount);
+          // Redeemed points must match the discount actually granted — if
+          // the max-discount/max-grandTotal cap bit, don't debit points
+          // beyond what that capped discount is actually worth.
+          loyaltyPointsToRedeem = valuePerPoint > 0 ? Math.ceil(loyaltyDiscount / valuePerPoint) : 0;
+        } else {
+          loyaltyPointsToRedeem = 0; // loyalty disabled — no discount granted, so nothing to redeem
+        }
+      } else {
+        loyaltyPointsToRedeem = 0;
       }
+    } else {
+      loyaltyPointsToRedeem = 0;
     }
 
     // ── 5. Payment resolution ────────────────────────────
@@ -483,6 +504,50 @@ export class PosService {
 
     const balanceAmount = r2(grandTotal - paidAmount);
     const saleType      = balanceAmount > 0 ? 'CREDIT' : 'CASH';
+
+    // Credit limit check — 0/unset means no limit (matches how it's displayed
+    // in the UI). Estimates don't create real credit exposure yet.
+    if (!isEstimate && saleType === 'CREDIT' && dto.customerId) {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: dto.customerId, businessId },
+        select: { creditLimit: true, name: true },
+      });
+      const creditLimit = Number(customer?.creditLimit ?? 0);
+      if (creditLimit > 0) {
+        const currentOutstanding = await this.customers.computeCustomerOutstanding(businessId, dto.customerId);
+        const projectedOutstanding = currentOutstanding + balanceAmount;
+        if (projectedOutstanding > creditLimit) {
+          throw new BadRequestException(
+            `This sale would take ${customer?.name ?? 'this customer'}'s outstanding balance to Rs.${r2(projectedOutstanding)}, over their credit limit of Rs.${creditLimit}.`,
+          );
+        }
+      }
+    }
+
+    // Loyalty points net delta (earn − redeem) — computed here, applied
+    // inside the transaction below so a redeemed discount can never be
+    // granted without the points actually being debited atomically.
+    let loyaltyPointsEarned = 0;
+    let loyaltyNetDelta = -loyaltyPointsToRedeem;
+    if (!isEstimate && dto.customerId) {
+      const loyaltyEarnConfig = await this.prisma.systemSetting.findMany({
+        where: { businessId, key: { in: ['loyalty.enabled', 'loyalty.earn_per_100', 'loyalty.min_margin_pct'] } },
+      });
+      const earnCfg = Object.fromEntries(loyaltyEarnConfig.map((r) => [r.key.replace('loyalty.', ''), r.value]));
+      if (earnCfg.enabled === 'true') {
+        const earnPer100   = parseFloat(earnCfg.earn_per_100 ?? '1');
+        const minMarginPct = parseFloat(earnCfg.min_margin_pct ?? '5');
+        const eligibleAmount = calcItems.reduce((sum, { dto: item, product, calc }) => {
+          const costPrice = Number((product as any).costPrice ?? 0);
+          if (costPrice <= 0) return sum + calc.totalAmount;
+          const unitPriceExTax = calc.taxable / item.quantity;
+          const margin = ((unitPriceExTax - costPrice) / unitPriceExTax) * 100;
+          return margin >= minMarginPct ? sum + calc.totalAmount : sum;
+        }, 0);
+        loyaltyPointsEarned = Math.round(Math.floor(eligibleAmount / 100) * earnPer100);
+        loyaltyNetDelta = loyaltyPointsEarned - loyaltyPointsToRedeem;
+      }
+    }
 
     // ── 6. Atomic transaction ────────────────────────────
     const validityDate = isEstimate
@@ -577,31 +642,12 @@ export class PosService {
       for (let idx = 0; idx < calcItems.length; idx++) {
         const { dto: item, product, tax, calc } = calcItems[idx];
         const cessAmt = cessAmounts[idx];
-        await tx.salesItem.create({
-          data: {
-            billId:          bill.id,
-            productId:       item.productId,
-            taxId:           item.taxId,
-            productName:     product.name,
-            hsnCode:         product.hsnCode,
-            quantity:        item.quantity,
-            unitPrice:       item.unitPrice,
-            discountPercent: item.discountPercent ?? 0,
-            discountAmount:  calc.discountAmt,
-            taxableAmount:   calc.taxable,
-            gstRatePercent:  Number(tax.taxRate),
-            cgstAmount:      calc.cgst,
-            sgstAmount:      calc.sgst,
-            igstAmount:      calc.igst,
-            totalAmount:     r2(calc.totalAmount + cessAmt),
-            unitOfMeasure:   product.unitOfMeasure,
-            mrp:             Number(product.mrp),
-            isPriceOverridden: item.isPriceOverridden ?? false,
-            originalPrice:     item.originalPrice ?? null,
-            overrideReason:    item.overrideReason ?? null,
-            ...({ cessAmount: cessAmt } as any),
-          },
-        });
+
+        // Determine (and decrement) the PLU(s) this line actually sells from
+        // *before* creating the SalesItem row, so pluId can be recorded —
+        // it's what lets voidBill()/createCreditNote() restore stock to the
+        // exact original batch instead of silently no-op'ing.
+        let firstPluId: string | null = null;
 
         if (!isEstimate) {
           await tx.stockLedger.create({
@@ -616,16 +662,11 @@ export class PosService {
             },
           });
 
-          // Deduct PLU stock in FEFO order (expiry-tracked) or FIFO (non-tracked)
-          const orderBy: any[] = product.expiryTracking
-            ? [{ expiryDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }]
-            : [{ createdAt: 'asc' }];
-
-          const plus = await tx.productPlu.findMany({
-            where: { productId: item.productId, businessId, isActive: true, stockOnHand: { gt: 0 } },
-            orderBy,
-            select: { id: true, stockOnHand: true },
-          });
+          // Deduct PLU stock in FEFO order (expiry-tracked) or FIFO (non-tracked).
+          // Candidates are row-locked (FOR UPDATE) for the rest of this
+          // transaction so a concurrent sale of the same product can't
+          // interleave a stale read between here and the decrement below.
+          const plus = await lockPluCandidatesForDeduction(tx, businessId, item.productId, product.expiryTracking);
 
           let remaining = item.quantity;
           for (const plu of plus) {
@@ -640,6 +681,7 @@ export class PosService {
                 ...(newStock <= 0 ? { isActive: false } : {}),
               },
             });
+            firstPluId = firstPluId ?? plu.id;
             remaining -= deduct;
           }
 
@@ -663,6 +705,33 @@ export class PosService {
             data:  { totalStock: Number(stockAgg._sum.stockOnHand ?? 0) } as any,
           });
         }
+
+        await tx.salesItem.create({
+          data: {
+            billId:          bill.id,
+            productId:       item.productId,
+            pluId:           firstPluId,
+            taxId:           item.taxId,
+            productName:     product.name,
+            hsnCode:         product.hsnCode,
+            quantity:        item.quantity,
+            unitPrice:       item.unitPrice,
+            discountPercent: item.discountPercent ?? 0,
+            discountAmount:  calc.discountAmt,
+            taxableAmount:   calc.taxable,
+            gstRatePercent:  Number(tax.taxRate),
+            cgstAmount:      calc.cgst,
+            sgstAmount:      calc.sgst,
+            igstAmount:      calc.igst,
+            totalAmount:     r2(calc.totalAmount + cessAmt),
+            unitOfMeasure:   product.unitOfMeasure,
+            mrp:             Number(product.mrp),
+            isPriceOverridden: item.isPriceOverridden ?? false,
+            originalPrice:     item.originalPrice ?? null,
+            overrideReason:    item.overrideReason ?? null,
+            ...({ cessAmount: cessAmt } as any),
+          },
+        });
       }
 
       // 6e. Update shift totals — estimates don't affect shift
@@ -695,46 +764,27 @@ export class PosService {
         });
       }
 
+      // 6g. Loyalty points earn/redeem — atomic with the bill itself, so a
+      // redeemed discount is never granted without the debit actually landing.
+      if (dto.customerId && (loyaltyNetDelta !== 0 || loyaltyPointsEarned > 0)) {
+        await tx.customer.update({
+          where: { id: dto.customerId },
+          data: { loyaltyPoints: { increment: loyaltyNetDelta } },
+        });
+        if (loyaltyPointsEarned > 0) {
+          await tx.salesBill.update({
+            where: { id: bill.id },
+            data: { loyaltyPointsEarned },
+          });
+        }
+      }
+
       // Return full bill with items
       return tx.salesBill.findUnique({
         where: { id: bill.id },
         include: { items: true, branch: true, posCounter: true },
       });
     }, { timeout: 15000 });
-
-    // Loyalty points: earn + redeem (fire-and-forget, skip for estimates)
-    if (!isEstimate && dto.customerId) {
-      const loyaltyConfig = await this.prisma.systemSetting.findMany({
-        where: { businessId, key: { in: ['loyalty.enabled', 'loyalty.earn_per_100', 'loyalty.min_margin_pct'] } },
-      });
-      const cfg = Object.fromEntries(loyaltyConfig.map((r) => [r.key.replace('loyalty.', ''), r.value]));
-      if (cfg.enabled === 'true') {
-        const earnPer100   = parseFloat(cfg.earn_per_100 ?? '1');
-        const minMarginPct = parseFloat(cfg.min_margin_pct ?? '5');
-        // Only count items whose margin >= minMarginPct
-        const eligibleAmount = calcItems.reduce((sum, { dto: item, product, calc }) => {
-          const costPrice = Number((product as any).costPrice ?? 0);
-          if (costPrice <= 0) return sum + calc.totalAmount; // no cost data → eligible
-          const unitPriceExTax = calc.taxable / item.quantity;
-          const margin = ((unitPriceExTax - costPrice) / unitPriceExTax) * 100;
-          return margin >= minMarginPct ? sum + calc.totalAmount : sum;
-        }, 0);
-        const pointsEarned = Math.floor(eligibleAmount / 100) * earnPer100;
-        const netDelta     = Math.round(pointsEarned) - loyaltyPointsToRedeem;
-        if (netDelta !== 0 || loyaltyPointsToRedeem > 0) {
-          this.prisma.customer.update({
-            where: { id: dto.customerId },
-            data: { loyaltyPoints: { increment: netDelta } },
-          }).catch(() => {});
-          if (bill?.id && pointsEarned > 0) {
-            this.prisma.salesBill.update({
-              where: { id: bill.id },
-              data: { loyaltyPointsEarned: Math.round(pointsEarned) },
-            }).catch(() => {});
-          }
-        }
-      }
-    }
 
     // Fire-and-forget stock check (skip for estimates)
     if (!isEstimate) {
@@ -839,7 +889,7 @@ export class PosService {
 
     const branchId = counter.branchId;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // Stock check
       for (const item of estimate.items) {
         const agg = await tx.stockLedger.aggregate({ where: { productId: item.productId, branchId }, _sum: { quantity: true } });
@@ -889,13 +939,69 @@ export class PosService {
         },
       });
 
-      // Copy items + deduct stock
+      // Copy items + deduct stock — same FEFO/PLU-sync pattern as a normal
+      // bill (pos.service.ts create(), step 6d). The estimate-stage stock
+      // check above only reads the StockLedger aggregate; this is the loop
+      // that actually decrements real sellable stock, which the old code
+      // here never did (it only wrote a StockLedger row and left
+      // ProductPlu.stockOnHand / Product.totalStock untouched).
+      const touchedProductIds = new Set<string>();
       for (const item of estimate.items) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+
+        let firstPluId: string | null = null;
+        if (product) {
+          const plus = await lockPluCandidatesForDeduction(tx, businessId, item.productId, product.expiryTracking);
+          let remaining = Number(item.quantity);
+          for (const plu of plus) {
+            if (remaining <= 0) break;
+            const deduct   = Math.min(remaining, Number(plu.stockOnHand));
+            const newStock = Number(plu.stockOnHand) - deduct;
+            await tx.productPlu.update({
+              where: { id: plu.id },
+              data:  {
+                stockOnHand: { decrement: deduct },
+                soldQty:     { increment: deduct },
+                ...(newStock <= 0 ? { isActive: false } : {}),
+              },
+            });
+            firstPluId = firstPluId ?? plu.id;
+            remaining -= deduct;
+          }
+          if (remaining > 0 && !product.allowNegativeStock) {
+            throw new BadRequestException(`Insufficient PLU stock for "${product.name}" while converting estimate — please sync inventory.`);
+          }
+          touchedProductIds.add(item.productId);
+        }
+
         await tx.salesItem.create({
-          data: { ...item, id: undefined, billId: newBill.id } as any,
+          data: { ...item, id: undefined, billId: newBill.id, pluId: firstPluId } as any,
         });
         await tx.stockLedger.create({
           data: { businessId, branchId, productId: item.productId, movementType: 'SALE', quantity: -Number(item.quantity), referenceType: 'SALES_BILL', referenceId: newBill.id },
+        });
+      }
+
+      for (const productId of touchedProductIds) {
+        const stockAgg = await tx.productPlu.aggregate({
+          where: { productId, isActive: true, isArchived: false },
+          _sum:  { stockOnHand: true },
+        });
+        await tx.product.update({ where: { id: productId }, data: { totalStock: Number(stockAgg._sum.stockOnHand ?? 0) } as any });
+      }
+
+      // Update shift totals — a converted estimate is a real cash sale and
+      // must land in the cashier's shift the same way a normal bill does
+      // (create()'s step 6e), otherwise end-of-shift cash reconciliation
+      // would be short by exactly this amount.
+      if (estimate.shiftId) {
+        await tx.posShift.update({
+          where: { id: estimate.shiftId },
+          data: {
+            totalSales: { increment: Number(estimate.grandTotal) },
+            totalBills: { increment: 1 },
+            totalCash:  { increment: Number(estimate.grandTotal) },
+          },
         });
       }
 
@@ -907,6 +1013,28 @@ export class PosService {
 
       return newBill;
     }, { timeout: 15000 });
+
+    // Auto-post journal entry — fire-and-forget, matching create()'s pattern.
+    // Without this, every converted-estimate sale had zero GL footprint.
+    this.journalBridge.postSaleJournal({
+      id:            (result as any).id,
+      businessId,
+      billNumber:    (result as any).billNumber,
+      grandTotal:    (result as any).grandTotal,
+      taxableAmount: (result as any).taxableAmount,
+      cgstTotal:     (result as any).cgstTotal,
+      sgstTotal:     (result as any).sgstTotal,
+      igstTotal:     (result as any).igstTotal,
+      paymentMode:   (result as any).paymentMode,
+      saleType:      (result as any).saleType,
+      paidAmount:    (result as any).paidAmount,
+      balanceAmount: (result as any).balanceAmount,
+      cashAmount:    (result as any).cashAmount,
+      upiAmount:     (result as any).upiAmount,
+      cardAmount:    (result as any).cardAmount,
+    }).catch(() => {});
+
+    return result;
   }
 
   async cancelEstimate(businessId: string, estimateId: string) {
@@ -1413,8 +1541,10 @@ export class PosService {
 
     // Run void in transaction
     await this.prisma.$transaction(async (tx) => {
-      await tx.salesBill.update({
-        where: { id: billId },
+      // Conditional on isVoided: false — closes the double-void race where two
+      // concurrent requests both pass the isVoided check above before either commits.
+      const { count } = await tx.salesBill.updateMany({
+        where: { id: billId, isVoided: false },
         data: {
           isVoided:    true,
           voidedAt:    new Date(),
@@ -1423,6 +1553,7 @@ export class PosService {
           voidReason:  reason,
         },
       });
+      if (count === 0) throw new BadRequestException('Bill is already voided');
 
       for (const item of bill.items) {
         await tx.stockLedger.create({
@@ -1439,7 +1570,7 @@ export class PosService {
         });
 
         // Restore PLU.stockOnHand to exact original PLU (even if archived — void = sale never happened)
-        const voidPluId = (item as any).pluId as string | null;
+        const voidPluId = item.pluId;
         if (voidPluId) {
           await tx.productPlu.update({
             where: { id: voidPluId },
@@ -1463,6 +1594,31 @@ export class PosService {
         });
       }
 
+      // Reverse this bill's contribution to its shift totals — a void only
+      // ever targets a same-shift bill (enforced above), and without this the
+      // shift's own running totals stay inflated by a sale that never
+      // happened, showing a phantom cash shortfall at end-of-shift close
+      // (closeShift() trusts shift.totalCash directly, it doesn't recompute
+      // from SalesBill).
+      if (bill.shiftId) {
+        const shiftDec: Record<string, any> = {
+          totalSales: { decrement: Number(bill.grandTotal) },
+          totalBills: { decrement: 1 },
+        };
+        if (bill.paymentMode === 'CASH') {
+          shiftDec.totalCash = { decrement: Number(bill.paidAmount) };
+        } else if (bill.paymentMode === 'UPI') {
+          shiftDec.totalUpi = { decrement: Number(bill.paidAmount) };
+        } else if (bill.paymentMode === 'CARD') {
+          shiftDec.totalCard = { decrement: Number(bill.paidAmount) };
+        } else if (bill.paymentMode === 'SPLIT') {
+          if (bill.cashAmount) shiftDec.totalCash = { decrement: Number(bill.cashAmount) };
+          if (bill.upiAmount)  shiftDec.totalUpi  = { decrement: Number(bill.upiAmount) };
+          if (bill.cardAmount) shiftDec.totalCard = { decrement: Number(bill.cardAmount) };
+        }
+        await tx.posShift.update({ where: { id: bill.shiftId }, data: shiftDec });
+      }
+
       await tx.auditLog.create({
         data: {
           businessId,
@@ -1478,6 +1634,26 @@ export class PosService {
         },
       });
     }, { timeout: 15000 });
+
+    // Reverse the GL entry the original sale posted — without this a voided
+    // bill left its revenue/tax/cash lines standing in the ledger forever.
+    this.journalBridge.postSaleJournal({
+      id:            bill.id,
+      businessId,
+      billNumber:    bill.billNumber,
+      grandTotal:    bill.grandTotal,
+      taxableAmount: bill.taxableAmount,
+      cgstTotal:     bill.cgstTotal,
+      sgstTotal:     bill.sgstTotal,
+      igstTotal:     bill.igstTotal,
+      paymentMode:   bill.paymentMode,
+      saleType:      bill.saleType,
+      paidAmount:    bill.paidAmount,
+      balanceAmount: bill.balanceAmount,
+      cashAmount:    bill.cashAmount,
+      upiAmount:     bill.upiAmount,
+      cardAmount:    bill.cardAmount,
+    } as any, true).catch(() => {});
 
     this.notifications.create({
       businessId,
@@ -1669,7 +1845,7 @@ export class PosService {
 
         // Restore to original PLU so item sells at printed MRP (legal requirement)
         const origBillItem = originalItemMap.get(item.productId);
-        const origPluId = (origBillItem as any)?.pluId ?? null;
+        const origPluId = origBillItem?.pluId ?? null;
         if (origPluId) {
           await tx.productPlu.update({
             where: { id: origPluId },
@@ -1725,6 +1901,20 @@ export class PosService {
       priority: 'NORMAL',
       title:    `Credit Note Created: ${cn.creditNoteNumber}`,
       message:  `Against bill ${originalBill.billNumber}. Amount: Rs.${r2(totalAmount)}. Mode: ${dto.refundMode}`,
+    }).catch(() => {});
+
+    // Reverse the returned items' share of the original sale journal — this
+    // never existed before, meaning a sale return had zero GL footprint.
+    this.journalBridge.postSaleReturnJournal({
+      id:               cn.id,
+      businessId,
+      creditNoteNumber: cn.creditNoteNumber,
+      subtotalAmount:   (cn as any).subtotalAmount,
+      taxAmount:        (cn as any).taxAmount,
+      cgstAmount:       (cn as any).cgstAmount,
+      sgstAmount:       (cn as any).sgstAmount,
+      igstAmount:       (cn as any).igstAmount,
+      refundMode:       cn.refundMode,
     }).catch(() => {});
 
     return cn;

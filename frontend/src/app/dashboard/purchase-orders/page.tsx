@@ -16,10 +16,10 @@ interface PO {
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT:               'bg-gray-100 text-gray-700',
-  SENT:                'bg-blue-100 text-blue-700',
-  PARTIALLY_RECEIVED:  'bg-amber-100 text-amber-700',
-  RECEIVED:            'bg-green-100 text-green-700',
-  CANCELLED:           'bg-red-100 text-red-700',
+  SENT:                'bg-blue-50 text-blue-700',
+  PARTIALLY_RECEIVED:  'bg-amber-50 text-amber-700',
+  RECEIVED:            'bg-green-50 text-green-700',
+  CANCELLED:           'bg-red-50 text-red-700',
 };
 
 const STATUS_ICON: Record<string, any> = {
@@ -67,11 +67,11 @@ export default function PurchaseOrdersPage() {
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-100 rounded-lg">
+          <div className="p-2 bg-indigo-50 rounded-lg">
             <ShoppingCart className="w-6 h-6 text-indigo-600" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Purchase Orders</h1>
+            <h1 className="text-xl font-semibold text-gray-900 tracking-tight">Purchase Orders</h1>
             <p className="text-sm text-gray-500">Manual and auto-generated POs from reorder alerts</p>
           </div>
         </div>
@@ -113,7 +113,7 @@ export default function PurchaseOrdersPage() {
       {/* PO list */}
       {isLoading && <div className="text-center py-12 text-gray-400">Loading…</div>}
       {!isLoading && pos.length === 0 && (
-        <div className="bg-white border rounded-xl p-12 text-center text-gray-400">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center text-gray-400">
           <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p className="font-medium">No purchase orders yet</p>
           <p className="text-sm mt-1">Auto-generated POs appear here when stock drops below reorder level</p>
@@ -126,11 +126,11 @@ export default function PurchaseOrdersPage() {
           const totalItems = po.items.length;
           const receivedItems = po.items.filter(i => Number(i.qtyReceived) >= Number(i.qtyOrdered)).length;
           return (
-            <div key={po.id} className="bg-white border rounded-xl p-4 hover:border-indigo-300 transition-colors">
+            <div key={po.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:border-indigo-300 transition-colors">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-lg ${STATUS_COLORS[po.status]?.replace('text-', 'bg-').replace('bg-', 'bg-').split(' ')[0]} bg-opacity-20`}>
-                    <Icon className="w-4 h-4" />
+                  <div className={`p-2 rounded-lg ${STATUS_COLORS[po.status]?.split(' ')[0] ?? 'bg-gray-100'}`}>
+                    <Icon className={`w-4 h-4 ${STATUS_COLORS[po.status]?.split(' ')[1] ?? 'text-gray-600'}`} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">

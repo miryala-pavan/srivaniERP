@@ -92,6 +92,125 @@ export class WhatsAppService implements OnModuleInit {
     return this.getCredentials();
   }
 
+  // ── Saved phone number presets ──────────────────────────────────────────────
+
+  /**
+   * Lists saved number presets. If none exist yet but legacy single-number
+   * credentials are already configured (from before this feature existed),
+   * auto-migrates them into a first "Current Number" preset so they don't
+   * just disappear from the new UI.
+   */
+  async listPhoneNumbers(businessId: string) {
+    const existing = await this.prisma.waPhoneNumber.count({ where: { businessId } });
+    if (existing === 0 && this.token && this.phoneId && this.wabaId) {
+      await this.prisma.waPhoneNumber.create({
+        data: {
+          businessId, label: 'Current Number',
+          accessToken: this.token, phoneNumberId: this.phoneId, businessAccountId: this.wabaId,
+          storeNotifyNumber: this.storeNum, isActive: true,
+        },
+      }).catch(() => null); // ignore races / unique conflicts
+    }
+    return this.prisma.waPhoneNumber.findMany({
+      where: { businessId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, label: true, phoneNumberId: true, businessAccountId: true, storeNotifyNumber: true, isActive: true, createdAt: true },
+    });
+  }
+
+  async savePhoneNumber(businessId: string, dto: {
+    id?: string; label: string; accessToken?: string; phoneNumberId: string; businessAccountId: string; storeNotifyNumber?: string;
+  }) {
+    const label             = dto.label.trim();
+    const phoneNumberId     = dto.phoneNumberId.trim();
+    const businessAccountId = dto.businessAccountId.trim();
+    if (!label || !phoneNumberId || !businessAccountId) {
+      throw new Error('Label, Phone Number ID, and Business Account ID are required');
+    }
+
+    if (dto.id) {
+      const existing = await this.prisma.waPhoneNumber.findFirst({ where: { id: dto.id, businessId } });
+      if (!existing) throw new Error('Number not found');
+      await this.prisma.waPhoneNumber.update({
+        where: { id: dto.id },
+        data: {
+          label, phoneNumberId, businessAccountId,
+          storeNotifyNumber: dto.storeNotifyNumber?.trim() || null,
+          ...(dto.accessToken?.trim() ? { accessToken: dto.accessToken.trim() } : {}),
+        },
+      });
+    } else {
+      if (!dto.accessToken?.trim()) throw new Error('Access token is required for a new number');
+      await this.prisma.waPhoneNumber.create({
+        data: {
+          businessId, label, phoneNumberId, businessAccountId,
+          accessToken: dto.accessToken.trim(),
+          storeNotifyNumber: dto.storeNotifyNumber?.trim() || null,
+        },
+      });
+    }
+    return this.listPhoneNumbers(businessId);
+  }
+
+  async deletePhoneNumber(businessId: string, id: string) {
+    await this.prisma.waPhoneNumber.deleteMany({ where: { id, businessId } });
+    return this.listPhoneNumbers(businessId);
+  }
+
+  /** Copies a saved preset's values into the live wa.* credentials the sending pipeline already reads — no change needed to any send method. */
+  async activatePhoneNumber(businessId: string, id: string) {
+    const preset = await this.prisma.waPhoneNumber.findFirst({ where: { id, businessId } });
+    if (!preset) throw new Error('Number not found');
+
+    await this.saveCredentials(businessId, {
+      token: preset.accessToken,
+      phoneId: preset.phoneNumberId,
+      wabaId: preset.businessAccountId,
+      storeNum: preset.storeNotifyNumber ?? undefined,
+    });
+
+    await this.prisma.$transaction([
+      this.prisma.waPhoneNumber.updateMany({ where: { businessId }, data: { isActive: false } }),
+      this.prisma.waPhoneNumber.update({ where: { id }, data: { isActive: true } }),
+    ]);
+
+    return this.listPhoneNumbers(businessId);
+  }
+
+  // ── Business profile (Meta's own "About this business" panel) ─────────────────
+
+  async getBusinessProfile() {
+    if (!this.token || !this.phoneId) return { error: 'WhatsApp not configured' };
+    try {
+      const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/whatsapp_business_profile?fields=about,address,description,email,profile_picture_url,websites,vertical`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+      const data = await res.json();
+      if (!res.ok) return { error: data };
+      return data?.data?.[0] ?? {};
+    } catch (err) {
+      return { error: String(err) };
+    }
+  }
+
+  async updateBusinessProfile(dto: {
+    about?: string; address?: string; description?: string; email?: string; websites?: string[]; vertical?: string;
+  }) {
+    if (!this.token || !this.phoneId) return { ok: false, error: 'WhatsApp not configured' };
+    try {
+      const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/whatsapp_business_profile`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', ...dto }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  }
+
   // ── Message log ──────────────────────────────────────────────────────────────
 
   async listMessages(
@@ -139,25 +258,78 @@ export class WhatsAppService implements OnModuleInit {
     const unreadMap = new Map(unreadRows.map(r => [r.phone, r._count._all]));
 
     const phones = latest.map(l => l.phone);
-    const customers = phones.length
-      ? await this.prisma.customer.findMany({
-          where: { businessId, phone: { in: phones } },
-          select: { phone: true, name: true },
-        })
-      : [];
+    const [customers, convMeta] = await Promise.all([
+      this.prisma.customer.findMany({
+        where: { businessId, phone: { in: phones } },
+        select: { phone: true, name: true },
+      }),
+      this.prisma.waConversation.findMany({
+        where: { businessId, phone: { in: phones } },
+        select: { phone: true, status: true, pinned: true, labels: true },
+      }),
+    ]);
     const nameMap = new Map(customers.map(c => [c.phone, c.name]));
+    const metaMap = new Map(convMeta.map(m => [m.phone, m]));
 
     return latest
-      .map(l => ({
-        phone: l.phone,
-        customerName: nameMap.get(l.phone) ?? null,
-        lastMessage: l.bodyPreview,
-        lastMessageType: l.messageType,
-        lastDirection: l.direction,
-        lastAt: l.createdAt,
-        lastStatus: l.status,
-        unreadCount: unreadMap.get(l.phone) ?? 0,
-      }))
+      .map(l => {
+        const meta = metaMap.get(l.phone);
+        return {
+          phone: l.phone,
+          customerName: nameMap.get(l.phone) ?? null,
+          lastMessage: l.bodyPreview,
+          lastMessageType: l.messageType,
+          lastDirection: l.direction,
+          lastAt: l.createdAt,
+          lastStatus: l.status,
+          unreadCount: unreadMap.get(l.phone) ?? 0,
+          convStatus: meta?.status ?? 'OPEN',
+          pinned: meta?.pinned ?? false,
+          labels: meta?.labels ?? [],
+        };
+      })
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+      });
+  }
+
+  /** Fetches or lazily creates the organization state (status/pinned/labels) for one conversation. */
+  async getConversationMeta(businessId: string, phone: string) {
+    const to = this.e164(phone) ?? phone;
+    const meta = await this.prisma.waConversation.findUnique({ where: { businessId_phone: { businessId, phone: to } } });
+    return meta ?? { status: 'OPEN' as const, pinned: false, labels: [] as string[] };
+  }
+
+  async updateConversationMeta(businessId: string, phone: string, data: {
+    status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[];
+  }) {
+    const to = this.e164(phone) ?? phone;
+    const meta = await this.prisma.waConversation.upsert({
+      where:  { businessId_phone: { businessId, phone: to } },
+      update: data,
+      create: { businessId, phone: to, ...data },
+    });
+    return meta;
+  }
+
+  /** Simple substring search over logged message previews (max ~200 chars/message), grouped to matching conversations. */
+  async searchMessages(businessId: string, query: string) {
+    const q = query.trim();
+    if (!q) return [];
+    const rows = await this.prisma.$queryRaw<{ phone: string; bodyPreview: string | null; createdAt: Date }[]>`
+      SELECT DISTINCT ON (phone) phone, "bodyPreview", "createdAt"
+      FROM wa_message
+      WHERE "businessId" = ${businessId} AND "bodyPreview" ILIKE ${'%' + q + '%'}
+      ORDER BY phone, "createdAt" DESC
+      LIMIT 30`;
+    const phones = rows.map(r => r.phone);
+    const customers = phones.length
+      ? await this.prisma.customer.findMany({ where: { businessId, phone: { in: phones } }, select: { phone: true, name: true } })
+      : [];
+    const nameMap = new Map(customers.map(c => [c.phone, c.name]));
+    return rows
+      .map(r => ({ phone: r.phone, customerName: nameMap.get(r.phone) ?? null, matchPreview: r.bodyPreview, lastAt: r.createdAt }))
       .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
   }
 
@@ -235,11 +407,54 @@ export class WhatsAppService implements OnModuleInit {
 
   /** Marks all unread inbound messages in this conversation as read by staff. */
   async markConversationRead(businessId: string, phone: string) {
+    const unread = await this.prisma.waMessage.findMany({
+      where: { businessId, phone, direction: 'INBOUND', readByStaffAt: null },
+      select: { waMessageId: true },
+    });
+
     const result = await this.prisma.waMessage.updateMany({
       where: { businessId, phone, direction: 'INBOUND', readByStaffAt: null },
       data: { readByStaffAt: new Date() },
     });
+
+    // Tell Meta so the customer sees blue read ticks — best-effort, doesn't
+    // block the staff-side read tracking above if Meta's API is unavailable.
+    if (this.token && this.phoneId) {
+      for (const m of unread) {
+        fetch(`https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: m.waMessageId }),
+        }).catch(() => null);
+      }
+    }
+
     return { updated: result.count };
+  }
+
+  /**
+   * Shows the "typing…" indicator to the customer for a few seconds — piggybacks
+   * on the same read-receipt call, attached to their most recent inbound message.
+   * Best-effort/fire-and-forget: not worth failing the UI over.
+   */
+  async sendTypingIndicator(businessId: string, phone: string): Promise<void> {
+    if (!this.token || !this.phoneId) return;
+    const lastInbound = await this.prisma.waMessage.findFirst({
+      where: { businessId, phone: this.e164(phone) ?? phone, direction: 'INBOUND' },
+      orderBy: { createdAt: 'desc' },
+      select: { waMessageId: true },
+    });
+    if (!lastInbound) return;
+    fetch(`https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: lastInbound.waMessageId,
+        typing_indicator: { type: 'text' },
+      }),
+    }).catch(() => null);
   }
 
   /**
@@ -277,6 +492,26 @@ export class WhatsAppService implements OnModuleInit {
     phone: string,
     file: { buffer: Buffer; mimeType: string; filename: string },
   ): Promise<{ ok: boolean; reason?: string }> {
+    return this.sendMediaReply(businessId, phone, file, 'image', 'IMAGE', '[Image]');
+  }
+
+  /** Send any document (PDF, invoice, etc.) — same flow as images, different Meta message type. */
+  async sendDocumentReply(
+    businessId: string,
+    phone: string,
+    file: { buffer: Buffer; mimeType: string; filename: string },
+  ): Promise<{ ok: boolean; reason?: string }> {
+    return this.sendMediaReply(businessId, phone, file, 'document', 'DOCUMENT', `[Document] ${file.filename}`);
+  }
+
+  private async sendMediaReply(
+    businessId: string,
+    phone: string,
+    file: { buffer: Buffer; mimeType: string; filename: string },
+    metaType: 'image' | 'document',
+    messageType: string,
+    bodyPreview: string,
+  ): Promise<{ ok: boolean; reason?: string }> {
     const window = await this.getSessionWindowStatus(businessId, phone);
     if (!window.open) {
       return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule). Send a template instead.' };
@@ -299,16 +534,61 @@ export class WhatsAppService implements OnModuleInit {
         return { ok: false, reason: JSON.stringify(uploadData) };
       }
 
+      const mediaPayload = metaType === 'document'
+        ? { id: uploadData.id, filename: file.filename }
+        : { id: uploadData.id };
       const result = await this.logAndSend(
         businessId,
-        { to, type: 'image', image: { id: uploadData.id } },
-        { phone: to, messageType: 'IMAGE', bodyPreview: '[Image]', mediaId: uploadData.id },
+        { to, type: metaType, [metaType]: mediaPayload },
+        { phone: to, messageType, bodyPreview, mediaId: uploadData.id },
       );
       if (!result.ok) return { ok: false, reason: JSON.stringify(result.data) };
       return { ok: true };
     } catch (err) {
       return { ok: false, reason: String(err) };
     }
+  }
+
+  /** Sends an emoji reaction to a specific inbound/outbound message. Pass emoji: '' to remove a reaction. */
+  async sendReaction(businessId: string, phone: string, messageId: string, emoji: string): Promise<{ ok: boolean; reason?: string }> {
+    const window = await this.getSessionWindowStatus(businessId, phone);
+    if (!window.open) return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule).' };
+    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    const to = this.e164(phone);
+    if (!to) return { ok: false, reason: 'Invalid phone number' };
+
+    const result = await this.logAndSend(
+      businessId,
+      { to, type: 'reaction', reaction: { message_id: messageId, emoji } },
+      { phone: to, messageType: 'REACTION', bodyPreview: emoji || '(removed)' },
+    );
+    if (!result.ok) return { ok: false, reason: JSON.stringify(result.data) };
+    return { ok: true };
+  }
+
+  /** Sends the store's location as a native WhatsApp location message. */
+  async sendLocation(
+    businessId: string, phone: string,
+    location: { latitude: number; longitude: number; name?: string; address?: string },
+    opts?: { isAutoReply?: boolean },
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const window = await this.getSessionWindowStatus(businessId, phone);
+    if (!window.open) return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule).' };
+    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    const to = this.e164(phone);
+    if (!to) return { ok: false, reason: 'Invalid phone number' };
+
+    const result = await this.logAndSend(
+      businessId,
+      { to, type: 'location', location },
+      {
+        phone: to, messageType: 'LOCATION',
+        bodyPreview: location.name ?? `${location.latitude},${location.longitude}`,
+        isAutoReply: opts?.isAutoReply,
+      },
+    );
+    if (!result.ok) return { ok: false, reason: JSON.stringify(result.data) };
+    return { ok: true };
   }
 
   /**
@@ -357,11 +637,70 @@ export class WhatsAppService implements OnModuleInit {
       ORDER BY name`;
   }
 
+  /** Segment definitions for broadcast campaigns, with live counts. */
+  async getCampaignSegments(businessId: string) {
+    const allOptedIn = await this.prisma.customer.count({
+      where: { businessId, whatsappOptIn: true, phone: { not: null } },
+    });
+    const winBackRows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(*) as count FROM customer c
+      WHERE c."businessId" = ${businessId}
+        AND c."whatsappOptIn" = true
+        AND c.phone IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM online_order o
+          WHERE o."customerPhone" = c.phone AND o."businessId" = ${businessId}
+            AND o."createdAt" > NOW() - INTERVAL '30 days'
+        )`;
+    return [
+      { id: 'ALL_OPTED_IN', label: 'All opted-in customers',           count: allOptedIn },
+      { id: 'WIN_BACK_30D', label: 'No orders in 30+ days (win-back)', count: Number(winBackRows[0]?.count ?? 0) },
+    ];
+  }
+
+  private async getSegmentCustomers(businessId: string, segmentId: string): Promise<{ phone: string; name: string }[]> {
+    if (segmentId === 'ALL_OPTED_IN') {
+      const rows = await this.prisma.customer.findMany({
+        where: { businessId, whatsappOptIn: true, phone: { not: null } },
+        select: { phone: true, name: true },
+      });
+      return rows.filter((r): r is { phone: string; name: string } => !!r.phone);
+    }
+    if (segmentId === 'WIN_BACK_30D') {
+      return this.prisma.$queryRaw<{ phone: string; name: string }[]>`
+        SELECT c.phone, c.name FROM customer c
+        WHERE c."businessId" = ${businessId}
+          AND c."whatsappOptIn" = true
+          AND c.phone IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM online_order o
+            WHERE o."customerPhone" = c.phone AND o."businessId" = ${businessId}
+              AND o."createdAt" > NOW() - INTERVAL '30 days'
+          )`;
+    }
+    return [];
+  }
+
+  /** Sends an approved template to every customer in a segment. Sequential to stay well under Meta's rate limits. */
+  async sendCampaign(businessId: string, segmentId: string, templateName: string, language: string, params: string[]) {
+    const customers = await this.getSegmentCustomers(businessId, segmentId);
+    let sent = 0, failed = 0;
+    for (const c of customers) {
+      const result = await this.sendTemplateToNumber(businessId, c.phone, templateName, language, params);
+      if (result.ok) sent++; else failed++;
+    }
+    return { total: customers.length, sent, failed };
+  }
+
   // ── Auto-reply (rule-based) ─────────────────────────────────────────────────
 
   private static readonly AUTOREPLY_KEYS = {
-    enabled:    'wa.autoreply_enabled',
-    storeHours: 'wa.store_hours_text',
+    enabled:        'wa.autoreply_enabled',
+    storeHours:     'wa.store_hours_text',
+    locationLat:    'wa.store_location_lat',
+    locationLng:    'wa.store_location_lng',
+    locationName:   'wa.store_location_name',
+    locationAddr:   'wa.store_location_address',
   } as const;
 
   async getAutoReplySettings(businessId: string) {
@@ -370,12 +709,19 @@ export class WhatsAppService implements OnModuleInit {
     });
     const map = new Map(rows.map(r => [r.key, r.value]));
     return {
-      enabled:    map.get(WhatsAppService.AUTOREPLY_KEYS.enabled) === 'true',
-      storeHours: map.get(WhatsAppService.AUTOREPLY_KEYS.storeHours) ?? '',
+      enabled:        map.get(WhatsAppService.AUTOREPLY_KEYS.enabled) === 'true',
+      storeHours:     map.get(WhatsAppService.AUTOREPLY_KEYS.storeHours) ?? '',
+      locationLat:    map.get(WhatsAppService.AUTOREPLY_KEYS.locationLat) ?? '',
+      locationLng:    map.get(WhatsAppService.AUTOREPLY_KEYS.locationLng) ?? '',
+      locationName:   map.get(WhatsAppService.AUTOREPLY_KEYS.locationName) ?? '',
+      locationAddr:   map.get(WhatsAppService.AUTOREPLY_KEYS.locationAddr) ?? '',
     };
   }
 
-  async updateAutoReplySettings(businessId: string, data: { enabled?: boolean; storeHours?: string }) {
+  async updateAutoReplySettings(businessId: string, data: {
+    enabled?: boolean; storeHours?: string;
+    locationLat?: string; locationLng?: string; locationName?: string; locationAddr?: string;
+  }) {
     const ops: Promise<any>[] = [];
     const upsert = (key: string, value: string) =>
       this.prisma.systemSetting.upsert({
@@ -383,8 +729,12 @@ export class WhatsAppService implements OnModuleInit {
         update: { value },
         create: { businessId, key, value },
       });
-    if (data.enabled !== undefined)    ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.enabled, String(data.enabled)));
-    if (data.storeHours !== undefined) ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.storeHours, data.storeHours));
+    if (data.enabled !== undefined)      ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.enabled, String(data.enabled)));
+    if (data.storeHours !== undefined)   ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.storeHours, data.storeHours));
+    if (data.locationLat !== undefined)  ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.locationLat, data.locationLat));
+    if (data.locationLng !== undefined)  ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.locationLng, data.locationLng));
+    if (data.locationName !== undefined) ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.locationName, data.locationName));
+    if (data.locationAddr !== undefined) ops.push(upsert(WhatsAppService.AUTOREPLY_KEYS.locationAddr, data.locationAddr));
     await Promise.all(ops);
     return this.getAutoReplySettings(businessId);
   }
@@ -392,20 +742,34 @@ export class WhatsAppService implements OnModuleInit {
   /**
    * Called from the webhook right after an inbound message is logged.
    * Rule-based only — no AI — so behavior is predictable and auditable:
-   *   1. A recognized menu button tap (Track Order / Store Hours / Talk to Staff)
-   *   2. Keyword match in free text (order/status/track, hours/timing)
-   *   3. First-ever inbound message from this number → welcome menu
+   *   1. Opt-in/opt-out keyword (START/SUBSCRIBE, STOP/UNSUBSCRIBE) — exact match, not substring
+   *   2. A recognized menu button tap (Track Order / Store Hours / Talk to Staff)
+   *   3. Keyword match in free text (order/status/track, hours/timing)
+   *   4. First-ever inbound message from this number → welcome menu
    */
-  async handleAutoReply(businessId: string, phone: string, opts: { messageBody?: string; buttonId?: string; listReplyId?: string }): Promise<void> {
+  async handleAutoReply(businessId: string, phone: string, opts: {
+    messageBody?: string; buttonId?: string; listReplyId?: string; senderName?: string;
+  }): Promise<void> {
     if (!(await this.getAutoReplySettings(businessId)).enabled) return;
 
-    const selection = opts.buttonId ?? opts.listReplyId;
-    if (selection === 'WA_TRACK_ORDER')  return this.autoReplyOrderStatus(businessId, phone);
-    if (selection === 'WA_STORE_HOURS')  return this.autoReplyStoreHours(businessId, phone);
-    if (selection === 'WA_TALK_STAFF')   return this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
-    if (selection === 'WA_BROWSE_STORE') return this.autoReplyText(businessId, phone, "🛒 Browse and order online here: https://shop.srivani.com");
+    // Exact match (not substring) — opting someone in/out by accident is worse
+    // than missing a loose keyword match, so this is deliberately strict.
+    const exact = (opts.messageBody ?? '').trim().toLowerCase();
+    if (exact === 'start' || exact === 'subscribe' || exact === 'join') {
+      return this.autoReplyOptIn(businessId, phone, opts.senderName);
+    }
+    if (exact === 'stop' || exact === 'unsubscribe') {
+      return this.autoReplyOptOut(businessId, phone);
+    }
 
-    const body = (opts.messageBody ?? '').toLowerCase();
+    const selection = opts.buttonId ?? opts.listReplyId;
+    if (selection === 'WA_TRACK_ORDER')    return this.autoReplyOrderStatus(businessId, phone);
+    if (selection === 'WA_STORE_HOURS')    return this.autoReplyStoreHours(businessId, phone);
+    if (selection === 'WA_TALK_STAFF')     return this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
+    if (selection === 'WA_BROWSE_STORE')   return this.autoReplyText(businessId, phone, "🛒 Browse and order online here: https://shop.srivani.com");
+    if (selection === 'WA_STORE_LOCATION') return this.autoReplyStoreLocation(businessId, phone);
+
+    const body = exact;
     if (/order|status|track/.test(body)) return this.autoReplyOrderStatus(businessId, phone);
     if (/hour|timing|open|close/.test(body)) return this.autoReplyStoreHours(businessId, phone);
 
@@ -415,6 +779,31 @@ export class WhatsAppService implements OnModuleInit {
     if (inboundCount <= 1) return this.autoReplyWelcome(businessId, phone);
   }
 
+  /** Opt-in keyword handler: creates the Customer if needed and flags whatsappOptIn=true. */
+  private async autoReplyOptIn(businessId: string, phone: string, senderName?: string) {
+    const to = this.e164(phone);
+    if (!to) return;
+    const existing = await this.prisma.customer.findFirst({ where: { businessId, phone: to } });
+    if (existing) {
+      if (!existing.whatsappOptIn) {
+        await this.prisma.customer.update({ where: { id: existing.id }, data: { whatsappOptIn: true } });
+      }
+    } else {
+      await this.prisma.customer.create({
+        data: { businessId, name: senderName?.trim() || `+${to}`, phone: to, channel: 'ONLINE', whatsappOptIn: true },
+      });
+    }
+    await this.autoReplyText(businessId, phone, "✅ You're subscribed! We'll send order updates and offers here. Reply STOP anytime to unsubscribe.");
+  }
+
+  /** Opt-out keyword handler: flips whatsappOptIn=false, doesn't delete the contact. */
+  private async autoReplyOptOut(businessId: string, phone: string) {
+    const to = this.e164(phone);
+    if (!to) return;
+    await this.prisma.customer.updateMany({ where: { businessId, phone: to }, data: { whatsappOptIn: false } });
+    await this.autoReplyText(businessId, phone, "You've been unsubscribed from offers and updates. Message START anytime to opt back in.");
+  }
+
   private async autoReplyWelcome(businessId: string, phone: string) {
     await this.autoReplyInteractiveList(
       businessId, phone,
@@ -422,9 +811,10 @@ export class WhatsAppService implements OnModuleInit {
       'Menu',
       [
         { id: 'WA_TRACK_ORDER',  title: 'Track Order',   description: 'Check the status of your latest order' },
-        { id: 'WA_BROWSE_STORE', title: 'Browse Store',  description: 'Shop online at shop.srivani.com' },
-        { id: 'WA_STORE_HOURS',  title: 'Store Hours',   description: 'When we\'re open' },
-        { id: 'WA_TALK_STAFF',   title: 'Talk to Staff', description: 'Chat with our team directly' },
+        { id: 'WA_BROWSE_STORE',   title: 'Browse Store',   description: 'Shop online at shop.srivani.com' },
+        { id: 'WA_STORE_HOURS',    title: 'Store Hours',    description: 'When we\'re open' },
+        { id: 'WA_STORE_LOCATION', title: 'Store Location', description: 'Get directions to our store' },
+        { id: 'WA_TALK_STAFF',     title: 'Talk to Staff',  description: 'Chat with our team directly' },
       ],
     );
   }
@@ -433,6 +823,22 @@ export class WhatsAppService implements OnModuleInit {
     const { storeHours } = await this.getAutoReplySettings(businessId);
     const hours = storeHours || 'Please contact the store directly for our timings.';
     await this.autoReplyText(businessId, phone, `🕒 Our store hours:\n${hours}`);
+  }
+
+  private async autoReplyStoreLocation(businessId: string, phone: string) {
+    const s = await this.getAutoReplySettings(businessId);
+    const lat = parseFloat(s.locationLat);
+    const lng = parseFloat(s.locationLng);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      await this.sendLocation(businessId, phone, {
+        latitude: lat, longitude: lng,
+        name: s.locationName || undefined,
+        address: s.locationAddr || undefined,
+      }, { isAutoReply: true });
+      return;
+    }
+    const fallback = s.locationAddr || 'Please contact the store directly for directions.';
+    await this.autoReplyText(businessId, phone, `📍 Our location:\n${fallback}`);
   }
 
   private async autoReplyOrderStatus(businessId: string, phone: string) {

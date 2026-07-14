@@ -20,9 +20,16 @@ import { BillQueryDto } from './dto/bill-query.dto';
 import { CreateHoldDto } from './dto/create-hold.dto';
 import { VoidBillDto } from './dto/void-bill.dto';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto';
+import { CreateHistoricalBillDto } from './dto/create-historical-bill.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
-@UseGuards(JwtAuthGuard)
+const POS_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'CASHIER', 'FLOOR_SUPERVISOR'];
+const REFUND_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER'];
+
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(...POS_ROLES)
 @Controller('pos')
 export class PosController {
   constructor(private posService: PosService) {}
@@ -173,6 +180,7 @@ export class PosController {
   // ─── CREDIT NOTES ─────────────────────────────────────
 
   @Post('credit-notes')
+  @Roles(...REFUND_ROLES)
   createCreditNote(@Request() req: any, @Body() dto: CreateCreditNoteDto) {
     const user = req.user;
     return this.posService.createCreditNote(
@@ -225,7 +233,7 @@ export class PosController {
   // ─── HISTORICAL BILLS ─────────────────────────────────
 
   @Post('historical-bill')
-  createHistoricalBill(@Request() req: any, @Body() dto: any) {
+  createHistoricalBill(@Request() req: any, @Body() dto: CreateHistoricalBillDto) {
     const user = req.user;
     if (!['SUPER_ADMIN', 'BRANCH_MANAGER'].includes(user.role)) {
       throw new ForbiddenException();

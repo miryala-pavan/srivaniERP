@@ -6,6 +6,7 @@ import { Events } from '../events/event-types';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { MovementQueryDto } from './dto/movement-query.dto';
 import { StockTakeDto } from './dto/stock-take.dto';
+import { lockPluCandidatesForDeduction } from '../common/helpers/stock-lock.util';
 
 @Injectable()
 export class InventoryService {
@@ -18,7 +19,7 @@ export class InventoryService {
   async adjust(businessId: string, dto: AdjustStockDto) {
     const product = await this.prisma.product.findFirst({
       where: { id: dto.productId, businessId, isActive: true },
-      select: { id: true, name: true, barcode: true, autoInactiveReason: true, reorderLevel: true, allowNegativeStock: true },
+      select: { id: true, name: true, barcode: true, autoInactiveReason: true, reorderLevel: true, allowNegativeStock: true, expiryTracking: true },
     });
     if (!product) throw new NotFoundException('Product not found');
 
@@ -28,41 +29,74 @@ export class InventoryService {
     if (!branch) throw new NotFoundException('Branch not found');
 
     const isIncoming = dto.adjustedQuantity > 0;
-
-    if (!isIncoming && !product.allowNegativeStock) {
-      const stockRows = await this.prisma.stockLedger.aggregate({
-        where:  { productId: dto.productId, branchId: dto.branchId },
-        _sum:   { quantity: true },
-      });
-      const current = Number(stockRows._sum.quantity ?? 0);
-      if (current + dto.adjustedQuantity < 0) {
-        throw new BadRequestException(
-          `Insufficient stock. Current: ${current}, Adjustment: ${dto.adjustedQuantity}`,
-        );
-      }
-    }
-
     const movementType = isIncoming ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT';
     const notes = [dto.type, dto.reason].filter(Boolean).join(' — ') || undefined;
 
-    const entry = await this.prisma.stockLedger.create({
-      data: {
-        businessId,
-        branchId:      dto.branchId,
-        productId:     dto.productId,
-        movementType:  movementType as any,
-        quantity:      dto.adjustedQuantity,
-        referenceType: 'ADJUSTMENT',
-        notes,
-      },
-    });
+    // Mirrors the stock-mutation shape already used by GRN receiving and POS
+    // sales: write the ledger row, then sync ProductPlu.stockOnHand and
+    // Product.totalStock in the same transaction — this is the field POS
+    // and the storefront actually check for availability, and this endpoint
+    // previously never touched it.
+    const { entry, currentStock } = await this.prisma.$transaction(async (tx) => {
+      let entry;
 
-    // Fetch updated stock
-    const agg = await this.prisma.stockLedger.aggregate({
-      where: { productId: dto.productId, branchId: dto.branchId },
-      _sum:  { quantity: true },
+      if (isIncoming) {
+        // FOUND / RECOUNT-up: add to the default PLU (mirrors stockTake()).
+        const defaultPlu = await tx.productPlu.findFirst({
+          where: { productId: dto.productId, businessId, isDefault: true, isArchived: false },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (!defaultPlu) {
+          throw new BadRequestException('This product has no active price/batch (PLU) to receive stock into — create one via a GRN first.');
+        }
+        entry = await tx.stockLedger.create({
+          data: {
+            businessId, branchId: dto.branchId, productId: dto.productId,
+            movementType: movementType as any, quantity: dto.adjustedQuantity,
+            referenceType: 'ADJUSTMENT', notes,
+          },
+        });
+        await tx.productPlu.update({
+          where: { id: defaultPlu.id },
+          data: { stockOnHand: { increment: dto.adjustedQuantity }, receivedQty: { increment: dto.adjustedQuantity }, isActive: true },
+        });
+      } else {
+        // DAMAGE / LOSS / EXPIRY: decrement FEFO across active PLUs, same
+        // pattern as the POS sale decrement. Candidates are row-locked for
+        // the rest of this transaction to close the same TOCTOU window.
+        const need = Math.abs(dto.adjustedQuantity);
+        const plus = await lockPluCandidatesForDeduction(tx, businessId, dto.productId, product.expiryTracking);
+        const totalAvailable = plus.reduce((s, p) => s + p.stockOnHand, 0);
+        if (need > totalAvailable && !product.allowNegativeStock) {
+          throw new BadRequestException(`Insufficient stock. Current: ${totalAvailable}, Adjustment: ${dto.adjustedQuantity}`);
+        }
+
+        entry = await tx.stockLedger.create({
+          data: {
+            businessId, branchId: dto.branchId, productId: dto.productId,
+            movementType: movementType as any, quantity: dto.adjustedQuantity,
+            referenceType: 'ADJUSTMENT', notes,
+          },
+        });
+
+        let remaining = need;
+        for (const plu of plus) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(remaining, Number(plu.stockOnHand));
+          await tx.productPlu.update({ where: { id: plu.id }, data: { stockOnHand: { decrement: deduct } } });
+          remaining -= deduct;
+        }
+        // Any remainder beyond tracked PLU stock only happens with
+        // allowNegativeStock — nothing left to decrement from, so it's
+        // absorbed by the ledger entry alone (matches how sales handle it).
+      }
+
+      const agg = await tx.productPlu.aggregate({ where: { productId: dto.productId, isArchived: false }, _sum: { stockOnHand: true } });
+      const currentStock = Number(agg._sum.stockOnHand ?? 0);
+      await tx.product.update({ where: { id: dto.productId }, data: { totalStock: currentStock } });
+
+      return { entry, currentStock };
     });
-    const currentStock = Number(agg._sum.quantity ?? 0);
 
     // Emit stock notifications for outgoing adjustments
     if (!isIncoming) {

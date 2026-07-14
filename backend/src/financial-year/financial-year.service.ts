@@ -127,18 +127,7 @@ export class FinancialYearService {
       ),
     ]);
 
-    // Stock value snapshot
-    const stockValue = await this.prisma.$queryRaw<{ total: string }[]>`
-      SELECT COALESCE(SUM(sl.quantity * p."costPrice"), 0)::text AS total
-      FROM stock_ledger sl
-      JOIN product p ON p.id = sl."productId"
-      WHERE sl."businessId" = ${businessId}
-        AND sl."movementType" IN ('PURCHASE','OPENING','RETURN_IN','ADJUSTMENT_IN')
-      MINUS
-      /* can't do raw arithmetic easily — use app-level fallback */
-    `.catch(() => [{ total: '0' }]);
-
-    // Simpler stock value via aggregate
+    // Stock value via aggregate
     const stockLedger = await this.prisma.stockLedger.groupBy({
       by:    ['productId'],
       where: { businessId },
@@ -308,6 +297,27 @@ export class FinancialYearService {
             numberFormat:    bs.numberFormat,
             isActive:        true,
           },
+        });
+      }
+
+      // 4. Roll the General Ledger's FiscalPeriod forward too. FinancialYear
+      // (billing/GST numbering) and FiscalPeriod (the GL's own open/closed
+      // gate — see JournalBridgeService) are separate models with no FK
+      // between them; without this, the old FiscalPeriod would stay OPEN
+      // forever and every journal for the new year would keep silently
+      // posting into last year's period (FiscalPeriodService.getOpen() only
+      // filters by status, not by date range). Only touch the GL if this
+      // business actually has one — a business that never ran onboarding's
+      // seedFiscalPeriod() has no FiscalPeriod rows at all, and isn't using
+      // the GL, so there's nothing to roll forward.
+      const glInUse = await tx.fiscalPeriod.findFirst({ where: { businessId } });
+      if (glInUse) {
+        await tx.fiscalPeriod.updateMany({
+          where: { businessId, status: 'OPEN' },
+          data:  { status: 'CLOSED' },
+        });
+        await tx.fiscalPeriod.create({
+          data: { businessId, name: `FY ${newFyCode}`, startDate: newStart, endDate: newEnd, status: 'OPEN' },
         });
       }
     });

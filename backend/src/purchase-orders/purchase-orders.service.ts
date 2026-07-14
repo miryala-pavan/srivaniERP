@@ -264,6 +264,11 @@ export class PurchaseOrdersService {
     if (po.status === 'CANCELLED') throw new BadRequestException('Cannot receive a cancelled PO');
     if (po.status === 'RECEIVED')  throw new BadRequestException('This PO is already fully received');
 
+    const remainingByItem = new Map(po.items.map(i => [i.id, Math.max(0, Number(i.qtyOrdered) - Number(i.qtyReceived))]));
+    if (![...remainingByItem.values()].some(q => q > 0)) {
+      throw new BadRequestException('All items on this PO have already been received — nothing left to receive');
+    }
+
     const branch = await this.prisma.branch.findFirst({
       where: { businessId, isActive: true, ...(body.branchId ? { id: body.branchId } : {}) },
       orderBy: { createdAt: 'asc' },
@@ -302,12 +307,12 @@ export class PurchaseOrdersService {
     let taxableTotal = 0, cgstTotal = 0, sgstTotal = 0, igstTotal = 0;
 
     const itemsData = po.items
-      .filter(i => Number(i.qtyOrdered) > 0)
+      .filter(i => (remainingByItem.get(i.id) ?? 0) > 0)
       .map(i => {
         const product  = i.product;
         if (!product) throw new BadRequestException(`Product ${i.productName} not found`);
         const gstRate  = Number(product.tax?.taxRate ?? 0);
-        const qty      = Number(i.qtyOrdered);
+        const qty      = remainingByItem.get(i.id)!;
         const cost     = Number(i.unitCost ?? 0);
         const taxable  = this.r2(cost * qty);
         const cgst     = isInterState ? 0 : this.r2(taxable * gstRate / 200);
@@ -335,41 +340,94 @@ export class PurchaseOrdersService {
 
     const grandTotal = this.r2(taxableTotal + cgstTotal + sgstTotal + igstTotal);
 
-    const purchase = await this.prisma.purchase.create({
-      data: {
-        businessId,
-        branchId: branch.id,
-        supplierId:    po.supplierId,
-        supplierName:  po.supplierName,
-        supplierGstin: po.supplier.gstin ?? null,
-        invoiceNumber: body.invoiceNumber,
-        invoiceDate:   new Date(body.invoiceDate),
-        grnNumber,
-        status:          'PENDING_APPROVAL',
-        poNumber:        po.poNumber,
-        taxType:         'TAX_EXCLUSIVE',
-        itcEligibility:  'ELIGIBLE',
-        isInterState,
-        taxableAmount:   this.r2(taxableTotal),
-        totalTaxAmount:  this.r2(cgstTotal + sgstTotal + igstTotal),
-        cgstTotal:       this.r2(cgstTotal),
-        sgstTotal:       this.r2(sgstTotal),
-        igstTotal:       this.r2(igstTotal),
-        grandTotal,
-        amountPayable:   grandTotal,
-        balanceAmount:   grandTotal,
-        receivedDate:    new Date(),
-        items: { create: itemsData },
-      },
-      select: { id: true, grnNumber: true },
+    const purchase = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.purchase.create({
+        data: {
+          businessId,
+          branchId: branch.id,
+          supplierId:    po.supplierId,
+          supplierName:  po.supplierName,
+          supplierGstin: po.supplier.gstin ?? null,
+          invoiceNumber: body.invoiceNumber,
+          invoiceDate:   new Date(body.invoiceDate),
+          grnNumber,
+          status:          'PENDING_APPROVAL',
+          poNumber:        po.poNumber,
+          taxType:         'TAX_EXCLUSIVE',
+          itcEligibility:  'ELIGIBLE',
+          isInterState,
+          taxableAmount:   this.r2(taxableTotal),
+          totalTaxAmount:  this.r2(cgstTotal + sgstTotal + igstTotal),
+          cgstTotal:       this.r2(cgstTotal),
+          sgstTotal:       this.r2(sgstTotal),
+          igstTotal:       this.r2(igstTotal),
+          grandTotal,
+          amountPayable:   grandTotal,
+          balanceAmount:   grandTotal,
+          receivedDate:    new Date(),
+          items: { create: itemsData },
+        },
+        select: { id: true, grnNumber: true },
+      });
+
+      // This flow always receives everything still outstanding on the PO in
+      // one shot (there's no per-item partial-quantity input here — that's
+      // what the separate updateReceived endpoint is for), so every item's
+      // qtyReceived goes to its full qtyOrdered.
+      for (const item of po.items) {
+        const remaining = remainingByItem.get(item.id) ?? 0;
+        if (remaining > 0) {
+          await tx.purchaseOrderItem.update({
+            where: { id: item.id },
+            data:  { qtyReceived: Number(item.qtyOrdered) },
+          });
+        }
+      }
+
+      const updatedItems = await tx.purchaseOrderItem.findMany({ where: { poId } });
+      const allReceived  = updatedItems.every(i => Number(i.qtyReceived) >= Number(i.qtyOrdered));
+      await tx.purchaseOrder.update({
+        where: { id: poId },
+        data:  { status: allReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED' },
+      });
+
+      return created;
     });
 
-    await this.prisma.purchaseOrder.update({
-      where: { id: poId },
-      data:  { status: 'PARTIALLY_RECEIVED' },
-    });
+    // Price-variance guard (non-blocking): this flow always receives at the
+    // PO's own price — there's no way to enter a different actual invoice
+    // price here — so the only thing that can silently go wrong is the PO
+    // itself being stale (raised weeks ago, price has since moved). Compare
+    // against each product's current default batch cost so a purchase
+    // clerk isn't blindsided by locking in an outdated price.
+    let warning: object | null = null;
+    try {
+      const receivedItems = po.items.filter(i => (remainingByItem.get(i.id) ?? 0) > 0);
+      const productIds = receivedItems.map(i => i.productId);
+      const currentPlus = await this.prisma.productPlu.findMany({
+        where: { productId: { in: productIds }, isArchived: false, isDefault: true },
+        select: { productId: true, costPrice: true },
+      });
+      const currentCostByProduct = new Map(currentPlus.map(p => [p.productId, Number(p.costPrice)]));
 
-    return { grnId: purchase.id, grnNumber: purchase.grnNumber };
+      const VARIANCE_THRESHOLD_PCT = 10;
+      const variances = receivedItems
+        .map(i => {
+          const poPrice = Number(i.unitCost ?? 0);
+          const currentCost = currentCostByProduct.get(i.productId);
+          if (!currentCost || poPrice <= 0) return null;
+          const variancePct = this.r2(((poPrice - currentCost) / currentCost) * 100);
+          if (Math.abs(variancePct) < VARIANCE_THRESHOLD_PCT) return null;
+          return { productName: i.productName, poPrice, currentCost, variancePct };
+        })
+        .filter((v): v is NonNullable<typeof v> => v !== null);
+
+      if (variances.length > 0) {
+        warning = { type: 'PO_PRICE_VARIANCE', threshold: VARIANCE_THRESHOLD_PCT, items: variances };
+      }
+    } catch (_err) { /* non-critical — don't fail the request */ }
+
+    return { grnId: purchase.id, grnNumber: purchase.grnNumber, warning };
   }
 
   private r2(n: number): number { return Math.round(n * 100) / 100; }

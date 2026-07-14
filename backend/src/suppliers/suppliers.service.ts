@@ -9,6 +9,7 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SupplierQueryDto } from './dto/supplier-query.dto';
 import { wildcardFilter } from '../common/helpers/search.helper';
+import { JournalBridgeService } from '../platform/journal-bridge/journal-bridge.service';
 
 function tcField(s: string | undefined | null): string | undefined {
   if (!s) return s ?? undefined;
@@ -25,10 +26,11 @@ export class SuppliersService {
   constructor(
     private prisma: PrismaService,
     private eventsService: EventsService,
+    private journalBridge: JournalBridgeService,
   ) {}
 
   async computeOutstanding(supplierId: string, businessId: string): Promise<number> {
-    const [supplier, purchaseAgg, paymentAgg, creditNoteAgg] = await Promise.all([
+    const [supplier, purchaseAgg, paymentAgg, creditNoteAgg, debitNoteAgg] = await Promise.all([
       this.prisma.supplier.findFirst({
         where:  { id: supplierId, businessId },
         select: { openingBalance: true, openingBalanceType: true },
@@ -38,11 +40,15 @@ export class SuppliersService {
         _sum:  { grandTotal: true },
       }),
       this.prisma.supplierPayment.aggregate({
-        where: { supplierId, businessId },
+        where: { supplierId, businessId, status: { not: 'CANCELLED' } },
         _sum:  { amount: true },
       }),
       this.prisma.supplierCreditNote.aggregate({
         where:  { supplierId, businessId, status: 'ACTIVE' },
+        _sum:   { totalAmount: true },
+      }),
+      this.prisma.purchaseDebitNote.aggregate({
+        where:  { supplierId, businessId, status: 'ISSUED' },
         _sum:   { totalAmount: true },
       }),
     ]);
@@ -51,7 +57,8 @@ export class SuppliersService {
     const grnTotal    = Number(purchaseAgg._sum.grandTotal   ?? 0);
     const paidTotal   = Number(paymentAgg._sum.amount        ?? 0);
     const creditTotal = Number(creditNoteAgg._sum.totalAmount ?? 0);
-    return openingAmt + grnTotal - paidTotal - creditTotal;
+    const debitTotal  = Number(debitNoteAgg._sum.totalAmount  ?? 0);
+    return openingAmt + grnTotal - paidTotal - creditTotal - debitTotal;
   }
 
   async create(businessId: string, dto: CreateSupplierDto) {
@@ -77,6 +84,7 @@ export class SuppliersService {
         creditLimit:       dto.creditLimit ?? 0,
         isGstRegistered:   dto.isGstRegistered ?? true,
         supplierType:      dto.supplierType ?? 'SUPPLIER',
+        udyamRegistration: dto.udyamRegistration || null,
       },
     });
   }
@@ -141,7 +149,7 @@ export class SuppliersService {
 
   async getSupplierBalances(businessId: string, supplierIds: string[]): Promise<Record<string, number>> {
     if (supplierIds.length === 0) return {};
-    const [grns, payments, credits, supplierRows] = await Promise.all([
+    const [grns, payments, credits, debits, supplierRows] = await Promise.all([
       this.prisma.purchase.groupBy({
         by: ['supplierId'],
         where: { businessId, supplierId: { in: supplierIds }, status: 'APPROVED' },
@@ -149,12 +157,17 @@ export class SuppliersService {
       }),
       this.prisma.supplierPayment.groupBy({
         by: ['supplierId'],
-        where: { businessId, supplierId: { in: supplierIds } },
+        where: { businessId, supplierId: { in: supplierIds }, status: { not: 'CANCELLED' } },
         _sum: { amount: true },
       }),
       this.prisma.supplierCreditNote.groupBy({
         by: ['supplierId'],
         where: { businessId, supplierId: { in: supplierIds }, status: 'ACTIVE' },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.purchaseDebitNote.groupBy({
+        by: ['supplierId'],
+        where: { businessId, supplierId: { in: supplierIds }, status: 'ISSUED' },
         _sum: { totalAmount: true },
       }),
       this.prisma.supplier.findMany({
@@ -171,7 +184,8 @@ export class SuppliersService {
       const grnTotal   = Number(grns.find((g) => g.supplierId === supplierId)?._sum.grandTotal ?? 0);
       const paidTotal  = Number(payments.find((p) => p.supplierId === supplierId)?._sum.amount ?? 0);
       const creditTotal = Number(credits.find((c) => c.supplierId === supplierId)?._sum.totalAmount ?? 0);
-      result[supplierId] = openingAmt + grnTotal - paidTotal - creditTotal;
+      const debitTotal = Number(debits.find((d) => d.supplierId === supplierId)?._sum.totalAmount ?? 0);
+      result[supplierId] = openingAmt + grnTotal - paidTotal - creditTotal - debitTotal;
     }
     return result;
   }
@@ -249,6 +263,7 @@ export class SuppliersService {
         isGstRegistered:  dto.isGstRegistered,
         isActive:         dto.isActive,
         ...(dto.supplierType !== undefined ? { supplierType: dto.supplierType } : {}),
+        ...(dto.udyamRegistration !== undefined ? { udyamRegistration: dto.udyamRegistration || null } : {}),
       },
     });
 
@@ -363,17 +378,21 @@ export class SuppliersService {
     const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId } });
     if (!supplier) throw new NotFoundException('Supplier not found');
 
-    const [purchaseAgg, paymentAgg, creditNoteAgg] = await Promise.all([
+    const [purchaseAgg, paymentAgg, creditNoteAgg, debitNoteAgg] = await Promise.all([
       this.prisma.purchase.aggregate({
         where: { supplierId, businessId, status: 'APPROVED' },
         _sum: { grandTotal: true },
       }),
       this.prisma.supplierPayment.aggregate({
-        where: { supplierId, businessId },
+        where: { supplierId, businessId, status: { not: 'CANCELLED' } },
         _sum: { amount: true },
       }),
       this.prisma.supplierCreditNote.aggregate({
         where: { supplierId, businessId, status: 'ACTIVE' },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.purchaseDebitNote.aggregate({
+        where: { supplierId, businessId, status: 'ISSUED' },
         _sum: { totalAmount: true },
       }),
     ]);
@@ -382,9 +401,10 @@ export class SuppliersService {
     const totalPurchase    = Number(purchaseAgg._sum.grandTotal ?? 0);
     const totalPaid        = Number(paymentAgg._sum.amount ?? 0);
     const totalCreditNotes = Number(creditNoteAgg._sum.totalAmount ?? 0);
+    const totalDebitNotes  = Number(debitNoteAgg._sum.totalAmount ?? 0);
     const openingDebit     = supplier.openingBalanceType === 'DEBIT'  ? openingBal : 0;
     const openingCredit    = supplier.openingBalanceType === 'CREDIT' ? openingBal : 0;
-    const balance          = openingDebit + totalPurchase - totalPaid - totalCreditNotes - openingCredit;
+    const balance          = openingDebit + totalPurchase - totalPaid - totalCreditNotes - totalDebitNotes - openingCredit;
 
     return {
       supplierId,
@@ -394,6 +414,7 @@ export class SuppliersService {
       totalPurchases:     totalPurchase,
       totalPaid,
       totalCreditNotes,
+      totalDebitNotes,
       balance,
       balanceDue:         balance,
     };
@@ -403,7 +424,7 @@ export class SuppliersService {
     const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId } });
     if (!supplier) throw new NotFoundException('Supplier not found');
 
-    const [purchases, payments, creditNotes] = await Promise.all([
+    const [purchases, payments, creditNotes, debitNotes] = await Promise.all([
       this.prisma.purchase.findMany({
         where: { supplierId, businessId, status: 'APPROVED' },
         select: {
@@ -413,18 +434,22 @@ export class SuppliersService {
         orderBy: { invoiceDate: 'asc' },
       }),
       this.prisma.supplierPayment.findMany({
-        where: { supplierId, businessId },
+        where: { supplierId, businessId, status: { not: 'CANCELLED' } },
         orderBy: { paymentDate: 'asc' },
       }),
       this.prisma.supplierCreditNote.findMany({
         where: { supplierId, businessId, status: 'ACTIVE' },
         orderBy: { cnDate: 'asc' },
       }),
+      this.prisma.purchaseDebitNote.findMany({
+        where: { supplierId, businessId, status: 'ISSUED' },
+        orderBy: { debitNoteDate: 'asc' },
+      }),
     ]);
 
     type Entry = {
       date: Date;
-      type: 'OPENING' | 'PURCHASE' | 'PAYMENT' | 'CREDIT_NOTE';
+      type: 'OPENING' | 'PURCHASE' | 'PAYMENT' | 'CREDIT_NOTE' | 'DEBIT_NOTE';
       description: string;
       debit: number;
       credit: number;
@@ -473,6 +498,17 @@ export class SuppliersService {
         debit: 0,
         credit: Number(cn.totalAmount),
         referenceId: cn.id,
+      });
+    }
+
+    for (const dn of debitNotes) {
+      entries.push({
+        date: dn.debitNoteDate,
+        type: 'DEBIT_NOTE',
+        description: `Debit Note ${dn.debitNoteNumber} - ${dn.reason}`,
+        debit: 0,
+        credit: Number(dn.totalAmount),
+        referenceId: dn.id,
       });
     }
 
@@ -526,9 +562,13 @@ export class SuppliersService {
         },
       });
       if (dto.purchaseId) {
+        // balanceAmount must move too — this is the field the bank-statement
+        // auto-matcher reads to decide whether a GRN is still open. Leaving
+        // it frozen at the pre-payment value was why the auto-matcher kept
+        // re-paying GRNs that had already been paid manually.
         await tx.purchase.update({
           where: { id: dto.purchaseId },
-          data:  { paidAmount: { increment: dto.amount } },
+          data:  { paidAmount: { increment: dto.amount }, balanceAmount: { decrement: dto.amount } },
         });
       }
       return created;
@@ -546,6 +586,15 @@ export class SuppliersService {
     // Auto-TDS deduction — fire-and-forget, never blocks the payment response.
     // Runs only when supplier.isTdsApplicable = true and tdsSection is set.
     this.autoDeductTds(businessId, supplierId, payment.id, dto.amount, payment.paymentDate).catch(() => {});
+
+    // GL posting — reduces the same Payables account the GRN journal debited.
+    this.journalBridge.postPaymentJournal({
+      id:             payment.id,
+      businessId,
+      amount:         dto.amount,
+      paymentMode:    dto.paymentMode,
+      isMsmeSupplier: !!supplier.udyamRegistration,
+    }).catch(() => {});
 
     return payment;
   }
@@ -708,18 +757,41 @@ export class SuppliersService {
     return { message: 'Proof removed' };
   }
 
-  async deletePayment(businessId: string, supplierId: string, paymentId: string) {
+  // A payment is a financial document — never hard-deleted, only cancelled
+  // (matches the CANCELLED status already defined on the model but previously
+  // unused here). Reverses paidAmount/balanceAmount on every GRN it actually
+  // touched — the direct purchaseId link for a simple payment, or every
+  // PaymentAllocation row for a bulk/bank-matched one — fixing the previous
+  // bug where only the "primary" GRN of a bulk payment ever got reversed.
+  async deletePayment(businessId: string, supplierId: string, paymentId: string, cancelReason?: string) {
     const payment = await this.prisma.supplierPayment.findFirst({
       where: { id: paymentId, businessId, supplierId },
+      include: { allocations: true, supplier: { select: { udyamRegistration: true } } },
     });
     if (!payment) throw new NotFoundException('Payment not found');
+    if (payment.status === 'CANCELLED') throw new BadRequestException('Payment is already cancelled');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.supplierPayment.delete({ where: { id: paymentId } });
-      if (payment.purchaseId) {
+      const { count } = await tx.supplierPayment.updateMany({
+        where: { id: paymentId, status: { not: 'CANCELLED' } },
+        data: {
+          status: 'CANCELLED',
+          notes: `${payment.notes ? payment.notes + ' | ' : ''}${cancelReason ?? 'Cancelled'}`,
+        },
+      });
+      if (count === 0) throw new BadRequestException('Payment is already cancelled');
+
+      if (payment.allocations.length > 0) {
+        for (const alloc of payment.allocations) {
+          await tx.purchase.update({
+            where: { id: alloc.purchaseId },
+            data:  { paidAmount: { decrement: Number(alloc.allocatedAmount) }, balanceAmount: { increment: Number(alloc.allocatedAmount) } },
+          });
+        }
+      } else if (payment.purchaseId) {
         await tx.purchase.update({
           where: { id: payment.purchaseId },
-          data:  { paidAmount: { decrement: Number(payment.amount) } },
+          data:  { paidAmount: { decrement: Number(payment.amount) }, balanceAmount: { increment: Number(payment.amount) } },
         });
       }
     });
@@ -732,7 +804,15 @@ export class SuppliersService {
       });
     } catch (_err) { /* fire-and-forget */ }
 
-    return { message: 'Payment deleted' };
+    this.journalBridge.postPaymentJournal({
+      id:             payment.id,
+      businessId,
+      amount:         Number(payment.amount),
+      paymentMode:    payment.paymentMode,
+      isMsmeSupplier: !!payment.supplier?.udyamRegistration,
+    }, true).catch(() => {});
+
+    return { message: 'Payment cancelled' };
   }
 
   async getGrnPaymentSummary(businessId: string, purchaseId: string) {
@@ -743,13 +823,29 @@ export class SuppliersService {
       });
       if (!purchase) throw new NotFoundException('GRN not found');
 
-      const [paymentAgg, cnAgg, linkedPayments] = await Promise.all([
+      const [directPaymentAgg, allocationAgg, cnAgg, dnAgg, linkedPayments] = await Promise.all([
+        // Simple single-GRN payments (recorded via addPayment) never get a
+        // PaymentAllocation row — only these are safe to sum by the direct
+        // purchaseId FK, otherwise a bulk/bank-matched payment's full amount
+        // would double-count against every GRN it also has an allocation for.
         this.prisma.supplierPayment.aggregate({
-          where: { purchaseId, businessId },
+          where: { purchaseId, businessId, status: { not: 'CANCELLED' }, allocations: { none: {} } },
           _sum: { amount: true },
+        }),
+        // Bulk/bank-matched payments (bank.service.ts matchGroup) allocate
+        // each covered GRN its own share via PaymentAllocation — this is
+        // what was missing before, causing non-primary GRNs in a bulk
+        // payment to show as unpaid here despite balanceAmount being 0.
+        this.prisma.paymentAllocation.aggregate({
+          where: { purchaseId, payment: { businessId, status: { not: 'CANCELLED' } } },
+          _sum: { allocatedAmount: true },
         }),
         this.prisma.supplierCreditNote.aggregate({
           where: { originalGrnId: purchaseId, businessId, status: 'ACTIVE' },
+          _sum: { totalAmount: true },
+        }),
+        this.prisma.purchaseDebitNote.aggregate({
+          where: { originalGrnId: purchaseId, businessId, status: 'ISSUED' },
           _sum: { totalAmount: true },
         }),
         // Payments touching this bill (direct or via allocation) + how many bills each covers
@@ -763,9 +859,10 @@ export class SuppliersService {
       ]);
 
       const grandTotal       = Number(purchase.grandTotal);
-      const totalPaid        = Number(paymentAgg._sum.amount ?? 0);
+      const totalPaid        = Number(directPaymentAgg._sum.amount ?? 0) + Number(allocationAgg._sum.allocatedAmount ?? 0);
       const totalCreditNotes = Number(cnAgg._sum.totalAmount ?? 0);
-      const balance          = grandTotal - totalPaid - totalCreditNotes;
+      const totalDebitNotes  = Number(dnAgg._sum.totalAmount ?? 0);
+      const balance          = grandTotal - totalPaid - totalCreditNotes - totalDebitNotes;
       // Bulk = this bill was settled by a payment that allocated across >1 bills
       const maxBills    = linkedPayments.reduce((m, p) => Math.max(m, p._count.allocations), 0);
       const coversMultiple = maxBills > 1;
@@ -775,6 +872,7 @@ export class SuppliersService {
         grandTotal,
         totalPaid,
         totalCreditNotes,
+        totalDebitNotes,
         balance,
         isPaid: balance <= 0,
         coversMultiple,
@@ -783,7 +881,7 @@ export class SuppliersService {
     } catch (err: any) {
       if (err?.status === 404) throw err;
       // Prisma or DB error — return safe fallback so frontend doesn't crash
-      return { purchaseId, grandTotal: 0, totalPaid: 0, totalCreditNotes: 0, balance: 0, isPaid: false, coversMultiple: false, billCount: 1 };
+      return { purchaseId, grandTotal: 0, totalPaid: 0, totalCreditNotes: 0, totalDebitNotes: 0, balance: 0, isPaid: false, coversMultiple: false, billCount: 1 };
     }
   }
 
@@ -885,6 +983,32 @@ export class SuppliersService {
     return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
 
+  async getSupplierDebitNotes(
+    businessId: string,
+    supplierId: string,
+    query: { page?: string; limit?: string },
+  ) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    const page  = Math.max(1, parseInt(query.page  ?? '1'));
+    const limit = Math.min(100, parseInt(query.limit ?? '20'));
+    const skip  = (page - 1) * limit;
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.purchaseDebitNote.findMany({
+        where: { supplierId, businessId },
+        orderBy: { debitNoteDate: 'desc' },
+        skip,
+        take: limit,
+        include: { items: true },
+      }),
+      this.prisma.purchaseDebitNote.count({ where: { supplierId, businessId } }),
+    ]);
+
+    return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+  }
+
   async getSupplierGrns(
     businessId: string,
     supplierId: string,
@@ -977,24 +1101,28 @@ export class SuppliersService {
       ...(dateTo   ? { lte: dateTo   } : {}),
     } : undefined;
 
-    const [purchases, payments, creditNotes] = await Promise.all([
+    const [purchases, payments, creditNotes, debitNotes] = await Promise.all([
       this.prisma.purchase.findMany({
         where: { supplierId, businessId, status: 'APPROVED', ...(dateRange ? { invoiceDate: dateRange } : {}) },
         select: { id: true, grnNumber: true, invoiceNumber: true, invoiceDate: true, grandTotal: true },
         orderBy: { invoiceDate: 'asc' },
       }),
       this.prisma.supplierPayment.findMany({
-        where: { supplierId, businessId, ...(dateRange ? { paymentDate: dateRange } : {}) },
+        where: { supplierId, businessId, status: { not: 'CANCELLED' }, ...(dateRange ? { paymentDate: dateRange } : {}) },
         orderBy: { paymentDate: 'asc' },
       }),
       this.prisma.supplierCreditNote.findMany({
         where: { supplierId, businessId, status: 'ACTIVE', ...(dateRange ? { cnDate: dateRange } : {}) },
         orderBy: { cnDate: 'asc' },
       }),
+      this.prisma.purchaseDebitNote.findMany({
+        where: { supplierId, businessId, status: 'ISSUED', ...(dateRange ? { debitNoteDate: dateRange } : {}) },
+        orderBy: { debitNoteDate: 'asc' },
+      }),
     ]);
 
     type Entry = {
-      date: Date; type: 'OPENING' | 'GRN' | 'PAYMENT' | 'CREDIT_NOTE';
+      date: Date; type: 'OPENING' | 'GRN' | 'PAYMENT' | 'CREDIT_NOTE' | 'DEBIT_NOTE';
       ref: string; refId: string | null; debit: number; credit: number; runningBalance?: number;
     };
 
@@ -1036,6 +1164,14 @@ export class SuppliersService {
       });
     }
 
+    for (const dn of debitNotes) {
+      entries.push({
+        date:  dn.debitNoteDate, type: 'DEBIT_NOTE',
+        ref:   `${dn.debitNoteNumber} - ${dn.reason}`,
+        refId: dn.id, debit: 0, credit: Number(dn.totalAmount),
+      });
+    }
+
     entries.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     let runningBalance = 0;
@@ -1045,24 +1181,42 @@ export class SuppliersService {
     });
   }
 
+  // Resyncs Purchase.paidAmount/balanceAmount from the true payment data —
+  // direct (non-allocated) SupplierPayments plus PaymentAllocation shares,
+  // both excluding CANCELLED payments. Fixes the previous version of this
+  // function, which ignored status entirely (so a cancelled/duplicate
+  // payment still counted), ignored PaymentAllocation (so bulk-paid GRNs
+  // got reset to only their direct-linked share), and never touched
+  // balanceAmount at all (leaving it stale after "fixing" paidAmount).
   async recomputePurchasePaidAmounts(businessId: string): Promise<{ updated: number }> {
     const purchases = await this.prisma.purchase.findMany({
       where:  { businessId },
-      select: { id: true },
+      select: { id: true, grandTotal: true, paidAmount: true, balanceAmount: true },
     });
 
     let updated = 0;
     for (const purchase of purchases) {
-      const agg = await this.prisma.supplierPayment.aggregate({
-        where: { purchaseId: purchase.id, businessId },
-        _sum:  { amount: true },
-      });
-      const correctPaidAmount = Number(agg._sum.amount ?? 0);
-      await this.prisma.purchase.update({
-        where: { id: purchase.id },
-        data:  { paidAmount: correctPaidAmount },
-      });
-      updated++;
+      const [directAgg, allocAgg] = await Promise.all([
+        this.prisma.supplierPayment.aggregate({
+          where: { purchaseId: purchase.id, businessId, status: { not: 'CANCELLED' }, allocations: { none: {} } },
+          _sum:  { amount: true },
+        }),
+        this.prisma.paymentAllocation.aggregate({
+          where: { purchaseId: purchase.id, payment: { businessId, status: { not: 'CANCELLED' } } },
+          _sum:  { allocatedAmount: true },
+        }),
+      ]);
+      const correctPaidAmount   = Number(directAgg._sum.amount ?? 0) + Number(allocAgg._sum.allocatedAmount ?? 0);
+      const correctBalanceAmount = Number(purchase.grandTotal) - correctPaidAmount;
+
+      if (Math.abs(correctPaidAmount - Number(purchase.paidAmount)) > 0.005
+        || Math.abs(correctBalanceAmount - Number(purchase.balanceAmount)) > 0.005) {
+        await this.prisma.purchase.update({
+          where: { id: purchase.id },
+          data:  { paidAmount: correctPaidAmount, balanceAmount: correctBalanceAmount },
+        });
+        updated++;
+      }
     }
 
     return { updated };
@@ -1362,26 +1516,30 @@ export class SuppliersService {
     const ids = suppliers.map((s) => s.id);
     const today = new Date(); today.setHours(0, 0, 0, 0);
 
-    const [grnGroups, payGroups, creditGroups, invoiceDates, lastPayDates] = await Promise.all([
+    const [grnGroups, payGroups, creditGroups, debitGroups, invoiceDates, lastPayDates] = await Promise.all([
       this.prisma.purchase.groupBy({
-        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'RECEIVED' as any },
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'APPROVED' },
         _sum: { amountPayable: true },
       }),
       this.prisma.supplierPayment.groupBy({
-        by: ['supplierId'], where: { businessId, supplierId: { in: ids } },
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: { not: 'CANCELLED' } },
         _sum: { amount: true },
       }),
       this.prisma.supplierCreditNote.groupBy({
-        by: ['supplierId'], where: { businessId, supplierId: { in: ids } },
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'ACTIVE' },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.purchaseDebitNote.groupBy({
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'ISSUED' },
         _sum: { totalAmount: true },
       }),
       this.prisma.purchase.groupBy({
-        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'RECEIVED' as any },
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'APPROVED' },
         _min: { invoiceDate: true },
         _max: { invoiceDate: true },
       }),
       this.prisma.supplierPayment.groupBy({
-        by: ['supplierId'], where: { businessId, supplierId: { in: ids } },
+        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: { not: 'CANCELLED' } },
         _max: { paymentDate: true },
       }),
     ]);
@@ -1389,14 +1547,14 @@ export class SuppliersService {
     const grnMap     = new Map(grnGroups.map(r => [r.supplierId, Number(r._sum.amountPayable ?? 0)]));
     const payMap     = new Map(payGroups.map(r => [r.supplierId, Number(r._sum.amount ?? 0)]));
     const creditMap  = new Map(creditGroups.map(r => [r.supplierId, Number(r._sum.totalAmount ?? 0)]));
+    const debitMap   = new Map(debitGroups.map(r => [r.supplierId, Number(r._sum.totalAmount ?? 0)]));
     const dateMap    = new Map(invoiceDates.map(r => [r.supplierId, { oldest: r._min.invoiceDate, latest: r._max.invoiceDate }]));
     const lastPayMap = new Map(lastPayDates.map(r => [r.supplierId, r._max.paymentDate]));
 
     const rows = suppliers.map((s) => {
       const opening = Number(s.openingBalance ?? 0);
-      const openingAmt = s.openingBalanceType === 'CREDIT' ? opening
-        : s.openingBalanceType === 'DEBIT' ? -opening : 0;
-      const outstanding = openingAmt + (grnMap.get(s.id) ?? 0) - (payMap.get(s.id) ?? 0) - (creditMap.get(s.id) ?? 0);
+      const openingAmt = (s.openingBalanceType ?? 'DEBIT') === 'DEBIT' ? opening : -opening;
+      const outstanding = openingAmt + (grnMap.get(s.id) ?? 0) - (payMap.get(s.id) ?? 0) - (creditMap.get(s.id) ?? 0) - (debitMap.get(s.id) ?? 0);
       if (outstanding < 0.01) return null;
 
       const oldest     = dateMap.get(s.id)?.oldest;

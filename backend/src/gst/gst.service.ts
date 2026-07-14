@@ -107,6 +107,9 @@ export class GstService {
       b2cTax = 0;
     let exportTaxable = 0;
     let nilExempt = 0;
+    let outputCgst = 0,
+      outputSgst = 0,
+      outputIgst = 0;
 
     for (const item of salesItems) {
       const taxable = Number(item.taxableAmount);
@@ -120,9 +123,15 @@ export class GstService {
       } else if (item.supplyType === 'B2B') {
         b2bTaxable += taxable;
         b2bTax += tax;
+        outputCgst += taxable * rates.cgst;
+        outputSgst += taxable * rates.sgst;
+        outputIgst += taxable * rates.igst;
       } else {
         b2cTaxable += taxable;
         b2cTax += tax;
+        outputCgst += taxable * rates.cgst;
+        outputSgst += taxable * rates.sgst;
+        outputIgst += taxable * rates.igst;
       }
     }
 
@@ -157,15 +166,14 @@ export class GstService {
       itcIgst += Number(itc.igst);
     }
 
-    const halfTax = gstr1.totalTax / 2;
     const gstr3b = {
       totalLiability: round4(gstr1.totalTax),
       itcCgst: round4(itcCgst),
       itcSgst: round4(itcSgst),
       itcIgst: round4(itcIgst),
-      netPayableCgst: round4(Math.max(0, halfTax - itcCgst)),
-      netPayableSgst: round4(Math.max(0, halfTax - itcSgst)),
-      netPayableIgst: round4(Math.max(0, -itcIgst)),
+      netPayableCgst: round4(Math.max(0, outputCgst - itcCgst)),
+      netPayableSgst: round4(Math.max(0, outputSgst - itcSgst)),
+      netPayableIgst: round4(Math.max(0, outputIgst - itcIgst)),
       netTotal: 0,
     };
     gstr3b.netTotal = round4(
@@ -380,22 +388,21 @@ export class GstService {
     to: Date,
   ): Promise<GstLineItem[]> {
     try {
-      const bills =
-        (await (this.prisma as any).salesBill?.findMany?.({
-          where: { businessId, createdAt: { gte: from, lte: to } },
-          include: { items: { include: { tax: true } } },
-        })) ?? [];
+      const bills = await this.prisma.salesBill.findMany({
+        where: { businessId, createdAt: { gte: from, lte: to }, isVoided: false },
+        include: { items: { include: { tax: true } } },
+      });
 
-      return bills.flatMap((bill: any) =>
-        (bill.items ?? []).map(
-          (item: any): GstLineItem => ({
-            taxableAmount: Number(item.price ?? 0) * Number(item.quantity ?? 0),
+      return bills.flatMap((bill) =>
+        bill.items.map(
+          (item): GstLineItem => ({
+            taxableAmount: Number(item.taxableAmount ?? 0),
             gstSlab: this.taxRateToSlab(Number(item.tax?.taxRate ?? 0)),
-            supplyType: bill.partyGstin ? 'B2B' : 'B2C',
-            partyGstin: bill.partyGstin,
-            isInterState: false,
+            supplyType: bill.isB2B ? 'B2B' : 'B2C',
+            partyGstin: bill.customerGstin ?? undefined,
+            isInterState: Number(item.igstAmount ?? 0) > 0,
             invoiceId: bill.id,
-            invoiceNo: bill.billNumber,
+            invoiceNo: bill.billNumber ?? undefined,
             invoiceDate: bill.createdAt,
           }),
         ),
@@ -411,19 +418,22 @@ export class GstService {
     to: Date,
   ): Promise<GstLineItem[]> {
     try {
-      const bills =
-        (await (this.prisma as any).purchaseBill?.findMany?.({
-          where: { businessId, createdAt: { gte: from, lte: to } },
-          include: { items: { include: { tax: true } } },
-        })) ?? [];
+      const bills = await this.prisma.purchase.findMany({
+        where: { businessId, createdAt: { gte: from, lte: to }, status: 'APPROVED' },
+        include: { items: { include: { tax: true } } },
+      });
 
-      return bills.flatMap((bill: any) =>
-        (bill.items ?? []).map(
-          (item: any): GstLineItem => ({
-            taxableAmount: Number(item.price ?? 0) * Number(item.quantity ?? 0),
+      return bills.flatMap((bill) =>
+        bill.items.map(
+          (item): GstLineItem => ({
+            taxableAmount: Number(item.taxableAmount ?? 0),
             gstSlab: this.taxRateToSlab(Number(item.tax?.taxRate ?? 0)),
             supplyType: 'B2B',
-            isInterState: false,
+            partyGstin: bill.supplierGstin ?? undefined,
+            isInterState: Number(item.igstAmount ?? 0) > 0,
+            invoiceId: bill.id,
+            invoiceNo: bill.grnNumber ?? undefined,
+            invoiceDate: bill.createdAt,
           }),
         ),
       );

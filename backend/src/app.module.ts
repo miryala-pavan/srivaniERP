@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 // Platform Core modules (Phase 0)
 import { HelpModule } from './platform/help/help.module';
@@ -57,6 +58,7 @@ import { LedgerApiModule } from './ledger/ledger-api.module';
   controllers: [AppController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }]),
     PrismaModule,
     AuthModule,
     BusinessModule,

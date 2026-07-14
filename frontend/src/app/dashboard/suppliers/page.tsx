@@ -37,6 +37,7 @@ interface Supplier {
   isGstRegistered: boolean;
   isActive: boolean;
   supplierType?: string;
+  udyamRegistration?: string | null;
   bankAccountNumber?: string | null;
   bankIfscCode?: string | null;
   bankBankName?: string | null;
@@ -56,11 +57,11 @@ interface BankAcc {
 const EMPTY_BANK = { accountNumber: '', bankName: '', branchName: '', ifscCode: '', isPrimary: true };
 
 const VENDOR_TYPE_META: Record<string, { label: string; color: string; accounting: string }> = {
-  SUPPLIER:  { label: 'Supplier',          color: 'bg-blue-100 text-blue-700',    accounting: 'Trade Payable (AP)'      },
-  LOAN:      { label: 'Bank / Lender',     color: 'bg-purple-100 text-purple-700', accounting: 'Loan / Liability'        },
-  RENT:      { label: 'Landlord / Rent',   color: 'bg-orange-100 text-orange-700', accounting: 'Rent Expense'            },
-  SERVICE:   { label: 'Service Provider',  color: 'bg-teal-100 text-teal-700',    accounting: 'Operating Expense'       },
-  EXPENSE:   { label: 'One-time / Expense',color: 'bg-amber-100 text-amber-700',  accounting: 'Direct Expense'          },
+  SUPPLIER:  { label: 'Supplier',          color: 'bg-blue-50 text-blue-700',    accounting: 'Trade Payable (AP)'      },
+  LOAN:      { label: 'Bank / Lender',     color: 'bg-purple-50 text-purple-700', accounting: 'Loan / Liability'        },
+  RENT:      { label: 'Landlord / Rent',   color: 'bg-orange-50 text-orange-700', accounting: 'Rent Expense'            },
+  SERVICE:   { label: 'Service Provider',  color: 'bg-teal-50 text-teal-700',    accounting: 'Operating Expense'       },
+  EXPENSE:   { label: 'One-time / Expense',color: 'bg-amber-50 text-amber-700',  accounting: 'Direct Expense'          },
   ONE_TIME:  { label: 'One-time Vendor',   color: 'bg-gray-100 text-gray-600',    accounting: 'Direct Expense'          },
   OTHER:     { label: 'Other',             color: 'bg-gray-100 text-gray-500',    accounting: 'Other Payable'           },
 };
@@ -76,6 +77,7 @@ const EMPTY_FORM = {
   creditLimit: 0,
   isGstRegistered: true,
   supplierType: 'SUPPLIER',
+  udyamRegistration: '',
   openingBalance: 0,
   openingBalanceType: 'DEBIT',
   openingBalanceDate: '',
@@ -198,6 +200,7 @@ export default function SuppliersPage() {
         creditLimit:       Number(form.creditLimit),
         isGstRegistered:   form.isGstRegistered,
         supplierType:      form.supplierType,
+        udyamRegistration: form.udyamRegistration.trim() || undefined,
       };
       if (editing) {
         await api.put(`/suppliers/${editing.id}`, payload);
@@ -274,6 +277,7 @@ export default function SuppliersPage() {
       creditLimit:         Number(s.creditLimit),
       isGstRegistered:     s.isGstRegistered,
       supplierType:        s.supplierType ?? 'SUPPLIER',
+      udyamRegistration:   s.udyamRegistration ?? '',
       openingBalance:      Number(s.openingBalance ?? 0),
       openingBalanceType:  s.openingBalanceType ?? 'DEBIT',
       openingBalanceDate:  s.openingBalanceDate ? s.openingBalanceDate.slice(0, 10) : '',
@@ -369,7 +373,7 @@ export default function SuppliersPage() {
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {isLoading ? (
             <div className="p-8 text-center text-gray-400 text-sm">Loading…</div>
           ) : suppliers.length === 0 ? (
@@ -726,6 +730,23 @@ export default function SuppliersPage() {
                       onChange={(e) => setForm({ ...form, creditLimit: Number(e.target.value) })}
                       className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
                       min={0}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-0.5">
+                      <label className="text-xs font-medium text-gray-600">Udyam Registration No. (optional)</label>
+                      <FieldHelp
+                        title="Udyam Registration"
+                        description="This supplier's MSME (Udyam) registration number, if they're a registered MSME. Under Section 43B(h) of the Income Tax Act, payments to MSME suppliers must be made within 45 days (or the agreed term, whichever is shorter) — this also determines which ledger account their dues post to in the books."
+                        example="UDYAM-TG-01-0012345"
+                      />
+                    </div>
+                    <input
+                      value={form.udyamRegistration}
+                      onChange={(e) => setForm({ ...form, udyamRegistration: e.target.value })}
+                      onBlur={(e) => setForm((f) => ({ ...f, udyamRegistration: e.target.value.trim().toUpperCase() }))}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+                      placeholder="UDYAM-XX-00-0000000"
                     />
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer pt-1">

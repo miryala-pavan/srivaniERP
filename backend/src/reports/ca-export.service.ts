@@ -29,18 +29,20 @@ export class CaExportService {
       bankAccounts,
       suppliers,
       stockLedger,
+      supplierCreditNotes,
+      purchaseDebitNotes,
     ] = await Promise.all([
       this.prisma.business.findUnique({ where: { id: businessId } }),
 
       // ── Purchase Register ──────────────────────────────────────────
       this.prisma.purchase.findMany({
-        where:   { businessId, status: 'APPROVED', invoiceDate: { gte: from, lte: to } },
+        where:   { businessId, status: 'APPROVED', excludeFromGst: false, invoiceDate: { gte: from, lte: to } },
         orderBy: { invoiceDate: 'asc' },
       }),
 
       // ── Sales Register ─────────────────────────────────────────────
       this.prisma.salesBill.findMany({
-        where:   { businessId, status: 'FINAL', billDate: { gte: from, lte: to } },
+        where:   { businessId, status: 'FINAL', isVoided: false, billDate: { gte: from, lte: to } },
         select: {
           billNumber: true, billDate: true, grandTotal: true,
           taxableAmount: true, cgstTotal: true, sgstTotal: true, igstTotal: true,
@@ -81,6 +83,19 @@ export class CaExportService {
         include: { product: { select: { name: true, hsnCode: true, costPrice: true } } },
         orderBy: { createdAt: 'asc' },
       }),
+
+      // ── Supplier Credit Notes (scheme/rebate credits, no physical return) ──
+      this.prisma.supplierCreditNote.findMany({
+        where:   { businessId, status: 'ACTIVE', cnDate: { gte: from, lte: to } },
+        include: { supplier: { select: { name: true } } },
+        orderBy: { cnDate: 'asc' },
+      }),
+
+      // ── Purchase Debit Notes (itemized goods returns) ───────────────
+      this.prisma.purchaseDebitNote.findMany({
+        where:   { businessId, status: 'ISSUED', debitNoteDate: { gte: from, lte: to } },
+        orderBy: { debitNoteDate: 'asc' },
+      }),
     ]);
 
     const wb = XLSX.utils.book_new();
@@ -91,13 +106,22 @@ export class CaExportService {
     // SHEET 1 — COVER / SUMMARY
     // ────────────────────────────────────────────────────────────────
     const totalPurchases  = purchases.reduce((s, p) => s + n(p.grandTotal), 0);
-    const totalPurchaseTax= purchases.reduce((s, p) => s + n((p as any).cgstAmount) + n((p as any).sgstAmount) + n((p as any).igstAmount), 0);
+    const totalPurchaseTax= purchases.reduce((s, p) => s + n(p.cgstTotal) + n(p.sgstTotal) + n(p.igstTotal), 0);
     const totalSales      = sales.reduce((s, b) => s + n(b.grandTotal), 0);
     const totalSalesTax   = sales.reduce((s, b) => s + n(b.cgstTotal) + n(b.sgstTotal) + n(b.igstTotal), 0);
     const totalCredits    = bankTxns.reduce((s, t) => s + n(t.creditAmount), 0);
     const totalDebits     = bankTxns.reduce((s, t) => s + n(t.debitAmount),  0);
     const supplierDues    = suppliers.reduce((s, sup) =>
       s + sup.purchases.reduce((ss, p) => ss + n(p.balanceAmount), 0), 0);
+
+    // Supplier returns/credits reduce what was actually purchased net —
+    // without these, purchases (and the ITC claimed on them) are overstated.
+    const totalScnAmount    = supplierCreditNotes.reduce((s, c) => s + n(c.totalAmount), 0);
+    const totalScnTax       = supplierCreditNotes.reduce((s, c) => s + n(c.cgstAmount) + n(c.sgstAmount) + n(c.igstAmount), 0);
+    const totalPdnAmount    = purchaseDebitNotes.reduce((s, d) => s + n(d.totalAmount), 0);
+    const totalPdnTax       = purchaseDebitNotes.reduce((s, d) => s + n(d.cgstAmount) + n(d.sgstAmount) + n(d.igstAmount), 0);
+    const netPurchases      = totalPurchases - totalScnAmount - totalPdnAmount;
+    const netPurchaseTax    = totalPurchaseTax - totalScnTax - totalPdnTax;
 
     const coverRows = [
       ['CA EXPORT PACKAGE'],
@@ -107,9 +131,14 @@ export class CaExportService {
       ['SUMMARY', ''],
       ['Total Purchases (incl. GST)',  INR(totalPurchases)],
       ['Total Purchase GST',           INR(totalPurchaseTax)],
+      ['Less: Supplier Credit Notes',  INR(totalScnAmount)],
+      ['Less: Purchase Debit Notes (returns)', INR(totalPdnAmount)],
+      ['Net Purchases (after credits/returns)', INR(netPurchases)],
+      ['Net Purchase GST (after credits/returns)', INR(netPurchaseTax)],
+      [],
       ['Total Sales (incl. GST)',      INR(totalSales)],
       ['Total Sales GST collected',    INR(totalSalesTax)],
-      ['Net GST Liability (Output-Input)', INR(totalSalesTax - totalPurchaseTax)],
+      ['Net GST Liability (Output-Input)', INR(totalSalesTax - netPurchaseTax)],
       [],
       ['Total Bank Credits',           INR(totalCredits)],
       ['Total Bank Debits',            INR(totalDebits)],
@@ -118,6 +147,7 @@ export class CaExportService {
       [],
       ['Sheets included:', ''],
       ['1. Purchase Register',  `${purchases.length} GRNs`],
+      ['1b. Supplier Credit & Debit Notes', `${supplierCreditNotes.length + purchaseDebitNotes.length} notes`],
       ['2. Sales Register',     `${sales.length} bills`],
       ['3. Bank Transactions',  `${bankTxns.length} entries`],
       ['4. Bank Reconciliation','Per account summary'],
@@ -165,6 +195,33 @@ export class CaExportService {
     const purWs = XLSX.utils.aoa_to_sheet(purchaseRows);
     purWs['!cols'] = [4,14,14,16,28,18,14,12,12,12,12,14,14,14].map(w => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, purWs, '1. Purchase Register');
+
+    // ────────────────────────────────────────────────────────────────
+    // SHEET 1b — SUPPLIER CREDIT & DEBIT NOTES
+    // ────────────────────────────────────────────────────────────────
+    const noteRows: any[][] = [
+      hdr(['Sr', 'Type', 'Note No', 'Date', 'Supplier Name', 'Reason',
+           'Taxable Amount', 'CGST', 'SGST', 'IGST', 'Total Tax', 'Total Amount']),
+    ];
+    let noteTaxable = 0, noteCgst = 0, noteSgst = 0, noteIgst = 0, noteTotal = 0;
+    let sr = 1;
+    supplierCreditNotes.forEach((c) => {
+      const taxable = n(c.taxableAmount), cgst = n(c.cgstAmount), sgst = n(c.sgstAmount), igst = n(c.igstAmount), total = n(c.totalAmount);
+      noteTaxable += taxable; noteCgst += cgst; noteSgst += sgst; noteIgst += igst; noteTotal += total;
+      noteRows.push([sr++, 'Credit Note', c.scnNumber, dt(c.cnDate), (c as any).supplier?.name ?? '', c.reason,
+        INR(taxable), INR(cgst), INR(sgst), INR(igst), INR(cgst+sgst+igst), INR(total)]);
+    });
+    purchaseDebitNotes.forEach((d) => {
+      const taxable = n(d.taxableAmount), cgst = n(d.cgstAmount), sgst = n(d.sgstAmount), igst = n(d.igstAmount), total = n(d.totalAmount);
+      noteTaxable += taxable; noteCgst += cgst; noteSgst += sgst; noteIgst += igst; noteTotal += total;
+      noteRows.push([sr++, 'Debit Note (Return)', d.debitNoteNumber, dt(d.debitNoteDate), d.supplierName, d.reason,
+        INR(taxable), INR(cgst), INR(sgst), INR(igst), INR(cgst+sgst+igst), INR(total)]);
+    });
+    noteRows.push(['', '', '', '', '', 'TOTAL',
+      INR(noteTaxable), INR(noteCgst), INR(noteSgst), INR(noteIgst), INR(noteCgst+noteSgst+noteIgst), INR(noteTotal)]);
+    const noteWs = XLSX.utils.aoa_to_sheet(noteRows);
+    noteWs['!cols'] = [4,16,16,14,28,24,14,12,12,12,12,14].map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, noteWs, '1b. Supplier CN-DN');
 
     // ────────────────────────────────────────────────────────────────
     // SHEET 3 — SALES REGISTER
@@ -384,7 +441,7 @@ export class CaExportService {
       const qty  = n(sl.quantity);
       const cost = n(sl.product?.costPrice ?? 0);
       const val  = qty * cost;
-      const isIn = ['PURCHASE', 'RETURN_IN', 'OPENING'].includes(sl.movementType);
+      const isIn = ['PURCHASE', 'RETURN_IN', 'OPENING_STOCK', 'ADJUSTMENT_IN', 'TRANSFER_IN', 'REPACKING_IN'].includes(sl.movementType);
       if (isIn)  { stockInQty  += qty; stockInVal  += val; }
       else       { stockOutQty += qty; stockOutVal += val; }
       stockRows.push([

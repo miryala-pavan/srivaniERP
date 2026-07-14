@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsNumber, IsPositive, IsOptional, IsBoolean, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsPositive, IsOptional, IsBoolean, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class BillItemDto {
@@ -22,6 +22,7 @@ export class BillItemDto {
 
   @IsNumber()
   @Min(0)
+  @Max(100)
   @IsOptional()
   @Type(() => Number)
   discountPercent?: number;

@@ -58,21 +58,21 @@ const EMPTY_FORM = {
 // ── Badge helpers ────────────────────────────────────────────────────────────
 
 function TypeBadge({ t }: { t: string }) {
-  if (t === 'WALKIN') return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-100 text-gray-600">Walk-in</span>;
-  if (t === 'B2B')    return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-100 text-blue-700">B2B</span>;
-  return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-purple-100 text-purple-700">B2C</span>;
+  if (t === 'WALKIN') return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-gray-100 text-gray-600">Walk-in</span>;
+  if (t === 'B2B')    return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-blue-50 text-blue-700">B2B</span>;
+  return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-purple-50 text-purple-700">B2C</span>;
 }
 
 function ChannelBadge({ c }: { c: string }) {
-  if (c === 'ONLINE') return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-teal-100 text-teal-700">Online</span>;
-  if (c === 'BOTH')   return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-100 text-amber-700">Both</span>;
-  return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-100 text-gray-500">POS</span>;
+  if (c === 'ONLINE') return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-teal-50 text-teal-700">Online</span>;
+  if (c === 'BOTH')   return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-50 text-amber-700">Both</span>;
+  return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-gray-100 text-gray-500">POS</span>;
 }
 
 function StatusBadge({ s, isActive }: { s: string; isActive: boolean }) {
-  if (!isActive || s === 'INACTIVE') return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-100 text-gray-500">Inactive</span>;
-  if (s === 'BLOCKED') return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-red-100 text-red-600">Blocked</span>;
-  return <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700">Active</span>;
+  if (!isActive || s === 'INACTIVE') return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-gray-100 text-gray-500">Inactive</span>;
+  if (s === 'BLOCKED') return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-red-50 text-red-600">Blocked</span>;
+  return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-green-50 text-green-700">Active</span>;
 }
 
 // ── Toggle helper ────────────────────────────────────────────────────────────
@@ -261,7 +261,7 @@ export default function CustomersPage() {
             onClick={() => { setShowInactive(v => !v); setPage(1); }}
             className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border transition-colors ${
               showInactive
-                ? 'bg-amber-50 text-amber-700 border-amber-300'
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
                 : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
             }`}
           >
@@ -279,7 +279,7 @@ export default function CustomersPage() {
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {isLoading ? (
             <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
           ) : customers.length === 0 ? (
@@ -289,27 +289,27 @@ export default function CustomersPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-gray-50/70 border-b border-gray-100">
                   <tr>
-                    <th className="text-left px-3 py-3 font-medium text-gray-500 w-10">#</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600 w-20">Code</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600">Name</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600 hidden md:table-cell">Phone</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600 hidden lg:table-cell">Type</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600 hidden lg:table-cell">Channel</th>
-                    <th className="text-right px-3 py-3 font-medium text-gray-600">Outstanding</th>
-                    <th className="text-right px-3 py-3 font-medium text-gray-600 hidden xl:table-cell">Credit Limit</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600 hidden md:table-cell">Status</th>
+                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide w-10">#</th>
+                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide w-20">Code</th>
+                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Name</th>
+                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden md:table-cell">Phone</th>
+                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden lg:table-cell">Type</th>
+                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden lg:table-cell">Channel</th>
+                    <th className="text-right px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Outstanding</th>
+                    <th className="text-right px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden xl:table-cell">Credit Limit</th>
+                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden md:table-cell">Status</th>
                     <th className="px-3 py-3 w-10"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-50">
                   {customers.map((c, idx) => {
                     const outstanding = Number(c.outstandingBalance ?? 0);
                     const limit       = Number(c.creditLimit);
                     const overLimit   = limit > 0 && outstanding > limit;
                     return (
-                      <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                      <tr key={c.id} className="hover:bg-gray-50/70 transition-colors">
                         <td className="px-3 py-3 text-gray-400 text-xs tabular-nums">
                           {(page - 1) * 20 + idx + 1}
                         </td>
@@ -390,10 +390,10 @@ export default function CustomersPage() {
               <button
                 key={p}
                 onClick={() => setPage(p)}
-                className={`w-8 h-8 rounded text-sm font-medium transition-colors ${
+                className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
                   p === page
                     ? 'bg-[#1B4F8A] text-white'
-                    : 'bg-white text-gray-600 border border-gray-200 hover:border-[#1B4F8A]'
+                    : 'bg-white text-gray-600 border border-gray-100 shadow-sm hover:border-[#1B4F8A]/40'
                 }`}
               >
                 {p}

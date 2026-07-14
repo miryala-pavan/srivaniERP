@@ -404,14 +404,16 @@ export default function BillsPage() {
 
           {/* Header */}
           <div className="mb-6 flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                <Receipt className="w-6 h-6 text-blue-600" />
-                Bills
-              </h1>
-              <p className="text-sm text-gray-500 mt-0.5">
-                {todayLabel ? 'Showing today\'s bills' : 'Search and manage bills'}
-              </p>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                <Receipt className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Bills</h1>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {todayLabel ? 'Showing today\'s bills' : 'Search and manage bills'}
+                </p>
+              </div>
             </div>
             <span className={`text-xs font-medium mt-1 ${connected ? 'text-green-600' : 'text-gray-400'}`}>
               {connected ? '● Live' : '○ Offline'}
@@ -419,7 +421,7 @@ export default function BillsPage() {
           </div>
 
           {/* Search Card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-4">
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-4 flex-wrap">
               {MODES.map(m => {
                 const Icon = m.icon;
@@ -475,7 +477,7 @@ export default function BillsPage() {
 
           {/* Loading skeleton */}
           {loading && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="px-4 py-3 border-b border-gray-100 flex items-center gap-4 animate-pulse">
                   <div className="h-4 bg-gray-200 rounded w-24" />
@@ -505,7 +507,7 @@ export default function BillsPage() {
 
           {/* Results table */}
           {!loading && results.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100 text-xs">
@@ -658,10 +660,13 @@ export default function BillsPage() {
       {/* ── VOID MODAL ── */}
       {voidBill && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeVoidModal}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <h2 className="font-semibold text-gray-900 flex items-center gap-2">
-                <Ban className="w-4 h-4 text-red-500" /> Void Bill
+                <span className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
+                  <Ban className="w-3.5 h-3.5 text-red-600" />
+                </span>
+                Void Bill
               </h2>
               <button onClick={closeVoidModal} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
@@ -706,10 +711,12 @@ export default function BillsPage() {
       {/* ── CREDIT NOTE MODAL ── */}
       {cnBill && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeCnModal}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
               <h2 className="font-semibold text-gray-900 flex items-center gap-2">
-                <RotateCcw className="w-4 h-4 text-purple-600" />
+                <span className="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center">
+                  <RotateCcw className="w-3.5 h-3.5 text-purple-600" />
+                </span>
                 Create Credit Note — {cnBill.billNumber}
               </h2>
               <button onClick={closeCnModal} className="text-gray-400 hover:text-gray-600">

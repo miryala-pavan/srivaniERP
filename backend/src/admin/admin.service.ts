@@ -67,6 +67,7 @@ export class AdminService {
       { billType: 'ESTIMATE',       seriesPrefix: 'EST/',  numberFormat: '0000',  label: 'EST/ Estimate' },
       { billType: 'GRN',            seriesPrefix: 'GRN/',  numberFormat: '00000', label: 'GRN/ Goods Receipt Note' },
       { billType: 'SCN',            seriesPrefix: 'SCN/',  numberFormat: '0000',  label: 'SCN/ Supplier Credit Note' },
+      { billType: 'PDN',            seriesPrefix: 'PDN/',  numberFormat: '0000',  label: 'PDN/ Purchase Debit Note' },
     ];
     const seriesCreated: string[] = [];
     for (const s of seriesDefs) {

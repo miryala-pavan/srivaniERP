@@ -191,7 +191,7 @@ export const HELP_CONTENT: HelpEntry[] = [
 
   // ── GRN — List ─────────────────────────────────────────────────────────────
   {
-    id: 'grn', route: '/dashboard/grn', module: 'purchasing', version: '2.0',
+    id: 'grn', route: '/dashboard/grn', module: 'purchasing', version: '2.1',
     title: { en: 'Goods Receipt Notes (GRN)', te: 'వస్తువుల రసీదు నోట్‌లు (GRN)' },
     summary: {
       en: 'Every stock inward movement is recorded as a GRN. A GRN captures the supplier invoice, quantities, cost prices, and GST. Approving a GRN adds stock and creates a payable. This list shows all GRNs — filter by status, supplier, or date.',
@@ -201,8 +201,8 @@ export const HELP_CONTENT: HelpEntry[] = [
       {
         title: { en: 'GRN status workflow', te: 'GRN స్థితి వర్క్‌ఫ్లో' },
         body: {
-          en: 'DRAFT → entry saved, no stock impact yet. PENDING_APPROVAL → created from PO, awaiting verification. APPROVED → stock added, payable created, locked. REJECTED → rejected at approval, can be re-submitted. CANCELLED → voided, no stock impact. Only DRAFT and PENDING_APPROVAL can be edited. Once APPROVED, raise a new GRN for corrections (a debit note process).',
-          te: 'DRAFT → ఎంట్రీ సేవ్ చేయబడింది, ఇంకా స్టాక్ ప్రభావం లేదు. PENDING_APPROVAL → PO నుండి సృష్టించబడింది, ధృవీకరణ కోసం వేచి ఉంది. APPROVED → స్టాక్ జోడించబడింది, చెల్లించాల్సిన మొత్తం సృష్టించబడింది, లాక్. REJECTED → ఆమోదం వద్ద తిరస్కరించబడింది, మళ్ళీ సమర్పించవచ్చు. CANCELLED → రద్దు, స్టాక్ ప్రభావం లేదు. DRAFT మరియు PENDING_APPROVAL మాత్రమే సవరించవచ్చు.',
+          en: 'DRAFT → entry saved, no stock impact yet. PENDING_APPROVAL → created from PO, awaiting verification. APPROVED → stock added, payable created, locked. REJECTED → rejected at approval, can be re-submitted. CANCELLED → voided, no stock impact. Only DRAFT and PENDING_APPROVAL can be edited. Once APPROVED, an approved GRN itself is never edited — use the Return or CN button on that GRN\'s row instead (see "Return vs Credit Note" below).',
+          te: 'DRAFT → ఎంట్రీ సేవ్ చేయబడింది, ఇంకా స్టాక్ ప్రభావం లేదు. PENDING_APPROVAL → PO నుండి సృష్టించబడింది, ధృవీకరణ కోసం వేచి ఉంది. APPROVED → స్టాక్ జోడించబడింది, చెల్లించాల్సిన మొత్తం సృష్టించబడింది, లాక్. REJECTED → ఆమోదం వద్ద తిరస్కరించబడింది, మళ్ళీ సమర్పించవచ్చు. CANCELLED → రద్దు, స్టాక్ ప్రభావం లేదు. DRAFT మరియు PENDING_APPROVAL మాత్రమే సవరించవచ్చు. APPROVED అయిన తర్వాత GRN నే నేరుగా సవరించరు — బదులుగా ఆ GRN వరుసలోని Return లేదా CN బటన్ ఉపయోగించండి (కింద "Return vs Credit Note" చూడండి).',
         },
       },
       {
@@ -212,9 +212,19 @@ export const HELP_CONTENT: HelpEntry[] = [
           te: 'వేగవంతమైన మార్గం: PO తెరవండి → "వస్తువులు స్వీకరించు → GRN" క్లిక్ చేయండి. వస్తువులు మరియు పరిమాణాలు ముందే నిండి ఉంటాయి. సరఫరాదారు ఇన్‌వాయిస్ నంబర్ మరియు తేదీ నమోదు చేయండి, తర్వాత GRN సృష్టించు క్లిక్ చేయండి. GRN PENDING_APPROVAL స్థితిలో తెరుచుకుంటుంది. పరిమాణాలు మరియు ధరలు సమీక్షించండి, తర్వాత స్టాక్ అప్‌డేట్ చేయడానికి ఆమోదించండి.',
         },
       },
+      {
+        title: { en: 'Return vs Credit Note — which button to use', te: 'Return vs Credit Note — ఏ బటన్ ఉపయోగించాలి' },
+        body: {
+          en: 'Each GRN row has two buttons for handling problems found after receiving. Return (a Debit Note) — use this when you are physically sending goods back to the supplier: damaged, expired, the wrong item, or a shortfall. You pick the exact product and quantity, and it reduces what you owe the supplier. Credit Note (CN) — use this when the supplier is giving money back but nothing is physically being returned: a scheme discount, a volume rebate, or a correction to the rate they charged. Tip: if you marked "Rejected Qty" on a line while receiving the GRN, the Return button automatically fills in those items for you — just double-check the numbers before submitting.',
+          te: 'ప్రతి GRN వరుసలో స్వీకరించిన తర్వాత కనిపెట్టిన సమస్యలను నిర్వహించడానికి రెండు బటన్‌లు ఉంటాయి. Return (Debit Note) — సరఫరాదారుకు వస్తువులు శారీరకంగా తిరిగి పంపుతున్నప్పుడు దీన్ని ఉపయోగించండి: దెబ్బతిన్నవి, గడువు ముగిసినవి, తప్పు వస్తువు, లేదా తక్కువ సరఫరా. మీరు ఖచ్చితమైన వస్తువు మరియు పరిమాణం ఎంచుకుంటారు, ఇది సరఫరాదారుకు మీరు బాకీ ఉన్న మొత్తాన్ని తగ్గిస్తుంది. Credit Note (CN) — సరఫరాదారు డబ్బు తిరిగి ఇస్తున్నప్పుడు కానీ ఏమీ శారీరకంగా తిరిగి పంపనప్పుడు దీన్ని ఉపయోగించండి: స్కీమ్ డిస్కౌంట్, వాల్యూమ్ రిబేట్, లేదా వసూలు చేసిన రేటుకు సవరణ. చిట్కా: GRN స్వీకరించేటప్పుడు ఒక లైన్‌పై "Rejected Qty" గుర్తు పెడితే, తర్వాత Return బటన్ క్లిక్ చేసినప్పుడు ఆ వస్తువులు స్వయంచాలకంగా నింపబడతాయి — సమర్పించే ముందు సంఖ్యలు మాత్రం మళ్ళీ తనిఖీ చేయండి.',
+        },
+      },
     ],
-    relatedTopics: ['grn-new', 'purchase-orders', 'suppliers', 'plu'],
-    tags: ['grn', 'stock', 'receipt', 'supplier', 'purchase', 'approval'],
+    commonMistakes: [
+      { mistake: { en: 'Recording a scheme or rebate credit as a Return', te: 'స్కీమ్ లేదా రిబేట్ క్రెడిట్‌ను Return గా నమోదు చేయడం' }, fix: { en: 'A Return should only be used when real goods are physically going back to the supplier. For discounts, schemes, or rate corrections with no goods movement, use Credit Note (CN) instead — Return expects item-level quantities, CN does not.', te: 'Return ను నిజమైన వస్తువులు శారీరకంగా సరఫరాదారుకు తిరిగి వెళ్తున్నప్పుడు మాత్రమే ఉపయోగించాలి. వస్తువుల కదలిక లేని డిస్కౌంట్లు, స్కీమ్‌లు, లేదా రేటు సవరణలకు బదులుగా Credit Note (CN) ఉపయోగించండి.' } },
+    ],
+    relatedTopics: ['grn-new', 'purchase-orders', 'suppliers', 'debit-notes', 'credit-notes', 'plu'],
+    tags: ['grn', 'stock', 'receipt', 'supplier', 'purchase', 'approval', 'return', 'debit-note', 'credit-note'],
   },
 
   // ── GRN — New Entry ────────────────────────────────────────────────────────
@@ -402,7 +412,7 @@ export const HELP_CONTENT: HelpEntry[] = [
 
   // ── Suppliers ──────────────────────────────────────────────────────────────
   {
-    id: 'suppliers', route: '/dashboard/suppliers', module: 'purchasing', version: '2.0',
+    id: 'suppliers', route: '/dashboard/suppliers', module: 'purchasing', version: '2.1',
     title: { en: 'Suppliers', te: 'సరఫరాదారులు' },
     summary: {
       en: 'Your supplier master. Each supplier has contact details, GSTIN, payment terms, and a running ledger of purchases and payments. Accurate GSTIN is critical — without it you lose input tax credit on purchases from that supplier.',
@@ -428,12 +438,20 @@ export const HELP_CONTENT: HelpEntry[] = [
           te: 'ఇన్‌పుట్ ట్యాక్స్ క్రెడిట్ (ITC) అంటే కొనుగోళ్ళపై మీరు చెల్లించిన GST అమ్మకాలపై మీరు సేకరించే GST నుండి తీసివేయబడవచ్చు — మీ నికర GST చెల్లించాల్సిన మొత్తాన్ని తగ్గిస్తుంది. కానీ సరఫరాదారు వారి GST రిటర్న్ ఫైల్ చేసినప్పుడు మాత్రమే ITC చెల్లుతుంది.',
         },
       },
+      {
+        title: { en: 'Credit Notes and Debit Notes — the other two things that reduce a balance', te: 'Credit Notes మరియు Debit Notes — బ్యాలెన్స్ తగ్గించే మరో రెండు అంశాలు' },
+        body: {
+          en: 'Besides recording a payment, there are two more ways a supplier\'s balance goes down. Debit Note — for goods you have physically returned (damaged, expired, wrong item). Click "Record Return" on this page, search for the product, enter the quantity, and submit — no need to link it to a specific GRN if the stock was already sitting in your store. Credit Note — for money the supplier owes you with no physical return: a scheme, a rebate, or a rate correction. Click "Create Credit Note" for this. Both appear in their own tab on this page (Credit Notes / Debit Notes), and both reduce the balance the moment they\'re created. Made a mistake? Both can be cancelled — cancelling instantly restores the amount.',
+          te: 'చెల్లింపు నమోదు చేయడమే కాకుండా, సరఫరాదారు బ్యాలెన్స్ తగ్గే మరో రెండు మార్గాలు ఉన్నాయి. Debit Note — మీరు శారీరకంగా తిరిగి పంపిన వస్తువులకు (దెబ్బతిన్నవి, గడువు ముగిసినవి, తప్పు వస్తువు). ఈ పేజీలో "Record Return" క్లిక్ చేసి, వస్తువు వెతికి, పరిమాణం నమోదు చేసి సమర్పించండి — స్టాక్ ఇప్పటికే మీ దుకాణంలో ఉంటే ఏదైనా ప్రత్యేక GRN తో లింక్ చేయాల్సిన అవసరం లేదు. Credit Note — వస్తువులు తిరిగి రానప్పుడు సరఫరాదారు మీకు బాకీ ఉన్న డబ్బుకు: స్కీమ్, రిబేట్, లేదా రేటు సవరణ. దీని కోసం "Create Credit Note" క్లిక్ చేయండి. రెండూ ఈ పేజీలో వాటి స్వంత ట్యాబ్‌లో కనిపిస్తాయి (Credit Notes / Debit Notes), సృష్టించిన వెంటనే బ్యాలెన్స్ తగ్గిస్తాయి. పొరపాటు జరిగితే? రెండింటినీ రద్దు చేయవచ్చు — రద్దు చేయడం వెంటనే మొత్తాన్ని పునరుద్ధరిస్తుంది.',
+        },
+      },
     ],
     commonMistakes: [
       { mistake: { en: 'Supplier created without GSTIN', te: 'GSTIN లేకుండా సరఫరాదారు సృష్టించడం' }, fix: { en: 'Go back and add GSTIN before the first GRN. You can edit supplier at any time. GRNs created without supplier GSTIN mark ITC as ineligible automatically.', te: 'మొదటి GRN కంటే ముందు GSTIN జోడించడానికి వెనుకకు వెళ్ళండి. మీరు ఎప్పుడైనా సరఫరాదారుని సవరించవచ్చు.' } },
+      { mistake: { en: 'Not sure whether to use Record Return or Create Credit Note', te: 'Record Return లేదా Create Credit Note ఏది ఉపయోగించాలో తెలియకపోవడం' }, fix: { en: 'Ask: "Am I physically sending any product back?" Yes → Record Return (Debit Note), itemized by product and quantity. No, it\'s just a discount or rebate → Create Credit Note, one lump amount.', te: '"నేను శారీరకంగా ఏదైనా వస్తువు తిరిగి పంపుతున్నానా?" అని అడగండి. అవును → Record Return (Debit Note), వస్తువు మరియు పరిమాణం వారీగా. కాదు, ఇది కేవలం డిస్కౌంట్ లేదా రిబేట్ మాత్రమే → Create Credit Note, ఒకే మొత్తంగా.' } },
     ],
-    relatedTopics: ['purchase-orders', 'grn', 'payments', 'bank'],
-    tags: ['suppliers', 'gstin', 'ledger', 'itc', 'payment-terms'],
+    relatedTopics: ['purchase-orders', 'grn', 'payments', 'bank', 'credit-notes', 'debit-notes'],
+    tags: ['suppliers', 'gstin', 'ledger', 'itc', 'payment-terms', 'return', 'credit-note', 'debit-note'],
   },
 
   // ── Customers ──────────────────────────────────────────────────────────────
@@ -1046,6 +1064,88 @@ export const HELP_CONTENT: HelpEntry[] = [
     },
     relatedTopics: ['products', 'plu'],
     tags: ['labels', 'barcode', 'print', 'mrp', 'shelf', 'thermal'],
+  },
+
+  // ── Credit Notes ───────────────────────────────────────────────────────────
+  {
+    id: 'credit-notes', route: '/dashboard/credit-notes/[id]', module: 'purchasing', version: '1.0',
+    title: { en: 'Credit Notes', te: 'Credit Notes' },
+    summary: {
+      en: 'A Credit Note records money a supplier owes you back when no goods are physically being returned — a promotional scheme, a volume rebate, or a correction to a rate that was charged incorrectly. It is one lump amount, not itemized by product, and it reduces what you owe that supplier the moment it is created. Create one from a GRN row (the "CN" button) or directly from the supplier\'s page.',
+      te: 'ఏ వస్తువులు శారీరకంగా తిరిగి రానప్పుడు సరఫరాదారు మీకు తిరిగి ఇవ్వాల్సిన డబ్బును Credit Note నమోదు చేస్తుంది — ప్రమోషనల్ స్కీమ్, వాల్యూమ్ రిబేట్, లేదా తప్పుగా వసూలు చేసిన రేటుకు సవరణ. ఇది వస్తువు వారీగా కాకుండా ఒకే మొత్తం, మరియు సృష్టించిన వెంటనే ఆ సరఫరాదారుకు మీరు బాకీ ఉన్న మొత్తాన్ని తగ్గిస్తుంది. GRN వరుసలోని "CN" బటన్ నుండి లేదా నేరుగా సరఫరాదారు పేజీ నుండి దీన్ని సృష్టించండి.',
+    },
+    fields: {
+      'Reason': { en: 'Why the supplier is giving you this credit. Pick the closest match — Rate Difference, Scheme / Promotional Credit, Volume Rebate, Short Supply, Quality Issue, or Other — then add a short description of what actually happened.', te: 'సరఫరాదారు ఈ క్రెడిట్ ఎందుకు ఇస్తున్నారు. దగ్గరగా సరిపోయే దాన్ని ఎంచుకోండి — Rate Difference, Scheme / Promotional Credit, Volume Rebate, Short Supply, Quality Issue, లేదా Other — తర్వాత ఏం జరిగిందో చిన్న వివరణ జోడించండి.' },
+      'Taxable Amount': { en: 'The credit amount before GST. Example: supplier agrees to a ₹500 scheme discount at 18% GST → Taxable Amount = ₹500, GST = ₹90, Total Credit Note = ₹590.', te: 'GST కంటే ముందు క్రెడిట్ మొత్తం. ఉదాహరణ: సరఫరాదారు 18% GST వద్ద ₹500 స్కీమ్ డిస్కౌంట్‌కు అంగీకరిస్తారు → Taxable Amount = ₹500, GST = ₹90, మొత్తం Credit Note = ₹590.' },
+      'Supplier CN#': { en: 'Optional. If the supplier has issued their own credit note document with a reference number, enter it here so the two records can be matched up later.', te: 'ఐచ్ఛికం. సరఫరాదారు రిఫరెన్స్ నంబర్‌తో వారి స్వంత క్రెడిట్ నోట్ డాక్యుమెంట్ జారీ చేసి ఉంటే, తర్వాత రెండు రికార్డులను సరిపోల్చుకోవడానికి దీన్ని ఇక్కడ నమోదు చేయండి.' },
+      'ITC Reversal': { en: 'Turn this on if the credit relates to goods you already claimed input tax credit on — the GST portion of this credit note may need to be reversed in your GST return. Check with your accountant if unsure.', te: 'మీరు ఇప్పటికే ఇన్‌పుట్ ట్యాక్స్ క్రెడిట్ క్లెయిమ్ చేసిన వస్తువులకు సంబంధించిన క్రెడిట్ అయితే దీన్ని ఆన్ చేయండి — ఈ క్రెడిట్ నోట్ యొక్క GST భాగం మీ GST రిటర్న్‌లో రివర్స్ చేయాల్సి రావచ్చు. తెలియకపోతే మీ అకౌంటెంట్‌ను సంప్రదించండి.' },
+    },
+    sections: [
+      {
+        title: { en: 'When to use a Credit Note instead of a Debit Note', te: 'Debit Note కి బదులు Credit Note ఎప్పుడు ఉపయోగించాలి' },
+        body: {
+          en: 'Use a Credit Note when nothing physical is being sent back — the supplier is simply reducing your bill for a reason unrelated to a return (a scheme, a rebate, a pricing correction). If you are physically returning goods — damaged, expired, wrong item — use a Debit Note instead, from the Return button on the GRN or "Record Return" on the supplier\'s page, so the exact products and quantities are recorded, not just an amount.',
+          te: 'ఏమీ శారీరకంగా తిరిగి పంపనప్పుడు Credit Note ఉపయోగించండి — సరఫరాదారు రిటర్న్‌తో సంబంధం లేని కారణానికి (స్కీమ్, రిబేట్, ధర సవరణ) మీ బిల్‌ను తగ్గిస్తున్నారు అంతే. మీరు శారీరకంగా వస్తువులు తిరిగి పంపుతుంటే — దెబ్బతిన్నవి, గడువు ముగిసినవి, తప్పు వస్తువు — బదులుగా GRN లోని Return బటన్ నుండి లేదా సరఫరాదారు పేజీలో "Record Return" నుండి Debit Note ఉపయోగించండి, తద్వారా కేవలం మొత్తం కాకుండా ఖచ్చితమైన వస్తువులు మరియు పరిమాణాలు నమోదు అవుతాయి.',
+        },
+      },
+      {
+        title: { en: 'Cancelling a Credit Note', te: 'Credit Note రద్దు చేయడం' },
+        body: {
+          en: 'Credit notes cannot be edited once created — standard accounting practice treats them as permanent documents. If you made a mistake, cancel it instead using the Cancel button on this page, or from the Credit Notes tab on the supplier\'s page. Cancelling restores the full amount to what you owe the supplier and cannot be undone, but you can always create a new, correct one afterwards.',
+          te: 'Credit notes సృష్టించిన తర్వాత సవరించలేరు — ప్రామాణిక అకౌంటింగ్ పద్ధతి వాటిని శాశ్వత డాక్యుమెంట్‌లుగా పరిగణిస్తుంది. పొరపాటు జరిగితే, ఈ పేజీలోని Cancel బటన్ ఉపయోగించి లేదా సరఫరాదారు పేజీలోని Credit Notes ట్యాబ్ నుండి దాన్ని రద్దు చేయండి. రద్దు చేయడం సరఫరాదారుకు మీరు బాకీ ఉన్న మొత్తానికి పూర్తి మొత్తాన్ని పునరుద్ధరిస్తుంది మరియు దీన్ని వెనక్కి తీసుకోలేరు, కానీ తర్వాత మీరు ఎప్పుడైనా కొత్త, సరైనదాన్ని సృష్టించవచ్చు.',
+        },
+      },
+    ],
+    commonMistakes: [
+      { mistake: { en: 'Using a Credit Note for a physical return', te: 'శారీరక రిటర్న్ కోసం Credit Note ఉపయోగించడం' }, fix: { en: 'If real products are going back to the supplier, use a Debit Note instead so the return is tracked item by item, not just as a lump sum.', te: 'నిజమైన ఉత్పత్తులు సరఫరాదారుకు తిరిగి వెళ్తుంటే, రిటర్న్ ఒకే మొత్తంగా కాకుండా వస్తువు వారీగా ట్రాక్ అవ్వడానికి బదులుగా Debit Note ఉపయోగించండి.' } },
+    ],
+    relatedTopics: ['suppliers', 'grn', 'debit-notes'],
+    tags: ['credit-note', 'supplier', 'scheme', 'rebate', 'gst', 'itc', 'balance'],
+  },
+
+  // ── Debit Notes (Returns) ─────────────────────────────────────────────────
+  {
+    id: 'debit-notes', route: '/dashboard/debit-notes/[id]', module: 'purchasing', version: '1.0',
+    title: { en: 'Debit Notes (Returns)', te: 'Debit Notes (రిటర్న్‌లు)' },
+    summary: {
+      en: 'A Debit Note is the document you issue when physically returning goods to a supplier — damaged, expired, the wrong item, or a shortfall. Unlike a Credit Note, it is itemized: you record exactly which products and how many units went back, not just a total amount. This matches standard accounting practice for purchase returns and gives you a real record of what was actually sent back, not just how much money changed hands.',
+      te: 'సరఫరాదారుకు వస్తువులు శారీరకంగా తిరిగి పంపేటప్పుడు మీరు జారీ చేసే డాక్యుమెంట్ Debit Note — దెబ్బతిన్నవి, గడువు ముగిసినవి, తప్పు వస్తువు, లేదా తక్కువ సరఫరా. Credit Note కి భిన్నంగా, ఇది వస్తువు వారీగా ఉంటుంది: మొత్తం కాకుండా ఖచ్చితంగా ఏ ఉత్పత్తులు, ఎన్ని యూనిట్‌లు తిరిగి వెళ్ళాయో మీరు నమోదు చేస్తారు. ఇది కొనుగోలు రిటర్న్‌లకు ప్రామాణిక అకౌంటింగ్ పద్ధతికి సరిపోతుంది మరియు ఎంత డబ్బు మారిందో కాకుండా నిజంగా ఏం తిరిగి పంపారో అసలైన రికార్డు ఇస్తుంది.',
+    },
+    fields: {
+      'Reason': { en: 'Pick the closest match — Goods Returned (damaged), Goods Returned (expired), Quality Issue, Short Supply, or Other — then describe what happened.', te: 'దగ్గరగా సరిపోయే దాన్ని ఎంచుకోండి — Goods Returned (damaged), Goods Returned (expired), Quality Issue, Short Supply, లేదా Other — తర్వాత ఏం జరిగిందో వివరించండి.' },
+      'Quantity / Rate / GST%': { en: 'Entered per product line, not as one lump sum. If a line was flagged as "Rejected Qty" while receiving the GRN, these fields are pre-filled automatically — just double-check them before submitting.', te: 'ఒకే మొత్తంగా కాకుండా ప్రతి వస్తువు లైన్‌కు నమోదు చేయబడుతుంది. GRN స్వీకరించేటప్పుడు ఒక లైన్‌ను "Rejected Qty" గా గుర్తు పెడితే, ఈ ఫీల్డ్‌లు స్వయంచాలకంగా నింపబడతాయి — సమర్పించే ముందు మాత్రం వాటిని మళ్ళీ తనిఖీ చేయండి.' },
+      'Supplier CN#': { en: 'Optional. Fill this in only if the supplier has separately issued their own credit note for this return, so you can match the two records.', te: 'ఐచ్ఛికం. ఈ రిటర్న్ కోసం సరఫరాదారు వేరుగా వారి స్వంత క్రెడిట్ నోట్ జారీ చేసి ఉంటేనే దీన్ని నింపండి, తద్వారా మీరు రెండు రికార్డులను సరిపోల్చవచ్చు.' },
+      'ITC Reversal': { en: 'Turn this on if you had already claimed input tax credit on the returned goods — the GST on this debit note may need to be reversed in your GST return. Check with your accountant if unsure.', te: 'తిరిగి పంపిన వస్తువులపై మీరు ఇప్పటికే ఇన్‌పుట్ ట్యాక్స్ క్రెడిట్ క్లెయిమ్ చేసి ఉంటే దీన్ని ఆన్ చేయండి — ఈ డెబిట్ నోట్‌పై GST మీ GST రిటర్న్‌లో రివర్స్ చేయాల్సి రావచ్చు. తెలియకపోతే మీ అకౌంటెంట్‌ను సంప్రదించండి.' },
+    },
+    sections: [
+      {
+        title: { en: 'Two ways to record a return', te: 'రిటర్న్ నమోదు చేయడానికి రెండు మార్గాలు' },
+        body: {
+          en: '1) At receiving time — while entering a GRN, mark a line\'s "Rejected Qty" with a reason. Once the GRN is approved, click the Return button on that GRN\'s row and the item details are filled in for you automatically. 2) For stock already in your store — if you discover damaged or expired goods later, not tied to any specific GRN, go to the supplier\'s page and click "Record Return". Search for the product, enter the quantity being sent back, and submit — no GRN link is required.',
+          te: '1) స్వీకరించే సమయంలో — GRN నమోదు చేసేటప్పుడు, ఒక లైన్ యొక్క "Rejected Qty" ని కారణంతో గుర్తు పెట్టండి. GRN ఆమోదించిన తర్వాత, ఆ GRN వరుసలోని Return బటన్ క్లిక్ చేయండి, వస్తువు వివరాలు మీ కోసం స్వయంచాలకంగా నింపబడతాయి. 2) మీ దుకాణంలో ఇప్పటికే ఉన్న స్టాక్ కోసం — ఏదైనా నిర్దిష్ట GRN తో సంబంధం లేకుండా, తర్వాత దెబ్బతిన్న లేదా గడువు ముగిసిన వస్తువులు కనిపెడితే, సరఫరాదారు పేజీకి వెళ్ళి "Record Return" క్లిక్ చేయండి. వస్తువు వెతికి, తిరిగి పంపుతున్న పరిమాణం నమోదు చేసి సమర్పించండి — GRN లింక్ అవసరం లేదు.',
+        },
+      },
+      {
+        title: { en: 'Why itemized, not a lump amount', te: 'మొత్తంగా కాకుండా వస్తువు వారీగా ఎందుకు' },
+        body: {
+          en: 'Recording exactly which products and quantities were returned — instead of just a rupee total — means you always have a real answer to "what did we actually send back?" months later, and it matches what your GST filing and accountant will expect to see for a purchase return.',
+          te: 'కేవలం రూపాయిల మొత్తానికి బదులుగా ఖచ్చితంగా ఏ ఉత్పత్తులు, ఎన్ని పరిమాణాలు తిరిగి వెళ్ళాయో నమోదు చేయడం అంటే నెలల తర్వాత కూడా "మేము నిజంగా ఏం తిరిగి పంపాము?" అనే దానికి నిజమైన సమాధానం ఎప్పుడూ మీ దగ్గర ఉంటుంది, మరియు ఇది కొనుగోలు రిటర్న్ కోసం మీ GST ఫైలింగ్ మరియు అకౌంటెంట్ ఆశించే దానికి సరిపోతుంది.',
+        },
+      },
+      {
+        title: { en: 'Cancelling a Debit Note', te: 'Debit Note రద్దు చేయడం' },
+        body: {
+          en: 'Like Credit Notes, Debit Notes cannot be edited once created — only cancelled. Cancelling restores the full amount to what you owe the supplier. Use the Cancel button on this page, or from the Debit Notes tab on the supplier\'s page.',
+          te: 'Credit Notes లాగే, Debit Notes సృష్టించిన తర్వాత సవరించలేరు — రద్దు చేయడం మాత్రమే చేయవచ్చు. రద్దు చేయడం సరఫరాదారుకు మీరు బాకీ ఉన్న మొత్తానికి పూర్తి మొత్తాన్ని పునరుద్ధరిస్తుంది. ఈ పేజీలోని Cancel బటన్ లేదా సరఫరాదారు పేజీలోని Debit Notes ట్యాబ్ ఉపయోగించండి.',
+        },
+      },
+    ],
+    commonMistakes: [
+      { mistake: { en: 'Recording a scheme or rate-correction credit as a Return', te: 'స్కీమ్ లేదా రేటు-సవరణ క్రెడిట్‌ను Return గా నమోదు చేయడం' }, fix: { en: 'A Debit Note is only for goods you are physically sending back. For credits the supplier gives you with no return of goods — a scheme, rebate, or rate correction — use a Credit Note instead.', te: 'Debit Note కేవలం మీరు శారీరకంగా తిరిగి పంపుతున్న వస్తువుల కోసమే. వస్తువుల రిటర్న్ లేకుండా సరఫరాదారు మీకు ఇచ్చే క్రెడిట్‌లకు — స్కీమ్, రిబేట్, లేదా రేటు సవరణ — బదులుగా Credit Note ఉపయోగించండి.' } },
+      { mistake: { en: 'Not double-checking pre-filled quantities and rates', te: 'ముందే నింపిన పరిమాణాలు మరియు రేట్లను మళ్ళీ తనిఖీ చేయకపోవడం' }, fix: { en: 'When items are auto-filled from a GRN\'s rejected quantities, the numbers come from what was flagged at receiving time — always verify them against what is physically being sent back before submitting.', te: 'GRN యొక్క తిరస్కరించిన పరిమాణాల నుండి వస్తువులు స్వయంచాలకంగా నింపబడినప్పుడు, సంఖ్యలు స్వీకరించే సమయంలో గుర్తు పెట్టినవి — సమర్పించే ముందు శారీరకంగా తిరిగి పంపుతున్న దానికి వ్యతిరేకంగా వాటిని ఎల్లప్పుడూ ధృవీకరించండి.' } },
+    ],
+    relatedTopics: ['suppliers', 'grn', 'credit-notes'],
+    tags: ['debit-note', 'return', 'supplier', 'itemized', 'gst', 'itc', 'balance'],
   },
 
 ];

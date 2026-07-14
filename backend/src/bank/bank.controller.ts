@@ -5,8 +5,18 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { BankService } from './bank.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { CreateBankAccountDto } from './dto/create-bank-account.dto';
+import { UpdateBankAccountDto } from './dto/update-bank-account.dto';
+import { UpdateBankTransactionDto } from './dto/update-bank-transaction.dto';
+import { RecordPaymentDto } from './dto/record-payment.dto';
+import { MatchGroupDto } from './dto/match-group.dto';
 
-@UseGuards(JwtAuthGuard)
+const BANK_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'PURCHASE_CHECKER'];
+
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(...BANK_ROLES)
 @Controller('bank')
 export class BankController {
   constructor(private bank: BankService) {}
@@ -19,12 +29,12 @@ export class BankController {
   }
 
   @Post('accounts')
-  createAccount(@Request() req: any, @Body() dto: any) {
+  createAccount(@Request() req: any, @Body() dto: CreateBankAccountDto) {
     return this.bank.createAccount(req.user.businessId, dto);
   }
 
   @Patch('accounts/:id')
-  updateAccount(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+  updateAccount(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateBankAccountDto) {
     return this.bank.updateAccount(id, req.user.businessId, dto);
   }
 
@@ -49,7 +59,7 @@ export class BankController {
   }
 
   @Patch('transactions/:id')
-  updateTransaction(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+  updateTransaction(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateBankTransactionDto) {
     return this.bank.updateTransaction(id, req.user.businessId, dto);
   }
 
@@ -75,7 +85,7 @@ export class BankController {
   // ─── MANUAL PAYMENT ──────────────────────────────────
 
   @Post('payments')
-  recordPayment(@Request() req: any, @Body() dto: any) {
+  recordPayment(@Request() req: any, @Body() dto: RecordPaymentDto) {
     return this.bank.recordPayment(req.user.businessId, dto);
   }
 
@@ -92,7 +102,7 @@ export class BankController {
   }
 
   @Post('match-group')
-  matchGroup(@Request() req: any, @Body() dto: any) {
+  matchGroup(@Request() req: any, @Body() dto: MatchGroupDto) {
     return this.bank.matchGroup(req.user.businessId, { ...dto, createdByName: req.user?.fullName ?? req.user?.name });
   }
 

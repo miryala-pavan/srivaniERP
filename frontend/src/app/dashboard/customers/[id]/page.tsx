@@ -6,6 +6,8 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Phone, Mail, Edit2, AlertTriangle, ChevronLeft, ChevronRight,
   RefreshCw, X, Check, Plus, Trash2, Star, Printer, UserX, UserCheck,
+  Wallet, CreditCard, ShoppingBag, TrendingUp, Calendar, Receipt, Award,
+  Building2, MessageCircle, Users,
 } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -363,62 +365,69 @@ export default function CustomerDetailPage() {
         </div>
 
         {/* Header card */}
-        <div className="bg-white rounded-xl border border-gray-200 px-6 py-5">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-xl font-semibold text-gray-900">{customer.name}</h1>
-                {customer.customerCode && (
-                  <span className="font-mono text-sm text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                    {customer.customerCode}
-                  </span>
-                )}
-                {/* Status badge */}
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  customer.status === 'ACTIVE' && customer.isActive ? 'bg-green-100 text-green-700'
-                    : customer.status === 'BLOCKED'                 ? 'bg-red-100 text-red-600'
-                    : 'bg-gray-100 text-gray-500'
-                }`}>
-                  {customer.status === 'ACTIVE' && customer.isActive ? 'Active'
-                    : customer.status === 'BLOCKED' ? 'Blocked' : 'Inactive'}
-                </span>
-                {/* Type badge */}
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  customer.customerType === 'WALKIN' ? 'bg-gray-100 text-gray-600'
-                    : customer.customerType === 'B2B' ? 'bg-blue-100 text-blue-700'
-                    : 'bg-purple-100 text-purple-700'
-                }`}>
-                  {customer.customerType === 'WALKIN' ? 'Walk-in'
-                    : customer.customerType === 'B2B' ? 'B2B' : 'B2C'}
-                </span>
-                {/* Channel badge */}
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  customer.channel === 'ONLINE' ? 'bg-teal-100 text-teal-700'
-                    : customer.channel === 'BOTH' ? 'bg-amber-100 text-amber-700'
-                    : 'bg-gray-100 text-gray-500'
-                }`}>
-                  {customer.channel === 'ONLINE' ? 'Online'
-                    : customer.channel === 'BOTH' ? 'Both' : 'POS'}
-                </span>
+            <div className="flex items-start gap-4 min-w-0">
+              <div className="w-12 h-12 rounded-full bg-[#1B4F8A]/10 flex items-center justify-center text-base font-semibold text-[#1B4F8A] shrink-0">
+                {(customer.name || customer.phone || '?').slice(0, 1).toUpperCase()}
               </div>
-              <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
-                {customer.phone && (
-                  <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" />{customer.phone}</span>
-                )}
-                {customer.email && (
-                  <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" />{customer.email}</span>
-                )}
-                {customer.customerType === 'B2B' && customer.gstin && (
-                  <span className="font-mono text-xs bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">
-                    GSTIN: {customer.gstin}
+              <div className="space-y-2 min-w-0">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h1 className="text-xl font-semibold text-gray-900 tracking-tight">{customer.name}</h1>
+                  {customer.customerCode && (
+                    <span className="font-mono text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded-md">
+                      {customer.customerCode}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Status badge */}
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                    customer.status === 'ACTIVE' && customer.isActive ? 'bg-green-50 text-green-700'
+                      : customer.status === 'BLOCKED'                 ? 'bg-red-50 text-red-600'
+                      : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {customer.status === 'ACTIVE' && customer.isActive ? 'Active'
+                      : customer.status === 'BLOCKED' ? 'Blocked' : 'Inactive'}
                   </span>
-                )}
+                  {/* Type badge */}
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                    customer.customerType === 'WALKIN' ? 'bg-gray-100 text-gray-600'
+                      : customer.customerType === 'B2B' ? 'bg-blue-50 text-blue-700'
+                      : 'bg-purple-50 text-purple-700'
+                  }`}>
+                    {customer.customerType === 'WALKIN' ? 'Walk-in'
+                      : customer.customerType === 'B2B' ? 'B2B' : 'B2C'}
+                  </span>
+                  {/* Channel badge */}
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                    customer.channel === 'ONLINE' ? 'bg-teal-50 text-teal-700'
+                      : customer.channel === 'BOTH' ? 'bg-amber-50 text-amber-700'
+                      : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {customer.channel === 'ONLINE' ? 'Online'
+                      : customer.channel === 'BOTH' ? 'Both' : 'POS'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3.5 text-sm text-gray-500">
+                  {customer.phone && (
+                    <span className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-gray-400" />{customer.phone}</span>
+                  )}
+                  {customer.email && (
+                    <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-gray-400" />{customer.email}</span>
+                  )}
+                  {customer.customerType === 'B2B' && customer.gstin && (
+                    <span className="font-mono text-xs bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md">
+                      GSTIN: {customer.gstin}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => { setPayForm({ ...EMPTY_PAY }); setShowPay(true); }}
-                className="px-3 py-1.5 text-sm bg-[#1B4F8A] text-white rounded-lg hover:bg-[#163d6e] font-medium"
+                className="px-3.5 py-1.5 text-sm bg-[#1B4F8A] text-white rounded-lg hover:bg-[#163d6e] font-medium transition-colors"
               >
                 Record Payment
               </button>
@@ -435,8 +444,8 @@ export default function CustomerDetailPage() {
                     disabled={toggleActive.isPending}
                     className={`p-1.5 border rounded-lg transition-colors disabled:opacity-50 ${
                       customer.isActive
-                        ? 'border-red-200 text-red-500 hover:bg-red-50'
-                        : 'border-green-200 text-green-600 hover:bg-green-50'
+                        ? 'border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50'
+                        : 'border-gray-200 text-gray-400 hover:text-green-600 hover:border-green-200 hover:bg-green-50'
                     }`}
                     title={customer.isActive ? 'Deactivate customer' : 'Activate customer'}
                   >
@@ -459,7 +468,7 @@ export default function CustomerDetailPage() {
                       });
                       setShowEdit(true);
                     }}
-                    className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500"
+                    className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 text-gray-400 hover:text-gray-600 transition-colors"
                     title="Edit customer"
                   >
                     <Edit2 className="w-4 h-4" />
@@ -471,17 +480,20 @@ export default function CustomerDetailPage() {
         </div>
 
         {/* 7 Metric cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
           {/* 1. Outstanding */}
-          <div className={`bg-white rounded-xl border px-5 py-4 ${
-            outstanding > 0 ? 'border-red-200'
-              : outstanding < 0 ? 'border-green-200'
-              : 'border-gray-200'
-          }`}>
-            <p className="text-xs text-gray-500 mb-1">Outstanding</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                outstanding > 0 ? 'bg-red-50' : outstanding < 0 ? 'bg-green-50' : 'bg-gray-50'
+              }`}>
+                <Wallet className={`w-3.5 h-3.5 ${outstanding > 0 ? 'text-red-500' : outstanding < 0 ? 'text-green-600' : 'text-gray-400'}`} />
+              </div>
+              <p className="text-xs text-gray-400">Outstanding</p>
+            </div>
             {outstanding > 0 ? (
               <>
-                <p className="text-xl font-semibold text-red-600">Rs. {inr(outstanding)}</p>
+                <p className="text-xl font-semibold text-red-600 tracking-tight">Rs. {inr(outstanding)}</p>
                 <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                   {overLimit && <AlertTriangle className="w-3 h-3" />}
                   {overLimit ? 'Over limit' : 'Due'}
@@ -489,23 +501,28 @@ export default function CustomerDetailPage() {
               </>
             ) : outstanding < 0 ? (
               <>
-                <p className="text-xl font-semibold text-green-600">Rs. {inr(Math.abs(outstanding))}</p>
+                <p className="text-xl font-semibold text-green-600 tracking-tight">Rs. {inr(Math.abs(outstanding))}</p>
                 <p className="text-xs text-green-500 mt-1">Advance</p>
               </>
             ) : (
               <>
-                <p className="text-xl font-semibold text-gray-400">Settled</p>
+                <p className="text-xl font-semibold text-gray-400 tracking-tight">Settled</p>
                 <p className="text-xs text-gray-400 mt-1">No dues</p>
               </>
             )}
           </div>
 
           {/* 2. Credit Limit */}
-          <div className={`bg-white rounded-xl border px-5 py-4 ${overLimit ? 'border-red-200' : 'border-gray-200'}`}>
-            <p className="text-xs text-gray-500 mb-1">Credit Limit</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${overLimit ? 'bg-red-50' : 'bg-gray-50'}`}>
+                <CreditCard className={`w-3.5 h-3.5 ${overLimit ? 'text-red-500' : 'text-gray-400'}`} />
+              </div>
+              <p className="text-xs text-gray-400">Credit Limit</p>
+            </div>
             {creditLimit > 0 ? (
               <>
-                <p className={`text-xl font-semibold ${overLimit ? 'text-red-600' : 'text-gray-700'}`}>
+                <p className={`text-xl font-semibold tracking-tight ${overLimit ? 'text-red-600' : 'text-gray-800'}`}>
                   Rs. {inr(creditLimit)}
                 </p>
                 <p className={`text-xs mt-1 ${overLimit ? 'text-red-500' : 'text-green-600'}`}>
@@ -515,39 +532,59 @@ export default function CustomerDetailPage() {
                 </p>
               </>
             ) : (
-              <p className="text-xl font-semibold text-gray-400">No limit</p>
+              <p className="text-xl font-semibold text-gray-400 tracking-tight">No limit</p>
             )}
           </div>
 
           {/* 3. Lifetime Purchases */}
-          <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-            <p className="text-xs text-gray-500 mb-1">Lifetime Purchases</p>
-            <p className="text-xl font-semibold text-gray-700">Rs. {inr(n(stats.totalPurchased))}</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
+                <ShoppingBag className="w-3.5 h-3.5 text-gray-400" />
+              </div>
+              <p className="text-xs text-gray-400">Lifetime Purchases</p>
+            </div>
+            <p className="text-xl font-semibold text-gray-800 tracking-tight">Rs. {inr(n(stats.totalPurchased))}</p>
             <p className="text-xs text-gray-400 mt-1">{stats.totalBills ?? 0} bill(s)</p>
           </div>
 
           {/* 4. This Month */}
-          <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-            <p className="text-xs text-gray-500 mb-1">This Month</p>
-            <p className="text-xl font-semibold text-gray-700">Rs. {inr(n(stats.thisMonthPurchased))}</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
+                <TrendingUp className="w-3.5 h-3.5 text-gray-400" />
+              </div>
+              <p className="text-xs text-gray-400">This Month</p>
+            </div>
+            <p className="text-xl font-semibold text-gray-800 tracking-tight">Rs. {inr(n(stats.thisMonthPurchased))}</p>
             <p className="text-xs text-gray-400 mt-1">
               {new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
             </p>
           </div>
 
           {/* 5. Last Purchase */}
-          <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-            <p className="text-xs text-gray-500 mb-1">Last Purchase</p>
-            <p className="text-lg font-semibold text-gray-700">{fmtDate(stats.lastPurchaseDate)}</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
+                <Calendar className="w-3.5 h-3.5 text-gray-400" />
+              </div>
+              <p className="text-xs text-gray-400">Last Purchase</p>
+            </div>
+            <p className="text-lg font-semibold text-gray-800 tracking-tight">{fmtDate(stats.lastPurchaseDate)}</p>
             {stats.lastBillNumber && (
               <p className="text-xs text-gray-400 mt-1">Bill #{stats.lastBillNumber}</p>
             )}
           </div>
 
           {/* 6. Last Payment */}
-          <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-            <p className="text-xs text-gray-500 mb-1">Last Payment</p>
-            <p className="text-lg font-semibold text-gray-700">{fmtDate(stats.lastPaymentDate)}</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
+                <Receipt className="w-3.5 h-3.5 text-gray-400" />
+              </div>
+              <p className="text-xs text-gray-400">Last Payment</p>
+            </div>
+            <p className="text-lg font-semibold text-gray-800 tracking-tight">{fmtDate(stats.lastPaymentDate)}</p>
             {stats.lastPaymentAmount != null && (
               <p className="text-xs text-gray-400 mt-1">
                 Rs. {inr(n(stats.lastPaymentAmount))} · {stats.lastPaymentMode}
@@ -556,9 +593,14 @@ export default function CustomerDetailPage() {
           </div>
 
           {/* 7. Loyalty Points */}
-          <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-            <p className="text-xs text-gray-500 mb-1">Loyalty Points</p>
-            <p className="text-xl font-semibold text-gray-700">{customer.loyaltyPoints ?? 0}</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                <Award className="w-3.5 h-3.5 text-amber-500" />
+              </div>
+              <p className="text-xs text-gray-400">Loyalty Points</p>
+            </div>
+            <p className="text-xl font-semibold text-gray-800 tracking-tight">{customer.loyaltyPoints ?? 0}</p>
             <p className="text-xs text-gray-400 mt-1">points earned</p>
           </div>
         </div>
@@ -578,10 +620,10 @@ export default function CustomerDetailPage() {
               ]}
               active={activeTab}
               onChange={(t) => setActiveTab(t as Tab)}
-              className="bg-white rounded-t-xl px-4 pt-3"
+              className="bg-white rounded-t-2xl px-4 pt-3 border border-b-0 border-gray-100 shadow-sm"
             />
 
-            <div className="bg-white rounded-b-xl border border-t-0 border-gray-200 overflow-hidden">
+            <div className="bg-white rounded-b-2xl border border-t-0 border-gray-100 shadow-sm overflow-hidden">
 
               {/* ── Bills ─────────────────────────────────────────────────── */}
               {activeTab === 'bills' && (
@@ -950,56 +992,66 @@ export default function CustomerDetailPage() {
           </div>
 
           {/* Side panel */}
-          <div className="lg:w-72 shrink-0 space-y-4">
+          <div className="lg:w-72 shrink-0 space-y-3.5">
 
             {/* Contact */}
-            <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700">Contact</h3>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                  <Phone className="w-3.5 h-3.5 text-blue-500" />
+                </div>
+                <h3 className="text-sm font-semibold text-gray-800">Contact</h3>
+              </div>
               <dl className="space-y-2 text-sm">
                 {customer.phone && (
                   <div className="flex items-center gap-2">
-                    <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <Phone className="w-3.5 h-3.5 text-gray-300 shrink-0" />
                     <span className="text-gray-700">{customer.phone}</span>
                   </div>
                 )}
                 {customer.email && (
                   <div className="flex items-center gap-2">
-                    <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <Mail className="w-3.5 h-3.5 text-gray-300 shrink-0" />
                     <span className="text-gray-700 truncate">{customer.email}</span>
                   </div>
                 )}
                 {!customer.phone && !customer.email && (
                   <p className="text-gray-400 text-xs">No contact info</p>
                 )}
-                <div className="flex justify-between pt-1 border-t border-gray-100">
-                  <dt className="text-gray-500">Since</dt>
-                  <dd className="text-gray-800">{fmtDate(customer.createdAt)}</dd>
+                <div className="flex justify-between pt-2 border-t border-gray-50">
+                  <dt className="text-gray-400 text-xs">Since</dt>
+                  <dd className="text-gray-700 text-xs font-medium">{fmtDate(customer.createdAt)}</dd>
                 </div>
               </dl>
             </div>
 
             {/* B2B details */}
             {customer.customerType === 'B2B' && (
-              <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 space-y-2">
-                <h3 className="text-sm font-semibold text-gray-700">B2B Details</h3>
-                <dl className="space-y-2 text-sm">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center shrink-0">
+                    <Building2 className="w-3.5 h-3.5 text-purple-500" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-gray-800">B2B Details</h3>
+                </div>
+                <dl className="space-y-2.5 text-sm">
                   {customer.companyName && (
                     <div>
-                      <dt className="text-xs text-gray-500">Company</dt>
+                      <dt className="text-xs text-gray-400">Company</dt>
                       <dd className="font-medium text-gray-800">{customer.companyName}</dd>
                     </div>
                   )}
                   {customer.gstin && (
                     <div>
-                      <dt className="text-xs text-gray-500">GSTIN</dt>
-                      <dd className="font-mono text-xs text-gray-800 bg-gray-50 px-2 py-1 rounded border border-gray-200 mt-0.5">
+                      <dt className="text-xs text-gray-400">GSTIN</dt>
+                      <dd className="font-mono text-xs text-gray-700 bg-gray-50 px-2 py-1 rounded-md border border-gray-100 mt-0.5">
                         {customer.gstin}
                       </dd>
                     </div>
                   )}
                   {customer.billingAddress && (
                     <div>
-                      <dt className="text-xs text-gray-500">Billing Address</dt>
+                      <dt className="text-xs text-gray-400">Billing Address</dt>
                       <dd className="text-gray-700 text-xs mt-0.5">{customer.billingAddress}</dd>
                     </div>
                   )}
@@ -1008,9 +1060,14 @@ export default function CustomerDetailPage() {
             )}
 
             {/* Communication prefs */}
-            <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 space-y-2">
-              <h3 className="text-sm font-semibold text-gray-700">Communication</h3>
-              <div className="space-y-1.5 text-sm">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+                  <MessageCircle className="w-3.5 h-3.5 text-teal-500" />
+                </div>
+                <h3 className="text-sm font-semibold text-gray-800">Communication</h3>
+              </div>
+              <div className="space-y-2 text-sm">
                 {([
                   { key: 'whatsappOptIn', label: 'WhatsApp' },
                   { key: 'smsOptIn',      label: 'SMS' },
@@ -1018,8 +1075,8 @@ export default function CustomerDetailPage() {
                 ] as const).map(({ key, label }) => (
                   <div key={key} className="flex items-center justify-between">
                     <span className="text-gray-600">{label}</span>
-                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                      customer[key] ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                      customer[key] ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-400'
                     }`}>
                       {customer[key] ? 'Opted in' : 'Off'}
                     </span>
@@ -1030,9 +1087,14 @@ export default function CustomerDetailPage() {
 
             {/* Customer group */}
             {customer.customerGroup && (
-              <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Customer Group</h3>
-                <p className="text-sm text-gray-800">{customer.customerGroup}</p>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+                <div className="flex items-center gap-2.5 mb-2">
+                  <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                    <Users className="w-3.5 h-3.5 text-gray-500" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-gray-800">Customer Group</h3>
+                </div>
+                <p className="text-sm text-gray-700">{customer.customerGroup}</p>
               </div>
             )}
 

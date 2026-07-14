@@ -177,7 +177,9 @@ export class WebhookController implements OnModuleInit {
       const senderName  = contact?.profile?.name as string | undefined;
 
       // Dedup: Meta retries webhook delivery at-least-once for the same message.
-      const bodyPreview = msg.text?.body ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title;
+      const location = msg.type === 'location' ? msg.location : undefined;
+      const bodyPreview = msg.text?.body ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title
+        ?? (location ? `${location.latitude},${location.longitude}` : undefined);
       const messageType = msg.type === 'interactive'
         ? (msg.interactive?.list_reply ? 'LIST_REPLY' : 'BUTTON_REPLY')
         : msg.type.toUpperCase();
@@ -209,6 +211,7 @@ export class WebhookController implements OnModuleInit {
         messageBody: msg.text?.body as string | undefined,
         buttonId: msg.interactive?.button_reply?.id as string | undefined,
         listReplyId: msg.interactive?.list_reply?.id as string | undefined,
+        senderName,
       }).catch(err => this.logger.error(`Auto-reply failed for ${senderPhone}: ${err}`));
 
       if (msg.type === 'interactive' && msg.interactive?.type === 'button_reply') {

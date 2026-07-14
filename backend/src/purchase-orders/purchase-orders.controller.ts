@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Body, Param, Query, Request, UseGuards } from '@nestjs/common';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('purchase-orders')
@@ -24,7 +25,7 @@ export class PurchaseOrdersController {
   }
 
   @Post()
-  create(@Request() req: any, @Body() body: any) {
+  create(@Request() req: any, @Body() body: CreatePurchaseOrderDto) {
     return this.service.create(req.user.businessId, {
       ...body,
       userId: req.user.id,

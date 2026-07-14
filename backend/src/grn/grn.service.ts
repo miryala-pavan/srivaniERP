@@ -15,6 +15,9 @@ import { BankService } from '../bank/bank.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ShopCacheService } from '../shop/shop-cache.service';
 import { JournalBridgeService } from '../platform/journal-bridge/journal-bridge.service';
+import { GstService } from '../gst/gst.service';
+import { lockPluCandidatesForDeduction, lockPluById } from '../common/helpers/stock-lock.util';
+import { gstinStateCode } from '../common/gstin.util';
 
 @Injectable()
 export class GrnService {
@@ -28,6 +31,7 @@ export class GrnService {
     private audit: AuditLogService,
     private shopCache: ShopCacheService,
     private journalBridge: JournalBridgeService,
+    private gst: GstService,
   ) {}
 
   private r2(n: number) { return Math.round(n * 100) / 100; }
@@ -153,8 +157,8 @@ export class GrnService {
       where: { id: businessId },
       select: { stateCode: true },
     });
-    const supplierState = supplierGstin.substring(0, 2);
-    return !!(biz?.stateCode && supplierState && supplierState !== biz.stateCode);
+    const supplierState = gstinStateCode(supplierGstin, 'This supplier');
+    return !!(biz?.stateCode && supplierState !== biz.stateCode);
   }
 
   private async fetchProducts(businessId: string, productIds: string[]) {
@@ -436,7 +440,7 @@ export class GrnService {
         cgstTotal:     Number((purchase as any).cgstTotal ?? 0),
         sgstTotal:     Number((purchase as any).sgstTotal ?? 0),
         igstTotal:     Number((purchase as any).igstTotal ?? 0),
-        isMsmeSupplier: !!(supplier as any).udyamRegistration,
+        isMsmeSupplier: !!supplier.udyamRegistration,
       }).catch(() => {});
     }
 
@@ -1272,6 +1276,81 @@ export class GrnService {
 
   // ─── SUPPLIER CREDIT NOTES ────────────────────────────
 
+  // Aggregates the rejected-qty lines on a GRN into a prefill for the
+  // Create Credit Note form — prorates each line's already-computed
+  // taxableAmount/cessAmount by rejectedQty/totalReceivedQty rather than
+  // re-deriving cost math, and weight-averages the GST rate across lines
+  // since a single credit note only carries one flat rate.
+  async getRejectedItemsSummary(businessId: string, grnId: string) {
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id: grnId, businessId },
+      select: {
+        items: {
+          where: { rejectedQty: { gt: 0 } },
+          select: {
+            productId: true,
+            productName: true,
+            hsnCode: true,
+            unitOfMeasure: true,
+            rejectedQty: true,
+            totalReceivedQty: true,
+            taxableAmount: true,
+            cessAmount: true,
+            gstRatePercent: true,
+            rejectionReason: true,
+          },
+        },
+      },
+    });
+    if (!purchase) throw new NotFoundException('GRN not found');
+
+    let taxableAmount = 0;
+    let cessAmount = 0;
+    let weightedRateSum = 0;
+    const reasons = new Set<string>();
+    const items = purchase.items.map((item) => {
+      const received = Number(item.totalReceivedQty);
+      const rejected = Number(item.rejectedQty);
+      const fraction = received > 0 ? rejected / received : 0;
+      const lineTaxable = this.r2(Number(item.taxableAmount) * fraction);
+      const lineCess    = this.r2(Number(item.cessAmount) * fraction);
+      const gstRate     = Number(item.gstRatePercent);
+      const unitPrice   = rejected > 0 ? this.r2(lineTaxable / rejected) : 0;
+      const cessRate    = lineTaxable > 0 ? this.r2(lineCess / lineTaxable * 100) : 0;
+
+      taxableAmount    += lineTaxable;
+      cessAmount       += lineCess;
+      weightedRateSum  += lineTaxable * gstRate;
+      if (item.rejectionReason) reasons.add(item.rejectionReason);
+
+      return {
+        productId: item.productId,
+        productName: item.productName,
+        hsnCode: item.hsnCode,
+        unitOfMeasure: item.unitOfMeasure,
+        rejectedQty: rejected,
+        unitPrice,
+        taxableAmount: lineTaxable,
+        gstRatePercent: gstRate,
+        cessRate,
+        rejectionReason: item.rejectionReason,
+      };
+    });
+
+    taxableAmount = this.r2(taxableAmount);
+    cessAmount    = this.r2(cessAmount);
+    const gstRate = taxableAmount > 0 ? this.r2(weightedRateSum / taxableAmount) : 0;
+
+    return {
+      hasRejectedItems: items.length > 0,
+      taxableAmount,
+      cessAmount,
+      gstRate,
+      reasons: Array.from(reasons),
+      items,
+    };
+  }
+
   async createSupplierCreditNote(
     businessId: string,
     userId: string,
@@ -1299,7 +1378,7 @@ export class GrnService {
       where: { id: businessId },
       select: { stateCode: true },
     });
-    const supplierState = supplier.gstin?.substring(0, 2) ?? null;
+    const supplierState = supplier.gstin ? gstinStateCode(supplier.gstin, 'This supplier') : null;
     const isInterstate = !!(supplierState && business?.stateCode && supplierState !== business.stateCode);
 
     const taxable    = this.r2(dto.taxableAmount);
@@ -1350,7 +1429,86 @@ export class GrnService {
       },
     });
 
+    if (dto.itcReversal) {
+      const d = new Date(dto.cnDate);
+      const taxPeriod = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      this.gst.addItcEntry(businessId, taxPeriod, 'CREDIT_NOTE', cn.id, -cgst, -sgst, -igst).catch(() => {});
+    }
+
+    this.journalBridge.postCreditNoteJournal({
+      id:             cn.id,
+      businessId,
+      scnNumber:      cn.scnNumber,
+      grandTotal:     total,
+      taxableAmount:  taxable,
+      cgstTotal:      cgst,
+      sgstTotal:      sgst,
+      igstTotal:      igst,
+      isMsmeSupplier: !!supplier.udyamRegistration,
+    }).catch(() => {});
+
     return { ...cn, isInterstate };
+  }
+
+  // Credit notes are financial documents — never mutated after creation,
+  // only cancelled (excluded from every supplier-balance calculation, which
+  // all filter status: 'ACTIVE'). Mirrors how bills are voided elsewhere.
+  async cancelSupplierCreditNote(businessId: string, id: string, userName: string) {
+    const cn = await this.prisma.supplierCreditNote.findFirst({
+      where: { id, businessId },
+      include: { supplier: { select: { udyamRegistration: true } } },
+    });
+    if (!cn) throw new NotFoundException('Credit note not found');
+    if (cn.status === 'CANCELLED') throw new BadRequestException('Credit note is already cancelled');
+
+    const updated = await this.prisma.supplierCreditNote.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        notes: `${cn.notes ? cn.notes + ' | ' : ''}Cancelled by ${userName} on ${new Date().toLocaleDateString('en-IN')}`,
+      },
+    });
+
+    if (cn.itcReversal) {
+      this.prisma.itcLedger.updateMany({
+        where: { sourceType: 'CREDIT_NOTE', sourceId: cn.id, isReversed: false },
+        data: { isReversed: true, reversalReason: 'Credit note cancelled' },
+      }).catch(() => {});
+    }
+
+    this.journalBridge.postCreditNoteJournal({
+      id:             cn.id,
+      businessId,
+      scnNumber:      cn.scnNumber,
+      grandTotal:     Number(cn.totalAmount),
+      taxableAmount:  Number(cn.taxableAmount),
+      cgstTotal:      Number(cn.cgstAmount),
+      sgstTotal:      Number(cn.sgstAmount),
+      igstTotal:      Number(cn.igstAmount),
+      isMsmeSupplier: !!cn.supplier?.udyamRegistration,
+    }, true).catch(() => {});
+
+    return updated;
+  }
+
+  async getSupplierCreditNoteById(businessId: string, id: string) {
+    const cn = await this.prisma.supplierCreditNote.findFirst({
+      where: { id, businessId },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        items: true,
+      },
+    });
+    if (!cn) throw new NotFoundException('Credit note not found');
+
+    const grn = cn.originalGrnId
+      ? await this.prisma.purchase.findFirst({
+          where: { id: cn.originalGrnId, businessId },
+          select: { id: true, grnNumber: true, invoiceNumber: true },
+        })
+      : null;
+
+    return { ...cn, grn };
   }
 
   async getSupplierCreditNotes(
@@ -1386,6 +1544,413 @@ export class GrnService {
         include: { supplier: { select: { id: true, name: true } } },
       }),
       this.prisma.supplierCreditNote.count({ where }),
+    ]);
+
+    return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+  }
+
+  // ─── PURCHASE DEBIT NOTES (itemized goods returns) ────
+  // The document WE issue when returning goods to a supplier — matches
+  // standard Indian accounting practice (Tally's "Debit Note" voucher for
+  // purchase returns) rather than SupplierCreditNote, which is for credits
+  // the supplier proactively issues (schemes/rebates/rate corrections) with
+  // no itemized return behind them.
+
+  async createPurchaseDebitNote(
+    businessId: string,
+    userId: string,
+    userName: string,
+    dto: {
+      supplierId: string;
+      originalGrnId?: string;
+      originalInvoiceNo?: string;
+      supplierCnNumber?: string;
+      debitNoteDate: string;
+      reason: string;
+      itcReversal?: boolean;
+      notes?: string;
+      items: Array<{
+        productId?: string;
+        productName: string;
+        hsnCode?: string;
+        quantity: number;
+        unitPrice: number;
+        gstRate: number;
+        cessRate?: number;
+      }>;
+    },
+  ) {
+    if (!dto.items?.length) throw new BadRequestException('At least one returned item is required');
+
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: dto.supplierId, businessId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { stateCode: true },
+    });
+    const supplierState = supplier.gstin ? gstinStateCode(supplier.gstin, 'This supplier') : null;
+    const isInterstate = !!(supplierState && business?.stateCode && supplierState !== business.stateCode);
+
+    let taxableAmount = 0, cgstAmount = 0, sgstAmount = 0, igstAmount = 0, cessAmount = 0;
+    const itemsData = dto.items.map((it) => {
+      if (it.quantity <= 0) throw new BadRequestException(`Quantity must be greater than 0 for ${it.productName}`);
+      const lineTaxable = this.r2(it.quantity * it.unitPrice);
+      const gstRate      = it.gstRate ?? 0;
+      const lineGst       = this.r2(lineTaxable * gstRate / 100);
+      const lineCgst      = isInterstate ? 0 : this.r2(lineGst / 2);
+      const lineSgst      = isInterstate ? 0 : this.r2(lineGst / 2);
+      const lineIgst      = isInterstate ? lineGst : 0;
+      const cessRate      = it.cessRate ?? 0;
+      const lineCess       = this.r2(lineTaxable * cessRate / 100);
+      const lineTotal      = this.r2(lineTaxable + lineGst + lineCess);
+
+      taxableAmount += lineTaxable;
+      cgstAmount    += lineCgst;
+      sgstAmount    += lineSgst;
+      igstAmount    += lineIgst;
+      cessAmount    += lineCess;
+
+      return {
+        productId:     it.productId ?? null,
+        productName:   it.productName,
+        hsnCode:       it.hsnCode ?? null,
+        quantity:      it.quantity,
+        unitPrice:     it.unitPrice,
+        taxableAmount: lineTaxable,
+        gstRate,
+        cgstAmount: lineCgst,
+        sgstAmount: lineSgst,
+        igstAmount: lineIgst,
+        cessAmount: lineCess,
+        totalAmount: lineTotal,
+      };
+    });
+
+    taxableAmount = this.r2(taxableAmount);
+    cgstAmount    = this.r2(cgstAmount);
+    sgstAmount    = this.r2(sgstAmount);
+    igstAmount    = this.r2(igstAmount);
+    cessAmount    = this.r2(cessAmount);
+    const totalAmount = this.r2(taxableAmount + cgstAmount + sgstAmount + igstAmount + cessAmount);
+
+    const fy = await this.getActiveFy(businessId);
+
+    // Stock bookkeeping needs a branch for the StockLedger audit trail —
+    // ProductPlu.stockOnHand itself is business-wide, not branch-scoped (same
+    // as every other stock-mutating flow in this codebase). Use the linked
+    // GRN's branch when this return is tied to one, else the business's
+    // first/only branch.
+    const branchId = dto.originalGrnId
+      ? (await this.prisma.purchase.findFirst({ where: { id: dto.originalGrnId, businessId }, select: { branchId: true } }))?.branchId
+      : (await this.prisma.branch.findFirst({ where: { businessId }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id;
+    if (!branchId) throw new BadRequestException('No branch configured for this business — cannot record stock movement');
+
+    const productIds = [...new Set(itemsData.map((it) => it.productId).filter((id): id is string => !!id))];
+    const products = productIds.length
+      ? await this.prisma.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, expiryTracking: true, allowNegativeStock: true },
+        })
+      : [];
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    // Guard against returning more than was ever flagged rejected on this GRN
+    // line — prevents the same rejected line being debited twice (retry,
+    // back-button, double-submit) beyond what was actually rejected.
+    if (dto.originalGrnId) {
+      const grnItems = await this.prisma.purchaseItem.findMany({
+        where: { purchaseId: dto.originalGrnId, rejectedQty: { gt: 0 } },
+        select: { productId: true, rejectedQty: true },
+      });
+      const rejectedQtyByProduct = new Map(grnItems.map((i) => [i.productId, Number(i.rejectedQty)]));
+
+      const priorNotes = await this.prisma.purchaseDebitNoteItem.findMany({
+        where: { debitNote: { originalGrnId: dto.originalGrnId, status: 'ISSUED' } },
+        select: { productId: true, quantity: true },
+      });
+      const alreadyReturnedByProduct = new Map<string, number>();
+      for (const it of priorNotes) {
+        if (!it.productId) continue;
+        alreadyReturnedByProduct.set(it.productId, (alreadyReturnedByProduct.get(it.productId) ?? 0) + Number(it.quantity));
+      }
+
+      for (const it of itemsData) {
+        if (!it.productId) continue;
+        const rejectedQty = rejectedQtyByProduct.get(it.productId);
+        if (rejectedQty === undefined) continue; // not a rejected-at-receiving line — no ceiling to check
+        const alreadyReturned = alreadyReturnedByProduct.get(it.productId) ?? 0;
+        if (alreadyReturned + it.quantity > rejectedQty + 0.001) {
+          throw new BadRequestException(
+            `${it.productName}: only ${this.r2(rejectedQty - alreadyReturned)} of the ${rejectedQty} rejected on this GRN remains available to return (already returned: ${alreadyReturned}).`,
+          );
+        }
+      }
+    }
+
+    const { dn, debitNoteNumber } = await this.prisma.$transaction(async (tx) => {
+      const series = await tx.billSeries.findFirst({
+        where: { businessId, financialYearId: fy.id, billType: 'PDN', isActive: true },
+      });
+      if (!series) throw new BadRequestException('PDN bill series not configured. Run Admin seed.');
+      const updated = await tx.billSeries.update({
+        where: { id: series.id },
+        data: { currentNumber: { increment: 1 } },
+      });
+      const padLen = updated.numberFormat.length;
+      const debitNoteNumber = `${updated.seriesPrefix}${fy.fyCode}/${String(updated.currentNumber).padStart(padLen, '0')}`;
+
+      const dn = await tx.purchaseDebitNote.create({
+        data: {
+          businessId,
+          debitNoteNumber,
+          debitNoteDate:     new Date(dto.debitNoteDate),
+          supplierId:        dto.supplierId,
+          supplierName:      supplier.name,
+          supplierGstin:     supplier.gstin ?? null,
+          originalGrnId:     dto.originalGrnId     ?? null,
+          originalInvoiceNo: dto.originalInvoiceNo ?? null,
+          supplierCnNumber:  dto.supplierCnNumber  ?? null,
+          reason:            dto.reason,
+          taxableAmount, cgstAmount, sgstAmount, igstAmount, cessAmount, totalAmount,
+          itcReversal:       dto.itcReversal ?? false,
+          status:            'ISSUED',
+          notes:             dto.notes ?? null,
+          createdById:       userId,
+          createdByName:     userName,
+        },
+      });
+
+      // Decrement real sellable stock per line and record which PLU(s) it came
+      // from, so cancellation can restore it precisely (same idea as how a
+      // sale bill item stores pluId so SALE_VOID can restore the exact PLU).
+      const touchedProductIds = new Set<string>();
+
+      for (const it of itemsData) {
+        let pluId: string | null = null;
+
+        if (it.productId) {
+          const product = productMap.get(it.productId);
+          let remaining = it.quantity;
+
+          // GRN-tied return: the exact PLU that GRN created is the precise match.
+          // Locate it with a plain read, then re-read it locked (FOR UPDATE)
+          // so the stockOnHand value the decrement below acts on can't go
+          // stale against a concurrent transaction on the same row.
+          const exactPluRef = dto.originalGrnId
+            ? await tx.productPlu.findFirst({ where: { productId: it.productId, businessId, grnId: dto.originalGrnId }, select: { id: true } })
+            : null;
+          const exactPlu = exactPluRef ? await lockPluById(tx, exactPluRef.id) : null;
+
+          if (exactPlu) {
+            const deduct = Math.min(remaining, exactPlu.stockOnHand);
+            await tx.productPlu.update({ where: { id: exactPlu.id }, data: { stockOnHand: { decrement: deduct } } });
+            pluId = exactPlu.id;
+            remaining -= deduct;
+          }
+
+          if (remaining > 0) {
+            const allCandidates = await lockPluCandidatesForDeduction(tx, businessId, it.productId, product?.expiryTracking ?? false);
+            const plus = exactPlu ? allCandidates.filter((p) => p.id !== exactPlu.id) : allCandidates;
+            for (const plu of plus) {
+              if (remaining <= 0) break;
+              const deduct = Math.min(remaining, Number(plu.stockOnHand));
+              await tx.productPlu.update({ where: { id: plu.id }, data: { stockOnHand: { decrement: deduct } } });
+              pluId = pluId ?? plu.id;
+              remaining -= deduct;
+            }
+          }
+
+          if (remaining > 0 && !product?.allowNegativeStock) {
+            throw new BadRequestException(`Insufficient stock to return ${it.quantity} of ${it.productName} — only ${this.r2(it.quantity - remaining)} available`);
+          }
+
+          await tx.stockLedger.create({
+            data: {
+              businessId,
+              branchId,
+              productId:     it.productId,
+              movementType:  'RETURN_OUT',
+              quantity:      -it.quantity,
+              referenceType: 'DEBIT_NOTE',
+              referenceId:   dn.id,
+              notes:         `Return: ${it.productName}`,
+            },
+          });
+
+          touchedProductIds.add(it.productId);
+        }
+
+        await tx.purchaseDebitNoteItem.create({ data: { ...it, debitNoteId: dn.id, pluId } });
+      }
+
+      for (const productId of touchedProductIds) {
+        const agg = await tx.productPlu.aggregate({ where: { productId, isArchived: false }, _sum: { stockOnHand: true } });
+        await tx.product.update({ where: { id: productId }, data: { totalStock: Number(agg._sum.stockOnHand ?? 0) } });
+      }
+
+      return { dn, debitNoteNumber };
+    });
+
+    // Fire-and-forget, after the transaction commits — GL journal + ITC
+    // reversal, matching JournalBridgeService's documented safety contract.
+    this.journalBridge.postDebitNoteJournal({
+      id:             dn.id,
+      businessId,
+      debitNoteNumber,
+      grandTotal:     totalAmount,
+      taxableAmount,
+      cgstTotal:      cgstAmount,
+      sgstTotal:      sgstAmount,
+      igstTotal:      igstAmount,
+      isMsmeSupplier: !!supplier.udyamRegistration,
+    }).catch(() => {});
+
+    if (dto.itcReversal) {
+      const d = new Date(dto.debitNoteDate);
+      const taxPeriod = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      this.gst.addItcEntry(businessId, taxPeriod, 'DEBIT_NOTE', dn.id, -cgstAmount, -sgstAmount, -igstAmount).catch(() => {});
+    }
+
+    const full = await this.prisma.purchaseDebitNote.findUnique({ where: { id: dn.id }, include: { items: true } });
+    return { ...full, isInterstate };
+  }
+
+  // Debit notes are financial documents — never mutated after issuing, only
+  // cancelled (excluded from every supplier-balance calculation). Cancelling
+  // also restores the stock it decremented and reverses the GL/ITC entries.
+  async cancelPurchaseDebitNote(businessId: string, id: string, userName: string) {
+    const dn = await this.prisma.purchaseDebitNote.findFirst({
+      where: { id, businessId },
+      include: { items: true, supplier: true },
+    });
+    if (!dn) throw new NotFoundException('Debit note not found');
+    if (dn.status === 'CANCELLED') throw new BadRequestException('Debit note is already cancelled');
+
+    const branchId = dn.originalGrnId
+      ? (await this.prisma.purchase.findFirst({ where: { id: dn.originalGrnId, businessId }, select: { branchId: true } }))?.branchId
+      : (await this.prisma.branch.findFirst({ where: { businessId }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Conditional on status != CANCELLED — closes the double-cancel race
+      // where two concurrent requests both pass the status check above
+      // before either commits, which would otherwise restore stock twice.
+      const { count } = await tx.purchaseDebitNote.updateMany({
+        where: { id, status: { not: 'CANCELLED' } },
+        data: {
+          status: 'CANCELLED',
+          notes: `${dn.notes ? dn.notes + ' | ' : ''}Cancelled by ${userName} on ${new Date().toLocaleDateString('en-IN')}`,
+        },
+      });
+      if (count === 0) throw new BadRequestException('Debit note is already cancelled');
+
+      const touchedProductIds = new Set<string>();
+
+      for (const item of dn.items) {
+        if (item.pluId && item.productId && branchId) {
+          await tx.productPlu.update({
+            where: { id: item.pluId },
+            data: { stockOnHand: { increment: Number(item.quantity) } },
+          });
+          await tx.stockLedger.create({
+            data: {
+              businessId,
+              branchId,
+              productId:     item.productId,
+              movementType:  'RETURN_IN',
+              quantity:      Number(item.quantity),
+              referenceType: 'DEBIT_NOTE_CANCEL',
+              referenceId:   dn.id,
+              notes:         `Debit note ${dn.debitNoteNumber} cancelled — stock restored`,
+            },
+          });
+          touchedProductIds.add(item.productId);
+        }
+      }
+
+      for (const productId of touchedProductIds) {
+        const agg = await tx.productPlu.aggregate({ where: { productId, isArchived: false }, _sum: { stockOnHand: true } });
+        await tx.product.update({ where: { id: productId }, data: { totalStock: Number(agg._sum.stockOnHand ?? 0) } });
+      }
+
+      return tx.purchaseDebitNote.findUniqueOrThrow({ where: { id } });
+    });
+
+    this.journalBridge.postDebitNoteJournal({
+      id:             dn.id,
+      businessId,
+      debitNoteNumber: dn.debitNoteNumber,
+      grandTotal:     Number(dn.totalAmount),
+      taxableAmount:  Number(dn.taxableAmount),
+      cgstTotal:      Number(dn.cgstAmount),
+      sgstTotal:      Number(dn.sgstAmount),
+      igstTotal:      Number(dn.igstAmount),
+      isMsmeSupplier: !!dn.supplier?.udyamRegistration,
+    }, true).catch(() => {});
+
+    if (dn.itcReversal) {
+      this.prisma.itcLedger.updateMany({
+        where: { sourceType: 'DEBIT_NOTE', sourceId: dn.id, isReversed: false },
+        data: { isReversed: true, reversalReason: 'Debit note cancelled' },
+      }).catch(() => {});
+    }
+
+    return updated;
+  }
+
+  async getPurchaseDebitNoteById(businessId: string, id: string) {
+    const dn = await this.prisma.purchaseDebitNote.findFirst({
+      where: { id, businessId },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        items: true,
+      },
+    });
+    if (!dn) throw new NotFoundException('Debit note not found');
+
+    const grn = dn.originalGrnId
+      ? await this.prisma.purchase.findFirst({
+          where: { id: dn.originalGrnId, businessId },
+          select: { id: true, grnNumber: true, invoiceNumber: true },
+        })
+      : null;
+
+    return { ...dn, grn };
+  }
+
+  async getPurchaseDebitNotes(
+    businessId: string,
+    filters: {
+      supplierId?: string;
+      originalGrnId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    const page  = Math.max(1, filters.page  ?? 1);
+    const limit = Math.min(100, filters.limit ?? 20);
+    const skip  = (page - 1) * limit;
+
+    const where: any = { businessId };
+    if (filters.supplierId)    where.supplierId    = filters.supplierId;
+    if (filters.originalGrnId) where.originalGrnId = filters.originalGrnId;
+    if (filters.dateFrom || filters.dateTo) {
+      where.debitNoteDate = {};
+      if (filters.dateFrom) where.debitNoteDate.gte = new Date(filters.dateFrom);
+      if (filters.dateTo)   where.debitNoteDate.lte = new Date(filters.dateTo + 'T23:59:59');
+    }
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.purchaseDebitNote.findMany({
+        where,
+        orderBy: { debitNoteDate: 'desc' },
+        skip,
+        take: limit,
+        include: { supplier: { select: { id: true, name: true } }, items: true },
+      }),
+      this.prisma.purchaseDebitNote.count({ where }),
     ]);
 
     return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };

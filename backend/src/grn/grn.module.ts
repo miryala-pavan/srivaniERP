@@ -8,9 +8,10 @@ import { EventsModule } from '../events/events.module';
 import { BankModule } from '../bank/bank.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { JournalBridgeModule } from '../platform/journal-bridge/journal-bridge.module';
+import { GstModule } from '../gst/gst.module';
 
 @Module({
-  imports: [NotificationsModule, SuppliersModule, EventsModule, BankModule, AuditLogModule, JournalBridgeModule],
+  imports: [NotificationsModule, SuppliersModule, EventsModule, BankModule, AuditLogModule, JournalBridgeModule, GstModule],
   providers: [GrnService, GrnCalculationsService],
   controllers: [GrnController],
 })

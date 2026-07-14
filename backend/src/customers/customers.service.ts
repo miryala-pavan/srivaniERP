@@ -78,24 +78,29 @@ export class CustomersService {
   // ─── STEP 7: OUTSTANDING HELPER ──────────────────────────────────────────────
 
   async computeCustomerOutstanding(businessId: string, customerId: string): Promise<number> {
-    const [customer, billAgg, payAgg] = await Promise.all([
+    const [customer, billAgg, payAgg, creditNoteAgg] = await Promise.all([
       this.prisma.customer.findFirst({
         where:  { id: customerId, businessId },
         select: { openingBalance: true },
       }),
       this.prisma.salesBill.aggregate({
-        where: { customerId, businessId, saleType: 'CREDIT' as any, status: 'FINAL' as any },
+        where: { customerId, businessId, saleType: 'CREDIT' as any, status: 'FINAL' as any, isVoided: false },
         _sum:  { balanceAmount: true },
       }),
       this.prisma.customerPayment.aggregate({
         where: { customerId, businessId },
         _sum:  { amount: true },
       }),
+      this.prisma.creditNote.aggregate({
+        where: { customerId, businessId },
+        _sum:  { totalAmount: true },
+      }),
     ]);
     const opening       = Number(customer?.openingBalance ?? 0);
     const totalBalance  = Number(billAgg._sum.balanceAmount ?? 0);
     const totalPayments = Number(payAgg._sum.amount ?? 0);
-    return opening + totalBalance - totalPayments;
+    const totalCredits  = Number(creditNoteAgg._sum.totalAmount ?? 0);
+    return opening + totalBalance - totalPayments - totalCredits;
   }
 
   // ─── ENDPOINT A: LIST ─────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ const ROUTES: Record<string, string> = {
   bill:         '/dashboard/bills',
   payment:      '/dashboard/payments',
   'credit-note': '/dashboard/credit-notes',
+  'debit-note': '/dashboard/debit-notes',
   user:         '/dashboard/users',
   category:     '/dashboard/categories',
 };

@@ -35,4 +35,7 @@ export class CreateSupplierDto {
   creditLimit?: number;
 
   @IsOptional() @IsBoolean() isGstRegistered?: boolean;
+
+  @IsOptional() @IsString() @MaxLength(50)
+  udyamRegistration?: string;
 }

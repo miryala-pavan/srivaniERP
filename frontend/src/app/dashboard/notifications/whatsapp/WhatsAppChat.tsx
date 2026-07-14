@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Send, Search, Clock, MessageSquare, Paperclip, Bot,
   Check, CheckCheck, AlertCircle, Pencil, ExternalLink, ShoppingBag, Award, Receipt,
+  MapPin, FileText, SmilePlus, Pin, PinOff, CheckCircle2, Circle, Tag, X, Plus,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -19,10 +20,14 @@ interface Conversation {
   lastAt: string;
   lastStatus: string;
   unreadCount: number;
+  convStatus?: 'OPEN' | 'RESOLVED';
+  pinned?: boolean;
+  labels?: string[];
 }
 
 interface ThreadMessage {
   id: string;
+  waMessageId: string;
   direction: 'OUTBOUND' | 'INBOUND';
   phone: string;
   messageType: string;
@@ -35,6 +40,8 @@ interface ThreadMessage {
   errorMessage: string | null;
   createdAt: string;
 }
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '🙏', '👌'];
 
 function ChatImage({ mediaId }: { mediaId: string }) {
   const [src, setSrc] = useState<string | null>(null);
@@ -116,6 +123,9 @@ export default function WhatsAppChat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [convLoading, setConvLoading]     = useState(true);
   const [search, setSearch]               = useState('');
+  const [msgSearchPhones, setMsgSearchPhones] = useState<Set<string> | null>(null);
+  const [unreadOnly, setUnreadOnly]       = useState(false);
+  const [showResolved, setShowResolved]   = useState(false);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
 
   const [messages, setMessages]         = useState<ThreadMessage[]>([]);
@@ -125,16 +135,20 @@ export default function WhatsAppChat() {
   const [replyText, setReplyText]       = useState('');
   const [sending, setSending]           = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [reactingTo, setReactingTo]     = useState<string | null>(null);
 
   const [contact, setContact]           = useState<ContactInfo | null>(null);
   const [editingName, setEditingName]   = useState(false);
   const [nameInput, setNameInput]       = useState('');
   const [savingName, setSavingName]     = useState(false);
+  const [labelInput, setLabelInput]     = useState('');
+  const [savingMeta, setSavingMeta]     = useState(false);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const selectedPhoneRef = useRef<string | null>(null);
   selectedPhoneRef.current = selectedPhone;
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -148,6 +162,24 @@ export default function WhatsAppChat() {
   }, []);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
+
+  // Debounced message-content search — hits the backend so results aren't
+  // limited to conversations already in the loaded list's name/phone.
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    const q = search.trim();
+    if (q.length < 2) { setMsgSearchPhones(null); return; }
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/notifications/whatsapp/conversations/search', { params: { q } });
+        const rows = Array.isArray(data) ? data : [];
+        setMsgSearchPhones(new Set(rows.map((r: any) => r.phone)));
+      } catch {
+        setMsgSearchPhones(null);
+      }
+    }, 300);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [search]);
 
   const loadThread = useCallback(async (phone: string) => {
     setThreadLoading(true);
@@ -239,48 +271,126 @@ export default function WhatsAppChat() {
     }
   }
 
-  async function sendImage(file: File) {
+  async function sendMedia(file: File) {
     if (!selectedPhone) return;
+    const isImage = file.type.startsWith('image/');
+    const endpoint = isImage ? 'send-image' : 'send-document';
     setUploadingImage(true);
     try {
       const form = new FormData();
       form.append('file', file);
-      const { data } = await api.post(`/notifications/whatsapp/conversations/${selectedPhone}/send-image`, form, {
+      const { data } = await api.post(`/notifications/whatsapp/conversations/${selectedPhone}/${endpoint}`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       if (data?.ok) {
         await loadThread(selectedPhone);
       } else {
-        toast.error(data?.reason ?? 'Image send failed — session window may be closed');
+        toast.error(data?.reason ?? 'Send failed — session window may be closed');
       }
     } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Image send failed');
+      toast.error(e?.response?.data?.message ?? 'Send failed');
     } finally {
       setUploadingImage(false);
     }
   }
 
+  async function openDocument(mediaId: string) {
+    try {
+      const res = await api.get(`/notifications/whatsapp/media/${mediaId}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error('Could not open document');
+    }
+  }
+
+  async function sendReaction(messageId: string, emoji: string) {
+    if (!selectedPhone) return;
+    try {
+      const { data } = await api.post(`/notifications/whatsapp/conversations/${selectedPhone}/react`, { messageId, emoji });
+      if (data?.ok) {
+        await loadThread(selectedPhone);
+      } else {
+        toast.error(data?.reason ?? 'Reaction failed');
+      }
+    } catch {
+      toast.error('Reaction failed');
+    }
+  }
+
+  async function updateMeta(patch: Partial<{ status: 'OPEN' | 'RESOLVED'; pinned: boolean; labels: string[] }>) {
+    if (!selectedPhone) return;
+    setSavingMeta(true);
+    try {
+      await api.patch(`/notifications/whatsapp/conversations/${selectedPhone}/meta`, patch);
+      await loadConversations();
+    } catch {
+      toast.error('Failed to update conversation');
+    } finally {
+      setSavingMeta(false);
+    }
+  }
+
+  function addLabel() {
+    const val = labelInput.trim();
+    if (!val || !selectedConv) return;
+    const labels = Array.from(new Set([...(selectedConv.labels ?? []), val]));
+    updateMeta({ labels });
+    setLabelInput('');
+  }
+
+  function removeLabel(label: string) {
+    if (!selectedConv) return;
+    updateMeta({ labels: (selectedConv.labels ?? []).filter(l => l !== label) });
+  }
+
   const filtered = conversations.filter(c => {
-    if (!search.trim()) return true;
+    if (unreadOnly && c.unreadCount === 0) return false;
+    if (!showResolved && c.convStatus === 'RESOLVED') return false;
     const q = search.trim().toLowerCase();
-    return c.phone.includes(q) || (c.customerName ?? '').toLowerCase().includes(q);
+    if (!q) return true;
+    const localMatch = c.phone.includes(q)
+      || (c.customerName ?? '').toLowerCase().includes(q)
+      || (c.labels ?? []).some(l => l.toLowerCase().includes(q));
+    const msgMatch = msgSearchPhones?.has(c.phone) ?? false;
+    return localMatch || msgMatch;
   });
 
   const selectedConv = conversations.find(c => c.phone === selectedPhone);
 
   return (
     <div className="flex h-[calc(100vh-260px)] min-h-[480px] border border-gray-200 rounded-xl overflow-hidden bg-white">
-      {/* ── Conversation list ── */}
+      {/* ── Pane 1: Conversation list ── */}
       <div className="w-72 sm:w-80 border-r border-gray-200 flex flex-col shrink-0">
-        <div className="p-3 border-b border-gray-100">
+        <div className="p-3 border-b border-gray-100 space-y-2">
           <div className="relative">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               className="input pl-8 text-sm h-8 py-1"
-              placeholder="Search name or number"
+              placeholder="Search name, number, or message"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setUnreadOnly(v => !v)}
+              className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
+                unreadOnly ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              Unread
+            </button>
+            <button
+              onClick={() => setShowResolved(v => !v)}
+              className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
+                showResolved ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+              title="Include resolved conversations in the list"
+            >
+              Resolved
+            </button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
@@ -289,14 +399,14 @@ export default function WhatsAppChat() {
           ) : filtered.length === 0 ? (
             <div className="p-6 text-center text-gray-400">
               <MessageSquare size={26} className="mx-auto mb-2 text-gray-300" />
-              <p className="text-sm">No conversations yet</p>
+              <p className="text-sm">No conversations found</p>
             </div>
           ) : (
             filtered.map(c => (
               <button
                 key={c.phone}
                 onClick={() => setSelectedPhone(c.phone)}
-                className={`w-full text-left px-3.5 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selectedPhone === c.phone ? 'bg-green-50' : ''}`}
+                className={`w-full text-left px-3.5 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selectedPhone === c.phone ? 'bg-green-50' : ''} ${c.convStatus === 'RESOLVED' ? 'opacity-60' : ''}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -304,10 +414,22 @@ export default function WhatsAppChat() {
                       {(c.customerName ?? c.phone).slice(0, 1).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{c.customerName ?? `+${c.phone}`}</p>
+                      <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1">
+                        {c.pinned && <Pin size={10} className="text-amber-500 shrink-0" fill="currentColor" />}
+                        <span className="truncate">{c.customerName ?? `+${c.phone}`}</span>
+                      </p>
                       <p className={`text-xs truncate ${c.unreadCount > 0 ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
                         {c.lastDirection === 'OUTBOUND' ? 'You: ' : ''}{c.lastMessage ?? `[${c.lastMessageType}]`}
                       </p>
+                      {(c.labels?.length ?? 0) > 0 && (
+                        <div className="flex items-center gap-1 mt-1 flex-wrap">
+                          {c.labels!.slice(0, 2).map(l => (
+                            <span key={l} className="text-[9px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5">
+                              {l}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
@@ -317,6 +439,9 @@ export default function WhatsAppChat() {
                         {c.unreadCount}
                       </span>
                     )}
+                    {c.convStatus === 'RESOLVED' && (
+                      <span title="Resolved"><CheckCircle2 size={12} className="text-gray-400" /></span>
+                    )}
                   </div>
                 </div>
               </button>
@@ -325,8 +450,8 @@ export default function WhatsAppChat() {
         </div>
       </div>
 
-      {/* ── Thread ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* ── Pane 2: Thread ── */}
+      <div className="flex-1 flex flex-col min-w-0 border-r border-gray-200">
         {!selectedPhone ? (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
             <MessageSquare size={36} className="mb-2 text-gray-300" />
@@ -334,88 +459,26 @@ export default function WhatsAppChat() {
           </div>
         ) : (
           <>
-            <div className="px-4 py-3 border-b border-gray-100 shrink-0">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  {editingName ? (
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        autoFocus
-                        className="input text-sm h-7 py-0 flex-1"
-                        placeholder="Customer name"
-                        value={nameInput}
-                        onChange={e => setNameInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false); }}
-                      />
-                      <button onClick={saveName} disabled={savingName || !nameInput.trim()} className="btn-primary text-xs px-2 py-1 disabled:opacity-50">Save</button>
-                      <button onClick={() => setEditingName(false)} className="btn-outline text-xs px-2 py-1">Cancel</button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => { setNameInput(contact?.name ?? ''); setEditingName(true); }}
-                      className="flex items-center gap-1.5 group"
-                      title="Click to name this contact"
-                    >
-                      <p className="text-sm font-semibold text-gray-900 truncate">
-                        {contact?.name ?? selectedConv?.customerName ?? `+${selectedPhone}`}
-                      </p>
-                      <Pencil size={11} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
-                    </button>
-                  )}
-                  <p className="text-xs text-gray-500">+{selectedPhone}</p>
-                </div>
-                {sessionOpen === false ? (
-                  <span
-                    title="Meta only allows free-text replies within 24h of the customer's last message. Outside that window, only pre-approved templates can be sent — use the Templates tab."
-                    className="cursor-help text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-1 flex items-center gap-1 shrink-0">
-                    <Clock size={10} /> Session closed
-                  </span>
-                ) : sessionOpen === true && windowExpiresAt ? (
-                  <span
-                    title={`Free-text replies allowed until ${new Date(windowExpiresAt).toLocaleString('en-IN')}`}
-                    className="cursor-help text-[10px] font-medium bg-green-50 text-green-700 border border-green-200 rounded-full px-2 py-1 flex items-center gap-1 shrink-0">
-                    <Clock size={10} /> Session open
-                  </span>
-                ) : null}
+            <div className="px-4 py-3 border-b border-gray-100 shrink-0 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">
+                  {contact?.name ?? selectedConv?.customerName ?? `+${selectedPhone}`}
+                </p>
+                <p className="text-xs text-gray-500">+{selectedPhone}</p>
               </div>
-              {contact && !editingName && (
-                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                  {contact.customerId ? (
-                    <Link href={`/dashboard/customers/${contact.customerId}`} target="_blank"
-                      className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:underline">
-                      <ExternalLink size={10} /> View profile
-                    </Link>
-                  ) : (
-                    <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-200 rounded-full px-1.5 py-0.5">New contact</span>
-                  )}
-                  {contact.orderCount > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-gray-500">
-                      <ShoppingBag size={10} />
-                      {contact.orderCount} online order{contact.orderCount > 1 ? 's' : ''}
-                      {contact.lastOrder && ` · last ₹${Number(contact.lastOrder.total).toFixed(0)} (${contact.lastOrder.status})`}
-                    </span>
-                  )}
-                  {contact.posBillCount > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-gray-500">
-                      <Receipt size={10} />
-                      {contact.posBillCount} in-store bill{contact.posBillCount > 1 ? 's' : ''}
-                      {contact.lastPosBill && ` · last ₹${Number(contact.lastPosBill.grandTotal).toFixed(0)}`}
-                    </span>
-                  )}
-                  {contact.loyaltyPoints !== null && contact.loyaltyPoints > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600">
-                      <Award size={10} /> {contact.loyaltyPoints} pts
-                    </span>
-                  )}
-                  {contact.outstandingBalance !== null && Number(contact.outstandingBalance) > 0 && (
-                    <span
-                      title={contact.creditLimit ? `Credit limit ₹${Number(contact.creditLimit).toFixed(0)}` : undefined}
-                      className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5">
-                      <AlertCircle size={10} /> ₹{Number(contact.outstandingBalance).toFixed(0)} due
-                    </span>
-                  )}
-                </div>
-              )}
+              {sessionOpen === false ? (
+                <span
+                  title="Meta only allows free-text replies within 24h of the customer's last message. Outside that window, only pre-approved templates can be sent — use the Templates tab."
+                  className="cursor-help text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-1 flex items-center gap-1 shrink-0">
+                  <Clock size={10} /> Session closed
+                </span>
+              ) : sessionOpen === true && windowExpiresAt ? (
+                <span
+                  title={`Free-text replies allowed until ${new Date(windowExpiresAt).toLocaleString('en-IN')}`}
+                  className="cursor-help text-[10px] font-medium bg-green-50 text-green-700 border border-green-200 rounded-full px-2 py-1 flex items-center gap-1 shrink-0">
+                  <Clock size={10} /> Session open
+                </span>
+              ) : null}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#e5ded8]/40">
@@ -424,38 +487,79 @@ export default function WhatsAppChat() {
               ) : messages.length === 0 ? (
                 <div className="text-center text-gray-400 text-sm py-10">No messages yet</div>
               ) : (
-                messages.map(m => (
-                  <div key={m.id} className={`flex ${m.direction === 'OUTBOUND' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
-                      m.direction === 'OUTBOUND'
-                        ? 'bg-[#dcf8c6] text-gray-900 rounded-br-sm'
-                        : 'bg-white text-gray-900 rounded-bl-sm border border-gray-100'
-                    }`}>
-                      {(m.templateName || m.isAutoReply) && (
-                        <p className="text-[10px] font-semibold text-gray-500 uppercase mb-0.5 flex items-center gap-1">
-                          {m.templateName}
-                          {m.isAutoReply && (
-                            <span title="Sent automatically by the rule-based auto-reply, not a staff member" className="cursor-help inline-flex items-center gap-0.5 text-indigo-600 normal-case font-medium">
-                              <Bot size={10} /> Auto
-                            </span>
-                          )}
+                messages.map(m => {
+                  const [lat, lng] = m.messageType === 'LOCATION' && m.bodyPreview ? m.bodyPreview.split(',') : [null, null];
+                  return (
+                  <div key={m.id} className={`group flex items-center gap-1.5 ${m.direction === 'OUTBOUND' ? 'justify-end' : 'justify-start'}`}>
+                    {m.direction === 'OUTBOUND' && (
+                      <button
+                        onClick={() => setReactingTo(r => r === m.id ? null : m.id)}
+                        disabled={!sessionOpen}
+                        title="React"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-600 disabled:opacity-0 shrink-0"
+                      >
+                        <SmilePlus size={14} />
+                      </button>
+                    )}
+                    <div className="relative">
+                      {reactingTo === m.id && (
+                        <div className="absolute -top-9 right-0 bg-white border border-gray-200 rounded-full shadow-md px-1.5 py-1 flex gap-1 z-10">
+                          {QUICK_REACTIONS.map(emoji => (
+                            <button key={emoji}
+                              onClick={() => { sendReaction(m.waMessageId, emoji); setReactingTo(null); }}
+                              className="text-base hover:scale-125 transition-transform">
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                        m.direction === 'OUTBOUND'
+                          ? 'bg-[#dcf8c6] text-gray-900 rounded-br-sm'
+                          : 'bg-white text-gray-900 rounded-bl-sm border border-gray-100'
+                      }`}>
+                        {(m.templateName || m.isAutoReply) && (
+                          <p className="text-[10px] font-semibold text-gray-500 uppercase mb-0.5 flex items-center gap-1">
+                            {m.templateName}
+                            {m.isAutoReply && (
+                              <span title="Sent automatically by the rule-based auto-reply, not a staff member" className="cursor-help inline-flex items-center gap-0.5 text-indigo-600 normal-case font-medium">
+                                <Bot size={10} /> Auto
+                              </span>
+                            )}
+                          </p>
+                        )}
+                        {m.messageType === 'IMAGE' && m.mediaId ? (
+                          <ChatImage mediaId={m.mediaId} />
+                        ) : m.messageType === 'DOCUMENT' && m.mediaId ? (
+                          <button
+                            onClick={() => openDocument(m.mediaId!)}
+                            className="flex items-center gap-2 text-blue-700 hover:underline text-left">
+                            <FileText size={16} className="shrink-0" />
+                            <span className="truncate">{m.bodyPreview?.replace('[Document] ', '') || 'Document'}</span>
+                          </button>
+                        ) : m.messageType === 'LOCATION' && lat && lng ? (
+                          <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-blue-700 hover:underline">
+                            <MapPin size={16} className="shrink-0" />
+                            <span>View location on map</span>
+                          </a>
+                        ) : m.messageType === 'REACTION' ? (
+                          <p className="text-lg">{m.bodyPreview}</p>
+                        ) : (
+                          <p className="whitespace-pre-wrap break-words leading-relaxed">{m.bodyPreview || `[${m.messageType}]`}</p>
+                        )}
+                        {m.errorMessage && (
+                          <p className="text-[10px] text-red-500 mt-1">{m.errorMessage}</p>
+                        )}
+                        <p className="text-[10px] text-gray-400 text-right mt-1 flex items-center justify-end gap-1">
+                          {fmtTime(m.createdAt)}
+                          {m.direction === 'OUTBOUND' && <StatusTick status={m.status} />}
                         </p>
-                      )}
-                      {m.messageType === 'IMAGE' && m.mediaId ? (
-                        <ChatImage mediaId={m.mediaId} />
-                      ) : (
-                        <p className="whitespace-pre-wrap break-words leading-relaxed">{m.bodyPreview || `[${m.messageType}]`}</p>
-                      )}
-                      {m.errorMessage && (
-                        <p className="text-[10px] text-red-500 mt-1">{m.errorMessage}</p>
-                      )}
-                      <p className="text-[10px] text-gray-400 text-right mt-1 flex items-center justify-end gap-1">
-                        {fmtTime(m.createdAt)}
-                        {m.direction === 'OUTBOUND' && <StatusTick status={m.status} />}
-                      </p>
+                      </div>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
               <div ref={threadEndRef} />
             </div>
@@ -464,18 +568,17 @@ export default function WhatsAppChat() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
                 className="hidden"
                 onChange={e => {
                   const file = e.target.files?.[0];
-                  if (file) sendImage(file);
+                  if (file) sendMedia(file);
                   e.target.value = '';
                 }}
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploadingImage || !sessionOpen}
-                title={sessionOpen ? 'Send an image' : 'Reply unavailable — session closed'}
+                title={sessionOpen ? 'Send an image or document' : 'Reply unavailable — session closed'}
                 className="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 shrink-0"
               >
                 <Paperclip size={15} />
@@ -485,6 +588,7 @@ export default function WhatsAppChat() {
                 placeholder={sessionOpen ? 'Type a message…' : 'Reply unavailable — session closed, use a template'}
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}
+                onFocus={() => { if (selectedPhone) api.post(`/notifications/whatsapp/conversations/${selectedPhone}/typing`).catch(() => {}); }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
                 disabled={!sessionOpen}
               />
@@ -499,6 +603,145 @@ export default function WhatsAppChat() {
           </>
         )}
       </div>
+
+      {/* ── Pane 3: Persistent contact panel ── */}
+      {selectedPhone && (
+        <div className="w-72 shrink-0 flex flex-col overflow-y-auto p-4 gap-5 bg-gray-50/60">
+          {/* Identity */}
+          <div>
+            <div className="w-14 h-14 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-600 mb-2">
+              {(contact?.name ?? selectedConv?.customerName ?? selectedPhone).slice(0, 1).toUpperCase()}
+            </div>
+            {editingName ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  className="input text-sm h-7 py-0 flex-1"
+                  placeholder="Customer name"
+                  value={nameInput}
+                  onChange={e => setNameInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false); }}
+                />
+                <button onClick={saveName} disabled={savingName || !nameInput.trim()} className="btn-primary text-xs px-2 py-1 disabled:opacity-50">Save</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setNameInput(contact?.name ?? ''); setEditingName(true); }}
+                className="flex items-center gap-1.5 group"
+                title="Click to name this contact"
+              >
+                <p className="text-sm font-semibold text-gray-900 truncate">
+                  {contact?.name ?? selectedConv?.customerName ?? `+${selectedPhone}`}
+                </p>
+                <Pencil size={11} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
+              </button>
+            )}
+            <p className="text-xs text-gray-500 mt-0.5">+{selectedPhone}</p>
+            {contact?.customerId ? (
+              <Link href={`/dashboard/customers/${contact.customerId}`} target="_blank"
+                className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline mt-1.5">
+                <ExternalLink size={10} /> View full profile
+              </Link>
+            ) : (
+              <span className="inline-block text-[10px] text-gray-400 bg-gray-100 border border-gray-200 rounded-full px-1.5 py-0.5 mt-1.5">New contact</span>
+            )}
+          </div>
+
+          {/* Quick actions */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => updateMeta({ pinned: !selectedConv?.pinned })}
+              disabled={savingMeta}
+              className={`flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-2 py-1.5 border transition-colors disabled:opacity-50 ${
+                selectedConv?.pinned ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {selectedConv?.pinned ? <PinOff size={13} /> : <Pin size={13} />}
+              {selectedConv?.pinned ? 'Unpin' : 'Pin'}
+            </button>
+            <button
+              onClick={() => updateMeta({ status: selectedConv?.convStatus === 'RESOLVED' ? 'OPEN' : 'RESOLVED' })}
+              disabled={savingMeta}
+              className={`flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-2 py-1.5 border transition-colors disabled:opacity-50 ${
+                selectedConv?.convStatus === 'RESOLVED' ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {selectedConv?.convStatus === 'RESOLVED' ? <Circle size={13} /> : <CheckCircle2 size={13} />}
+              {selectedConv?.convStatus === 'RESOLVED' ? 'Reopen' : 'Resolve'}
+            </button>
+          </div>
+
+          {/* Labels */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+              <Tag size={11} /> Labels
+            </p>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {(selectedConv?.labels ?? []).map(l => (
+                <span key={l} className="inline-flex items-center gap-1 text-[10px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full pl-2 pr-1 py-0.5">
+                  {l}
+                  <button onClick={() => removeLabel(l)} className="hover:text-indigo-900">
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+              {(selectedConv?.labels?.length ?? 0) === 0 && (
+                <span className="text-[11px] text-gray-400">No labels yet</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <input
+                className="input text-xs h-7 py-0 flex-1"
+                placeholder="Add a label…"
+                value={labelInput}
+                onChange={e => setLabelInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addLabel(); }}
+              />
+              <button onClick={addLabel} disabled={!labelInput.trim() || savingMeta} className="btn-outline text-xs px-2 py-1 disabled:opacity-40">
+                <Plus size={12} />
+              </button>
+            </div>
+          </div>
+
+          {/* ERP snapshot */}
+          {contact && (
+            <div>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">ERP snapshot</p>
+              <div className="space-y-1.5">
+                {contact.orderCount > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <ShoppingBag size={12} className="text-gray-400 shrink-0" />
+                    {contact.orderCount} online order{contact.orderCount > 1 ? 's' : ''}
+                    {contact.lastOrder && ` · last ₹${Number(contact.lastOrder.total).toFixed(0)} (${contact.lastOrder.status})`}
+                  </div>
+                )}
+                {contact.posBillCount > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <Receipt size={12} className="text-gray-400 shrink-0" />
+                    {contact.posBillCount} in-store bill{contact.posBillCount > 1 ? 's' : ''}
+                    {contact.lastPosBill && ` · last ₹${Number(contact.lastPosBill.grandTotal).toFixed(0)}`}
+                  </div>
+                )}
+                {contact.loyaltyPoints !== null && contact.loyaltyPoints > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                    <Award size={12} className="shrink-0" /> {contact.loyaltyPoints} loyalty points
+                  </div>
+                )}
+                {contact.outstandingBalance !== null && Number(contact.outstandingBalance) > 0 && (
+                  <div
+                    title={contact.creditLimit ? `Credit limit ₹${Number(contact.creditLimit).toFixed(0)}` : undefined}
+                    className="flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1 cursor-help">
+                    <AlertCircle size={12} className="shrink-0" /> ₹{Number(contact.outstandingBalance).toFixed(0)} due
+                  </div>
+                )}
+                {contact.orderCount === 0 && contact.posBillCount === 0 && (
+                  <p className="text-xs text-gray-400">No purchase history yet</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

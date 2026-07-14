@@ -7,6 +7,7 @@ import {
   CheckCircle2, XCircle, RotateCcw,
   Package, Printer, CreditCard, X, Check, Tag, FileText, AlertTriangle,
   Search, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal, ShieldOff,
+  Undo2, Minus,
 } from 'lucide-react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import Header from '@/components/layout/Header';
@@ -70,9 +71,9 @@ interface CreditNote {
 
 const STATUS_BADGE: Record<GrnStatus, { label: string; color: string }> = {
   DRAFT:            { label: 'Draft',    color: 'bg-gray-100 text-gray-600'   },
-  PENDING_APPROVAL: { label: 'Pending',  color: 'bg-amber-100 text-amber-700' },
-  APPROVED:         { label: 'Approved', color: 'bg-green-100 text-green-700' },
-  REJECTED:         { label: 'Rejected', color: 'bg-red-100 text-red-600'     },
+  PENDING_APPROVAL: { label: 'Pending',  color: 'bg-amber-50 text-amber-700' },
+  APPROVED:         { label: 'Approved', color: 'bg-green-50 text-green-700' },
+  REJECTED:         { label: 'Rejected', color: 'bg-red-50 text-red-600'     },
   CANCELLED:        { label: 'Cancelled',color: 'bg-gray-100 text-gray-500'   },
 };
 
@@ -91,6 +92,8 @@ const REASONS = [
   'Rate Difference',
   'Short Supply',
   'Quality Issue',
+  'Scheme / Promotional Credit',
+  'Volume Rebate',
   'Other',
 ];
 
@@ -115,6 +118,43 @@ const EMPTY_CN_FORM = {
   taxableAmount:    '',
   gstRate:          18,
   cessAmount:       '',
+  itcReversal:      false,
+  notes:            '',
+};
+
+// Debit Note — the document WE issue for an itemized goods return, matching
+// standard Indian accounting practice (Tally's purchase-return convention).
+// Distinct from the Credit Note above, which is for non-itemized supplier
+// credits (scheme/rebate/rate-difference) with no physical return behind them.
+const DN_REASONS = [
+  'Goods Returned (damaged)',
+  'Goods Returned (expired)',
+  'Quality Issue',
+  'Short Supply',
+  'Other',
+];
+
+interface ReturnLineItem {
+  productId: string | null;
+  productName: string;
+  hsnCode: string | null;
+  unitOfMeasure: string;
+  quantity: number;
+  unitPrice: number;
+  gstRate: number;
+  cessRate: number;
+}
+
+const EMPTY_DN_LINE: ReturnLineItem = {
+  productId: null, productName: '', hsnCode: null, unitOfMeasure: 'PCS',
+  quantity: 1, unitPrice: 0, gstRate: 18, cessRate: 0,
+};
+
+const EMPTY_DN_FORM = {
+  debitNoteDate:    todayIso(),
+  reason:           '',
+  description:      '',
+  supplierCnNumber: '',
   itcReversal:      false,
   notes:            '',
 };
@@ -203,12 +243,50 @@ export default function GrnPage() {
   } | null>(null);
   const [priceReviewUpdates, setPriceReviewUpdates] = useState<Record<string, string>>({});
 
-  // Credit note modal
+  // Credit note modal — non-itemized supplier credits (scheme/rebate/rate
+  // difference) with no physical return behind them.
   const [cnModal, setCnModal] = useState<GrnSummary | null>(null);
   const [cnForm, setCnForm]   = useState({ ...EMPTY_CN_FORM });
 
+  // Debit note modal — itemized goods returns (see DN_REASONS comment above).
+  const [dnModal, setDnModal] = useState<GrnSummary | null>(null);
+  const [dnForm, setDnForm]   = useState({ ...EMPTY_DN_FORM });
+  const [dnItems, setDnItems] = useState<ReturnLineItem[]>([]);
+  const [dnPrefilled, setDnPrefilled] = useState(false);
+
   useEscapeKey(() => setCnModal(null), !!cnModal);
-  useEscapeKey(() => setPayModal(null), !!payModal && !cnModal);
+  useEscapeKey(() => setDnModal(null), !!dnModal && !cnModal);
+  useEscapeKey(() => setPayModal(null), !!payModal && !cnModal && !dnModal);
+
+  // Rejected-qty lines from the GRN, used to prefill the return's item rows
+  // so staff don't have to re-key what was already flagged at receiving.
+  const { data: rejectedSummary } = useQuery({
+    queryKey: ['grn', dnModal?.id, 'rejected-summary'],
+    queryFn: () => api.get(`/grn/${dnModal!.id}/rejected-summary`).then(r => r.data),
+    enabled: !!dnModal,
+  });
+
+  useEffect(() => {
+    if (!rejectedSummary?.hasRejectedItems || dnPrefilled) return;
+    setDnItems(rejectedSummary.items.map((it: any) => ({
+      productId: it.productId ?? null,
+      productName: it.productName,
+      hsnCode: it.hsnCode ?? null,
+      unitOfMeasure: it.unitOfMeasure ?? 'PCS',
+      quantity: it.rejectedQty,
+      unitPrice: it.unitPrice,
+      gstRate: it.gstRatePercent,
+      cessRate: it.cessRate ?? 0,
+    })));
+    setDnForm(f => ({
+      ...f,
+      reason: DN_REASONS.includes(rejectedSummary.reasons?.[0]) ? rejectedSummary.reasons[0] : 'Goods Returned (damaged)',
+      description: rejectedSummary.reasons?.length
+        ? `Rejected at receiving: ${rejectedSummary.reasons.join(', ')}`
+        : f.description,
+    }));
+    setDnPrefilled(true);
+  }, [rejectedSummary, dnPrefilled]);
 
   const statusForTab = TABS.find((t) => t.key === activeTab)?.status ?? '';
 
@@ -478,6 +556,23 @@ export default function GrnPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to create credit note'),
   });
 
+  const debitNoteMutation = useMutation({
+    mutationFn: async (vars: {
+      supplierId: string; originalGrnId: string; originalInvoiceNo: string;
+      supplierCnNumber?: string; debitNoteDate: string; reason: string;
+      itcReversal: boolean; notes?: string; items: ReturnLineItem[];
+    }) => {
+      const res = await api.post('/grn/debit-notes', vars);
+      return { debitNoteNumber: res.data?.debitNoteNumber ?? 'PDN', totalAmount: Number(res.data?.totalAmount ?? 0) };
+    },
+    onSuccess: ({ debitNoteNumber, totalAmount }) => {
+      toast.success(`Debit Note ${debitNoteNumber} created. Supplier balance reduced by Rs.${fmt(totalAmount)}`);
+      setDnModal(null);
+      queryClient.invalidateQueries({ queryKey: ['grns'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to create debit note'),
+  });
+
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
   function switchTab(tab: TabKey) {
@@ -507,6 +602,21 @@ export default function GrnPage() {
   const cnCess    = Number(cnForm.cessAmount) || 0;
   const cnTotal   = Math.round((cnTaxable + cnGstAmt + cnCess) * 100) / 100;
 
+  function openDnModal(g: GrnSummary) {
+    setDnModal(g);
+    setDnForm({ ...EMPTY_DN_FORM, debitNoteDate: todayIso() });
+    setDnItems([]);
+    setDnPrefilled(false);
+  }
+
+  function dnLineTotal(it: ReturnLineItem) {
+    const taxable = it.quantity * it.unitPrice;
+    const gst = taxable * it.gstRate / 100;
+    const cess = taxable * it.cessRate / 100;
+    return Math.round((taxable + gst + cess) * 100) / 100;
+  }
+  const dnTotal = Math.round(dnItems.reduce((s, it) => s + dnLineTotal(it), 0) * 100) / 100;
+
   function paymentStatusChip(ps: PaymentSummary | undefined, grn?: { id: string; grnNumber: string | null }) {
     if (!ps) return <span className="text-xs text-gray-400 italic">Payment: —</span>;
     // Paid / Partial → clickable to open payment details; Unpaid → plain text
@@ -525,7 +635,7 @@ export default function GrnPage() {
         >
           {label}
           {ps.coversMultiple && (
-            <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold border border-amber-200"
+            <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold border border-amber-200"
               title={`Paid together with ${(ps.billCount ?? 2) - 1} other bill(s) in one payment`}>
               ◫ Bulk ×{ps.billCount}
             </span>
@@ -707,7 +817,7 @@ export default function GrnPage() {
 
         {/* Credit Notes Tab Content */}
         {activeTab === 'CREDIT_NOTES' ? (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             {cnIsLoading ? (
               <div className="p-8 text-center text-gray-400 text-sm">Loading…</div>
             ) : creditNotes.length === 0 ? (
@@ -759,7 +869,7 @@ export default function GrnPage() {
                       <td className="px-4 py-3 text-center">
                         <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium ${
                           cn.status === 'ACTIVE'
-                            ? 'bg-green-100 text-green-700'
+                            ? 'bg-green-50 text-green-700'
                             : 'bg-gray-100 text-gray-600'
                         }`}>
                           {cn.status}
@@ -773,7 +883,7 @@ export default function GrnPage() {
           </div>
         ) : (
           /* GRN Table */
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             {isLoading ? (
               <div className="p-8 text-center text-gray-400 text-sm">Loading…</div>
             ) : grns.length === 0 ? (
@@ -865,7 +975,7 @@ export default function GrnPage() {
                                   {badge.label}
                                 </span>
                                 {g.excludeFromGst && (
-                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium" title="Excluded from GST returns">
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium" title="Excluded from GST returns">
                                     <ShieldOff className="w-3 h-3" /> GST Excl.
                                   </span>
                                 )}
@@ -975,9 +1085,16 @@ export default function GrnPage() {
                                     {ps?.isPaid ? 'Paid' : 'Pay'}
                                   </button>
                                   <button
+                                    onClick={() => openDnModal(g)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-700 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors"
+                                    title="Record a Return (itemized Debit Note) — for goods sent back to the supplier"
+                                  >
+                                    <Undo2 className="w-3.5 h-3.5" /> Return
+                                  </button>
+                                  <button
                                     onClick={() => openCnModal(g)}
                                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-orange-700 bg-orange-50 rounded-lg hover:bg-orange-100 transition-colors"
-                                    title="Create Supplier Credit Note"
+                                    title="Create a non-itemized Credit Note — scheme/rebate/rate-difference credits with no physical return"
                                   >
                                     <FileText className="w-3.5 h-3.5" /> CN
                                   </button>
@@ -1068,7 +1185,7 @@ export default function GrnPage() {
                                 <>
                                   <span className="text-gray-300 text-xs">·</span>
                                   <span
-                                    className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700"
+                                    className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700"
                                     title={`Invoice ${g.invoiceNumber} already exists as ${duplicateMap[g.id]}. This draft cannot be submitted.`}
                                   >
                                     <AlertTriangle className="w-3 h-3" /> Duplicate Invoice
@@ -1472,6 +1589,186 @@ export default function GrnPage() {
               >
                 <Check className="w-4 h-4" />
                 {creditNoteMutation.isPending ? 'Creating…' : 'Create Credit Note'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Debit note modal — itemized goods return */}
+      {dnModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDnModal(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div>
+                <h3 className="text-base font-semibold text-gray-800">Record Return (Debit Note)</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Against {dnModal.grnNumber ?? 'Draft'} — {dnModal.supplierName}
+                </p>
+              </div>
+              <button onClick={() => setDnModal(null)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {rejectedSummary?.hasRejectedItems && dnPrefilled && (
+                <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-amber-800 font-medium">
+                  Line items prefilled from {rejectedSummary.items.length} rejected line{rejectedSummary.items.length > 1 ? 's' : ''} flagged on this GRN — verify quantities and rates before submitting.
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Return Date *</label>
+                  <input type="date" value={dnForm.debitNoteDate} max={todayIso()}
+                    onChange={(e) => setDnForm(f => ({ ...f, debitNoteDate: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Supplier CN# (optional)</label>
+                  <input value={dnForm.supplierCnNumber}
+                    onChange={(e) => setDnForm(f => ({ ...f, supplierCnNumber: e.target.value }))}
+                    placeholder="Fill in if the supplier issued their own credit note"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]" />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Reason *</label>
+                <select value={dnForm.reason} onChange={(e) => setDnForm(f => ({ ...f, reason: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]">
+                  <option value="">Select reason…</option>
+                  {DN_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Description *</label>
+                <textarea value={dnForm.description} onChange={(e) => setDnForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="e.g. Damaged in transit, returned via courier"
+                  rows={2}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] resize-none" />
+              </div>
+
+              {/* Item lines */}
+              <div className="border border-gray-200 rounded-xl p-4 space-y-3 bg-gray-50">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Returned Items</p>
+                  <button
+                    type="button"
+                    onClick={() => setDnItems(items => [...items, { ...EMPTY_DN_LINE }])}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
+                    <Plus className="w-3.5 h-3.5" /> Add line
+                  </button>
+                </div>
+
+                {dnItems.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-4">No lines yet — add a returned item above.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {dnItems.map((it, i) => (
+                      <div key={i} className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={it.productName}
+                            onChange={(e) => setDnItems(items => items.map((x, xi) => xi === i ? { ...x, productName: e.target.value } : x))}
+                            placeholder="Product name"
+                            className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] font-medium"
+                          />
+                          <button type="button" onClick={() => setDnItems(items => items.filter((_, xi) => xi !== i))}
+                            className="p-1.5 text-gray-300 hover:text-red-500 shrink-0">
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-5 gap-2">
+                          <div>
+                            <label className="text-[10px] text-gray-500">Qty</label>
+                            <input type="number" min={0} step="0.001" value={it.quantity}
+                              onChange={(e) => setDnItems(items => items.map((x, xi) => xi === i ? { ...x, quantity: Number(e.target.value) || 0 } : x))}
+                              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500">UOM</label>
+                            <input value={it.unitOfMeasure}
+                              onChange={(e) => setDnItems(items => items.map((x, xi) => xi === i ? { ...x, unitOfMeasure: e.target.value } : x))}
+                              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500">Rate (Rs.)</label>
+                            <input type="number" min={0} step="0.01" value={it.unitPrice}
+                              onChange={(e) => setDnItems(items => items.map((x, xi) => xi === i ? { ...x, unitPrice: Number(e.target.value) || 0 } : x))}
+                              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500">GST %</label>
+                            <select value={it.gstRate}
+                              onChange={(e) => setDnItems(items => items.map((x, xi) => xi === i ? { ...x, gstRate: Number(e.target.value) } : x))}
+                              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]">
+                              {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500">Line Total</label>
+                            <p className="px-2 py-1.5 text-sm font-semibold text-gray-800">Rs.{fmt(dnLineTotal(it))}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1 border-t border-gray-200">
+                  <span className="text-sm font-semibold text-gray-700">Total Debit Note</span>
+                  <span className="text-lg font-bold text-gray-900">Rs.{fmt(dnTotal)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Internal Notes (optional)</label>
+                <input value={dnForm.notes} onChange={(e) => setDnForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="Additional notes…"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]" />
+              </div>
+
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <div onClick={() => setDnForm(f => ({ ...f, itcReversal: !f.itcReversal }))}
+                  className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer ${dnForm.itcReversal ? 'bg-orange-500' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${dnForm.itcReversal ? 'translate-x-5' : ''}`} />
+                </div>
+                <span className="text-sm text-gray-700">ITC Reversal required</span>
+              </label>
+            </div>
+
+            <div className="flex gap-3 px-6 py-4 border-t border-gray-200">
+              <button onClick={() => setDnModal(null)}
+                className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 font-medium text-gray-600">
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (!dnForm.reason) { toast.error('Select a reason'); return; }
+                  if (!dnForm.description.trim()) { toast.error('Enter a description'); return; }
+                  if (dnItems.length === 0) { toast.error('Add at least one returned item'); return; }
+                  if (dnItems.some(it => !it.productName.trim())) { toast.error('Enter a product name for every line'); return; }
+                  if (dnItems.some(it => it.quantity <= 0)) { toast.error('Quantity must be greater than 0 for every line'); return; }
+                  debitNoteMutation.mutate({
+                    supplierId:        dnModal.supplierId,
+                    originalGrnId:     dnModal.id,
+                    originalInvoiceNo: dnModal.invoiceNumber,
+                    supplierCnNumber:  dnForm.supplierCnNumber || undefined,
+                    debitNoteDate:     dnForm.debitNoteDate,
+                    reason:            dnForm.reason + (dnForm.description ? ` — ${dnForm.description}` : ''),
+                    itcReversal:       dnForm.itcReversal,
+                    notes:             dnForm.notes || undefined,
+                    items: dnItems,
+                  });
+                }}
+                disabled={debitNoteMutation.isPending}
+                className="flex-1 py-2.5 text-sm bg-rose-600 text-white rounded-xl hover:bg-rose-700 disabled:opacity-60 font-medium flex items-center justify-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                {debitNoteMutation.isPending ? 'Creating…' : 'Create Debit Note'}
               </button>
             </div>
           </div>

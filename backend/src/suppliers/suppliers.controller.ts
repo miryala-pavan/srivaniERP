@@ -6,6 +6,9 @@ import { SuppliersService } from './suppliers.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SupplierQueryDto } from './dto/supplier-query.dto';
+import { AddPaymentDto } from './dto/add-payment.dto';
+import { UpdateOpeningBalanceDto } from './dto/update-opening-balance.dto';
+import { UpdateSupplierBankAccountDto } from './dto/update-bank-account.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -97,8 +100,17 @@ export class SuppliersController {
     return this.suppliersService.getSupplierCreditNotes(req.user.businessId, id, query);
   }
 
+  @Get(':id/debit-notes')
+  getSupplierDebitNotes(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Query() query: { page?: string; limit?: string },
+  ) {
+    return this.suppliersService.getSupplierDebitNotes(req.user.businessId, id, query);
+  }
+
   @Post(':id/payments')
-  addPayment(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+  addPayment(@Request() req: any, @Param('id') id: string, @Body() body: AddPaymentDto) {
     return this.suppliersService.addPayment(req.user.businessId, id, {
       ...body,
       createdByName: req.user.name ?? req.user.fullName ?? 'Unknown',
@@ -116,7 +128,7 @@ export class SuppliersController {
   }
 
   @Patch(':id/opening-balance')
-  updateOpeningBalance(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+  updateOpeningBalance(@Request() req: any, @Param('id') id: string, @Body() body: UpdateOpeningBalanceDto) {
     return this.suppliersService.updateOpeningBalance(req.user.businessId, id, body);
   }
 
@@ -170,7 +182,7 @@ export class SuppliersController {
   }
 
   @Patch('bank-accounts/:accountId')
-  updateBankAccount(@Request() req: any, @Param('accountId') accountId: string, @Body() body: any) {
+  updateBankAccount(@Request() req: any, @Param('accountId') accountId: string, @Body() body: UpdateSupplierBankAccountDto) {
     return this.suppliersService.updateBankAccount(req.user.businessId, accountId, body);
   }
 

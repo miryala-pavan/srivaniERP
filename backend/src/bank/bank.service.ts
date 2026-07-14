@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { parseSbiStatement, ParsedStatement } from './sbi-statement.parser';
 import { parseIdbIStatementFromRows } from './idbi-statement.parser';
+import { JournalBridgeService } from '../platform/journal-bridge/journal-bridge.service';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const pdfParse = require('pdf-parse');
 
@@ -42,7 +43,10 @@ export function extractUtr(text: string | null | undefined): string | null {
 
 @Injectable()
 export class BankService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private journalBridge: JournalBridgeService,
+  ) {}
 
   // ─── BANK ACCOUNTS ───────────────────────────────────
 
@@ -84,6 +88,8 @@ export class BankService {
     branchName: string;
     isActive: boolean;
   }>) {
+    const existing = await this.prisma.bankAccount.findFirst({ where: { id, businessId } });
+    if (!existing) throw new NotFoundException('Bank account not found');
     return this.prisma.bankAccount.update({
       where: { id },
       data: dto,
@@ -613,6 +619,7 @@ export class BankService {
     const supplierIds = [...new Set(grns.map((g) => g.supplierId))];
     if (supplierIds.length > 1) throw new BadRequestException('All selected bills must belong to the same supplier');
     const supplierId = supplierIds[0];
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId }, select: { udyamRegistration: true } });
 
     const r2 = (n: number) => Math.round(n * 100) / 100;
     const bankTotal  = r2(txns.reduce((s, t) => s + Number(t.debitAmount ?? 0), 0));
@@ -675,6 +682,14 @@ export class BankService {
       return created;
     });
 
+    this.journalBridge.postPaymentJournal({
+      id:             payment.id,
+      businessId,
+      amount:         bankTotal,
+      paymentMode:    payment.paymentMode,
+      isMsmeSupplier: !!supplier?.udyamRegistration,
+    }).catch(() => {});
+
     return {
       paymentId: payment.id,
       bankTotal, billsTotal, adjustment,
@@ -693,8 +708,11 @@ export class BankService {
     amounts: number[],
   ) {
     const totalAmount = amounts.reduce((s, a) => s + a, 0);
+    const supplier = txn.supplierId
+      ? await this.prisma.supplier.findFirst({ where: { id: txn.supplierId, businessId }, select: { udyamRegistration: true } })
+      : null;
 
-    await this.prisma.$transaction(async (tx) => {
+    const payment = await this.prisma.$transaction(async (tx) => {
       const payment = await tx.supplierPayment.create({
         data: {
           businessId,
@@ -739,7 +757,17 @@ export class BankService {
           matchedBySystem:   true,
         },
       });
+
+      return payment;
     });
+
+    this.journalBridge.postPaymentJournal({
+      id:             payment.id,
+      businessId,
+      amount:         totalAmount,
+      paymentMode:    payment.paymentMode,
+      isMsmeSupplier: !!supplier?.udyamRegistration,
+    }).catch(() => {});
   }
 
   /**
@@ -870,6 +898,8 @@ export class BankService {
     supplierId?: string;
     notes?:     string;
   }) {
+    const existing = await this.prisma.bankTransaction.findFirst({ where: { id, businessId } });
+    if (!existing) throw new NotFoundException('Bank transaction not found');
     return this.prisma.bankTransaction.update({
       where: { id },
       data:  dto,
@@ -931,8 +961,9 @@ export class BankService {
     notes?:           string;
   }) {
     const totalAmount = dto.amounts.reduce((s, a) => s + a, 0);
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: dto.supplierId, businessId }, select: { udyamRegistration: true } });
 
-    return this.prisma.$transaction(async (tx) => {
+    const payment = await this.prisma.$transaction(async (tx) => {
       const payment = await tx.supplierPayment.create({
         data: {
           businessId,
@@ -970,6 +1001,16 @@ export class BankService {
 
       return payment;
     });
+
+    this.journalBridge.postPaymentJournal({
+      id:             payment.id,
+      businessId,
+      amount:         totalAmount,
+      paymentMode:    payment.paymentMode,
+      isMsmeSupplier: !!supplier?.udyamRegistration,
+    }).catch(() => {});
+
+    return payment;
   }
 
   // ─── SUMMARY DASHBOARD ───────────────────────────────

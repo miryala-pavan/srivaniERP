@@ -5,7 +5,7 @@ import {
   MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle,
   Send, KeyRound, PlayCircle, X, Wifi, WifiOff, AlertCircle,
   CheckCheck, ArrowUpRight, ArrowDownLeft, MousePointerClick,
-  MessagesSquare, FileText, Settings as SettingsIcon, Bot, Cake, Phone,
+  MessagesSquare, FileText, Settings as SettingsIcon, Bot, Cake, Phone, MapPin, Megaphone, Building2, Pencil,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -79,6 +79,12 @@ const MSG_STATUS_CONFIG = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface BirthdayCustomer { id: string; name: string; phone: string | null; dateOfBirth: string }
+interface Segment { id: string; label: string; count: number }
+interface PhoneNumberPreset {
+  id: string; label: string; phoneNumberId: string; businessAccountId: string;
+  storeNotifyNumber: string | null; isActive: boolean; createdAt: string;
+}
+const BLANK_NUMBER_FORM = { label: '', accessToken: '', phoneNumberId: '', businessAccountId: '', storeNotifyNumber: '' };
 
 export default function WhatsAppTemplatesPage() {
   const [tab, setTab] = useState<'chat' | 'templates' | 'campaigns' | 'settings'>('chat');
@@ -86,6 +92,15 @@ export default function WhatsAppTemplatesPage() {
   const [birthdaysLoading, setBirthdaysLoading] = useState(false);
   const [birthdaysLoaded, setBirthdaysLoaded] = useState(false);
   const [birthdayTemplatePick, setBirthdayTemplatePick] = useState<Record<string, string>>({});
+  const [segments, setSegments]           = useState<Segment[]>([]);
+  const [segmentsLoaded, setSegmentsLoaded] = useState(false);
+  const [selectedSegment, setSelectedSegment] = useState('');
+  const [broadcastTemplateName, setBroadcastTemplateName] = useState('');
+  const [broadcastParams, setBroadcastParams] = useState<string[]>([]);
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
+  const [businessProfile, setBusinessProfile] = useState({ about: '', address: '', description: '', email: '', vertical: '' });
+  const [businessProfileLoaded, setBusinessProfileLoaded] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [templates, setTemplates]     = useState<WaTemplate[]>([]);
   const [loading, setLoading]         = useState(true);
   const [showForm, setShowForm]       = useState(false);
@@ -99,12 +114,23 @@ export default function WhatsAppTemplatesPage() {
     tokenConfigured: boolean; phoneId: string | null; storeNum: string | null; source: string;
   } | null>(null);
   const [savingCreds, setSavingCreds] = useState(false);
+  const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumberPreset[]>([]);
+  const [phoneNumbersLoaded, setPhoneNumbersLoaded] = useState(false);
+  const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [showNumberForm, setShowNumberForm] = useState(false);
+  const [editingNumberId, setEditingNumberId] = useState<string | null>(null);
+  const [numberForm, setNumberForm] = useState({ ...BLANK_NUMBER_FORM });
+  const [savingNumber, setSavingNumber] = useState(false);
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
   const [storeHours, setStoreHours]             = useState('');
   const [autoReplyLoaded, setAutoReplyLoaded]   = useState(false);
   const [savingAutoReply, setSavingAutoReply]   = useState(false);
   const [registerPin, setRegisterPin]           = useState('');
   const [registering, setRegistering]           = useState(false);
+  const [locationLat, setLocationLat]           = useState('');
+  const [locationLng, setLocationLng]           = useState('');
+  const [locationName, setLocationName]         = useState('');
+  const [locationAddr, setLocationAddr]         = useState('');
   const [sendModal, setSendModal]     = useState<{
     template: WaTemplate; phone: string; params: string[]; sending: boolean;
   } | null>(null);
@@ -159,7 +185,7 @@ export default function WhatsAppTemplatesPage() {
     }
   }, []);
 
-  useEffect(() => { load(); loadCreds(); loadAutoReply(); }, [load]);
+  useEffect(() => { load(); loadCreds(); loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); }, [load]);
 
   async function loadCreds() {
     try {
@@ -181,6 +207,72 @@ export default function WhatsAppTemplatesPage() {
     }
   }, []);
 
+  const loadSegments = useCallback(async () => {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/campaigns/segments');
+      setSegments(Array.isArray(data) ? data : []);
+    } catch {
+      toast.error('Failed to load segments');
+    } finally {
+      setSegmentsLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'campaigns' && !segmentsLoaded) loadSegments();
+  }, [tab, segmentsLoaded, loadSegments]);
+
+  async function sendBroadcast() {
+    const segment = segments.find(s => s.id === selectedSegment);
+    if (!segment || !broadcastTemplateName) return;
+    if (!confirm(`Send "${broadcastTemplateName}" to ${segment.count} customer(s) in "${segment.label}"? This cannot be undone.`)) return;
+    setSendingBroadcast(true);
+    try {
+      const t = templates.find(x => x.name === broadcastTemplateName);
+      const { data } = await api.post('/notifications/whatsapp/campaigns/send', {
+        segmentId: selectedSegment,
+        template: broadcastTemplateName,
+        language: t?.language ?? 'en',
+        params: broadcastParams,
+      });
+      toast.success(`Broadcast sent: ${data.sent} delivered, ${data.failed} failed (of ${data.total})`);
+      setSelectedSegment('');
+      setBroadcastTemplateName('');
+      setBroadcastParams([]);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Broadcast failed');
+    } finally {
+      setSendingBroadcast(false);
+    }
+  }
+
+  async function loadBusinessProfile() {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/business-profile');
+      if (!data?.error) {
+        setBusinessProfile({
+          about: data?.about ?? '', address: data?.address ?? '', description: data?.description ?? '',
+          email: data?.email ?? '', vertical: data?.vertical ?? '',
+        });
+      }
+    } catch { /* ignore */ } finally {
+      setBusinessProfileLoaded(true);
+    }
+  }
+
+  async function saveBusinessProfile() {
+    setSavingProfile(true);
+    try {
+      const { data } = await api.patch('/notifications/whatsapp/business-profile', businessProfile);
+      if (data?.ok) toast.success('Business profile updated on WhatsApp');
+      else toast.error(JSON.stringify(data?.error?.error?.message ?? data?.error ?? 'Update failed'));
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Update failed');
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
   useEffect(() => {
     if (tab === 'campaigns' && !birthdaysLoaded) loadBirthdays();
   }, [tab, birthdaysLoaded, loadBirthdays]);
@@ -190,6 +282,10 @@ export default function WhatsAppTemplatesPage() {
       const { data } = await api.get('/notifications/whatsapp/autoreply');
       setAutoReplyEnabled(!!data?.enabled);
       setStoreHours(data?.storeHours ?? '');
+      setLocationLat(data?.locationLat ?? '');
+      setLocationLng(data?.locationLng ?? '');
+      setLocationName(data?.locationName ?? '');
+      setLocationAddr(data?.locationAddr ?? '');
     } catch { /* ignore */ } finally {
       setAutoReplyLoaded(true);
     }
@@ -213,12 +309,19 @@ export default function WhatsAppTemplatesPage() {
     }
   }
 
-  async function saveAutoReply(next: { enabled?: boolean; storeHours?: string }) {
+  async function saveAutoReply(next: {
+    enabled?: boolean; storeHours?: string;
+    locationLat?: string; locationLng?: string; locationName?: string; locationAddr?: string;
+  }) {
     setSavingAutoReply(true);
     try {
       const { data } = await api.patch('/notifications/whatsapp/autoreply', next);
       setAutoReplyEnabled(!!data?.enabled);
       setStoreHours(data?.storeHours ?? '');
+      setLocationLat(data?.locationLat ?? '');
+      setLocationLng(data?.locationLng ?? '');
+      setLocationName(data?.locationName ?? '');
+      setLocationAddr(data?.locationAddr ?? '');
       toast.success('Auto-reply settings saved');
     } catch {
       toast.error('Failed to save auto-reply settings');
@@ -242,6 +345,71 @@ export default function WhatsAppTemplatesPage() {
       toast.error('Failed to save credentials');
     } finally {
       setSavingCreds(false);
+    }
+  }
+
+  async function loadPhoneNumbers() {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/phone-numbers');
+      setPhoneNumbers(Array.isArray(data) ? data : []);
+    } catch {
+      toast.error('Failed to load phone numbers');
+    } finally {
+      setPhoneNumbersLoaded(true);
+    }
+  }
+
+  async function saveNumber() {
+    if (!numberForm.label.trim() || !numberForm.phoneNumberId.trim() || !numberForm.businessAccountId.trim()) {
+      return toast.error('Label, Phone Number ID, and Business Account ID are required');
+    }
+    if (!editingNumberId && !numberForm.accessToken.trim()) {
+      return toast.error('Access token is required for a new number');
+    }
+    setSavingNumber(true);
+    try {
+      const { data } = await api.post('/notifications/whatsapp/phone-numbers', {
+        id: editingNumberId ?? undefined,
+        label: numberForm.label.trim(),
+        accessToken: numberForm.accessToken.trim() || undefined,
+        phoneNumberId: numberForm.phoneNumberId.trim(),
+        businessAccountId: numberForm.businessAccountId.trim(),
+        storeNotifyNumber: numberForm.storeNotifyNumber.trim() || undefined,
+      });
+      setPhoneNumbers(data);
+      setShowNumberForm(false);
+      setNumberForm({ ...BLANK_NUMBER_FORM });
+      setEditingNumberId(null);
+      toast.success('Number saved');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to save number');
+    } finally {
+      setSavingNumber(false);
+    }
+  }
+
+  async function activateNumber(id: string) {
+    setActivatingId(id);
+    try {
+      const { data } = await api.post(`/notifications/whatsapp/phone-numbers/${id}/activate`);
+      setPhoneNumbers(data);
+      toast.success('Number activated');
+      loadCreds();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to activate number');
+    } finally {
+      setActivatingId(null);
+    }
+  }
+
+  async function deleteNumber(id: string, label: string) {
+    if (!confirm(`Remove saved number "${label}"? This only removes it from this list — it doesn't affect the number on Meta.`)) return;
+    try {
+      const { data } = await api.delete(`/notifications/whatsapp/phone-numbers/${id}`);
+      setPhoneNumbers(data);
+      toast.success('Number removed');
+    } catch {
+      toast.error('Failed to remove number');
     }
   }
 
@@ -426,126 +594,277 @@ export default function WhatsAppTemplatesPage() {
       {/* ── Chat tab ── */}
       {tab === 'chat' && <WhatsAppChat />}
 
-      {/* ── Settings tab: connection status card ── */}
-      {tab === 'settings' && (
-      <div className={`rounded-xl border p-4 ${isConnected ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className={`mt-0.5 rounded-full p-1.5 ${isConnected ? 'bg-green-100' : 'bg-red-100'}`}>
-              {isConnected
-                ? <Wifi size={15} className="text-green-600" />
-                : <WifiOff size={15} className="text-red-500" />}
+      {/* ── Settings tab ── */}
+      {tab === 'settings' && phoneNumbersLoaded && (
+      <div className="space-y-8 max-w-3xl">
+
+        {/* SECTION: Connection */}
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Connection</h2>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isConnected ? 'bg-green-50' : 'bg-red-50'}`}>
+                  {isConnected ? <Wifi size={17} className="text-green-600" /> : <WifiOff size={17} className="text-red-500" />}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">WhatsApp Business</p>
+                  <p className={`text-xs ${isConnected ? 'text-green-600' : 'text-red-500'}`}>
+                    {isConnected ? 'Connected and ready to send' : 'Not connected — activate a saved number below'}
+                  </p>
+                </div>
+              </div>
+              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border shrink-0 ${isConnected ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                {isConnected ? 'LIVE' : 'OFFLINE'}
+              </span>
             </div>
-            <div>
-              <p className={`font-medium text-sm ${isConnected ? 'text-green-800' : 'text-red-700'}`}>
-                {isConnected ? 'Connected to WhatsApp Business' : 'Not connected — token missing or expired'}
-              </p>
-              {credsStatus && (
-                <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-gray-600">
-                  {credsStatus.phoneId && (
-                    <span><span className="text-gray-400">Phone ID:</span> {credsStatus.phoneId}</span>
-                  )}
-                  {credsStatus.storeNum && (
-                    <span><span className="text-gray-400">Order alerts →</span> +{credsStatus.storeNum}</span>
-                  )}
-                  <span className={`px-1.5 py-0.5 rounded ${credsStatus.source === 'database' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
-                    {credsStatus.source}
-                  </span>
+
+            <div className="px-5 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                  Saved Numbers
+                  <span
+                    title="Save each WhatsApp number once (label, token, IDs), then switch which one is active with one click — no need to retype credentials every time you change numbers."
+                    className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
+                </p>
+                <button
+                  onClick={() => { setEditingNumberId(null); setNumberForm({ ...BLANK_NUMBER_FORM }); setShowNumberForm(true); }}
+                  className="btn-outline flex items-center gap-1.5 text-xs px-2.5 py-1.5">
+                  <Plus size={12} /> Add Number
+                </button>
+              </div>
+              {phoneNumbers.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-5 border border-dashed border-gray-200 rounded-xl">No saved numbers yet — add one to get started.</p>
+              ) : (
+                <div className="space-y-2">
+                  {phoneNumbers.map(n => (
+                    <div key={n.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border flex-wrap ${n.isActive ? 'border-green-300 bg-green-50/60' : 'border-gray-200'}`}>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
+                          {n.label}
+                          {n.isActive && <span className="text-[10px] font-bold bg-green-500 text-white rounded-full px-1.5 py-0.5">ACTIVE</span>}
+                        </p>
+                        <p className="text-xs text-gray-400 font-mono truncate">{n.phoneNumberId}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {!n.isActive && (
+                          <button onClick={() => activateNumber(n.id)} disabled={activatingId === n.id}
+                            className="btn-primary text-xs px-2.5 py-1.5 disabled:opacity-50">
+                            {activatingId === n.id ? 'Activating…' : 'Activate'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setEditingNumberId(n.id);
+                            setNumberForm({ label: n.label, accessToken: '', phoneNumberId: n.phoneNumberId, businessAccountId: n.businessAccountId, storeNotifyNumber: n.storeNotifyNumber ?? '' });
+                            setShowNumberForm(true);
+                          }}
+                          className="text-gray-400 hover:text-gray-700 p-1.5" title="Edit">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => deleteNumber(n.id, n.label)} className="text-gray-300 hover:text-red-500 p-1.5" title="Remove">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
+
+            <div className="flex items-center gap-2 px-5 py-3.5 bg-gray-50/70 border-t border-gray-100">
+              <span className="text-xs text-gray-500 whitespace-nowrap font-medium">Quick test</span>
+              <input
+                className="input flex-1 text-sm h-8 py-1.5"
+                placeholder="Phone number e.g. 93828 28484"
+                value={testPhone}
+                onChange={e => setTestPhone(e.target.value)}
+              />
+              <button onClick={sendHelloWorld} disabled={testing}
+                className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 whitespace-nowrap transition-colors">
+                <Send size={12} /> {testing ? 'Sending…' : 'Send hello_world'}
+              </button>
+            </div>
           </div>
-          <button onClick={() => setShowCredsModal(true)}
-            className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 bg-white border border-gray-300 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap">
-            <KeyRound size={12} /> Update Credentials
-          </button>
         </div>
 
-        {/* Quick connection test */}
-        <div className="mt-3 pt-3 border-t border-green-200/60 flex items-center gap-2">
-          <span className="text-xs text-gray-500 whitespace-nowrap">Quick test:</span>
-          <input
-            className="input flex-1 text-sm h-8 py-1.5"
-            placeholder="Phone number e.g. 93828 28484"
-            value={testPhone}
-            onChange={e => setTestPhone(e.target.value)}
-          />
-          <button onClick={sendHelloWorld} disabled={testing}
-            className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 whitespace-nowrap transition-colors">
-            <Send size={12} /> {testing ? 'Sending…' : 'Send hello_world'}
-          </button>
-        </div>
-      </div>
-      )}
-
-      {/* ── Settings tab: auto-reply ── */}
-      {tab === 'settings' && autoReplyLoaded && (
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2">
-            <Bot size={16} className="text-indigo-500" />
-            <p className="text-sm font-semibold text-gray-800">Auto-Reply</p>
-            <span
-              title="Rule-based, no AI. On a first-ever message it sends a welcome menu (Track Order / Store Hours / Talk to Staff). Keywords like 'order'/'status' trigger an order-status lookup; 'hours'/'timing' reply with your store hours below. Every automated message is tagged 'Auto' in the Chat tab so staff can tell it apart from a human reply."
-              className="cursor-help text-gray-400">ⓘ</span>
-          </div>
-          <button
-            onClick={() => saveAutoReply({ enabled: !autoReplyEnabled })}
-            disabled={savingAutoReply}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${autoReplyEnabled ? 'bg-green-500' : 'bg-gray-300'} disabled:opacity-50`}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoReplyEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-          </button>
-        </div>
+        {/* SECTION: Automation */}
+        {autoReplyLoaded && (
         <div>
-          <label className="label text-sm">Store Hours <span className="text-gray-400 font-normal text-xs">(shown when a customer asks about timings)</span></label>
-          <div className="flex gap-2">
-            <input
-              className="input flex-1 text-sm"
-              placeholder="Mon–Sat, 9 AM – 9 PM"
-              value={storeHours}
-              onChange={e => setStoreHours(e.target.value)}
-              onBlur={() => { if (storeHours.trim()) saveAutoReply({ storeHours: storeHours.trim() }); }}
-            />
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Automation</h2>
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
+                    <Bot size={16} className="text-indigo-500" />
+                  </div>
+                  <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                    Auto-Reply
+                    <span
+                      title="Rule-based, no AI. Message START or SUBSCRIBE to opt a contact in (creates them as a Customer if new); STOP or UNSUBSCRIBE opts out — both are exact-match, so they never trigger by accident. On a first-ever message it also sends a welcome menu (Track Order / Store Hours / Talk to Staff). Keywords like 'order'/'status' trigger an order-status lookup; 'hours'/'timing' reply with your store hours below. Every automated message is tagged 'Auto' in the Chat tab so staff can tell it apart from a human reply."
+                      className="cursor-help text-gray-400 font-normal">ⓘ</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => saveAutoReply({ enabled: !autoReplyEnabled })}
+                  disabled={savingAutoReply}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${autoReplyEnabled ? 'bg-green-500' : 'bg-gray-300'} disabled:opacity-50`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoReplyEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              <div>
+                <label className="label text-sm">Store Hours <span className="text-gray-400 font-normal text-xs">(shown when a customer asks about timings)</span></label>
+                <input
+                  className="input text-sm"
+                  placeholder="Mon–Sat, 9 AM – 9 PM"
+                  value={storeHours}
+                  onChange={e => setStoreHours(e.target.value)}
+                  onBlur={() => { if (storeHours.trim()) saveAutoReply({ storeHours: storeHours.trim() }); }}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center shrink-0">
+                  <MapPin size={16} className="text-rose-500" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                  Store Location
+                  <span
+                    title="Shown to customers who tap 'Store Location' in the auto-reply menu — sent as a native WhatsApp location pin if coordinates are set, otherwise falls back to the address text. Get coordinates by right-clicking your store on Google Maps."
+                    className="cursor-help text-gray-400 font-normal">ⓘ</span>
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className="label text-xs">Latitude</label>
+                  <input className="input text-sm" placeholder="e.g. 17.6255"
+                    value={locationLat} onChange={e => setLocationLat(e.target.value)}
+                    onBlur={() => saveAutoReply({ locationLat: locationLat.trim() })} />
+                </div>
+                <div>
+                  <label className="label text-xs">Longitude</label>
+                  <input className="input text-sm" placeholder="e.g. 78.0857"
+                    value={locationLng} onChange={e => setLocationLng(e.target.value)}
+                    onBlur={() => saveAutoReply({ locationLng: locationLng.trim() })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label text-xs">Location name</label>
+                  <input className="input text-sm" placeholder="e.g. Srivani Stores"
+                    value={locationName} onChange={e => setLocationName(e.target.value)}
+                    onBlur={() => saveAutoReply({ locationName: locationName.trim() })} />
+                </div>
+                <div>
+                  <label className="label text-xs">Address <span className="text-gray-400 font-normal">(fallback)</span></label>
+                  <input className="input text-sm" placeholder="Used if no coordinates set"
+                    value={locationAddr} onChange={e => setLocationAddr(e.target.value)}
+                    onBlur={() => saveAutoReply({ locationAddr: locationAddr.trim() })} />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-      )}
+        )}
 
-      {/* ── Settings tab: phone number registration ── */}
-      {tab === 'settings' && (
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Phone size={16} className="text-gray-500" />
-          <p className="text-sm font-semibold text-gray-800">Register This Number</p>
-          <span
-            title="A one-time Meta requirement to activate a phone number for Cloud API sending/receiving — the same thing the 'Register' button in Meta's own dashboard does. Only needed if the connected number shows as 'Pending' in Meta Business Manager. Choose any 6-digit PIN you'll remember; this is a two-step-verification PIN for the number, not your Meta login password."
-            className="cursor-help text-gray-400">ⓘ</span>
+        {/* SECTION: Business Info */}
+        {businessProfileLoaded && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Business Info</h2>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                <Building2 size={16} className="text-gray-500" />
+              </div>
+              <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                Business Profile
+                <span
+                  title="Your public 'About this business' info that customers see on WhatsApp — pulled from and pushed to Meta directly, same as editing it in Meta Business Manager."
+                  className="cursor-help text-gray-400 font-normal">ⓘ</span>
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="label text-xs">About</label>
+                <input className="input text-sm" placeholder="Short status line" maxLength={139}
+                  value={businessProfile.about} onChange={e => setBusinessProfile(p => ({ ...p, about: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label text-xs">Email</label>
+                <input className="input text-sm" placeholder="store@example.com"
+                  value={businessProfile.email} onChange={e => setBusinessProfile(p => ({ ...p, email: e.target.value }))} />
+              </div>
+            </div>
+            <div className="mb-3">
+              <label className="label text-xs">Address</label>
+              <input className="input text-sm" placeholder="Shop address"
+                value={businessProfile.address} onChange={e => setBusinessProfile(p => ({ ...p, address: e.target.value }))} />
+            </div>
+            <div className="mb-4">
+              <label className="label text-xs">Description</label>
+              <textarea rows={2} className="input text-sm" placeholder="What your business does"
+                value={businessProfile.description} onChange={e => setBusinessProfile(p => ({ ...p, description: e.target.value }))} />
+            </div>
+            <div className="flex justify-end">
+              <button onClick={saveBusinessProfile} disabled={savingProfile} className="btn-primary text-sm px-4 disabled:opacity-50">
+                {savingProfile ? 'Saving…' : 'Save to WhatsApp'}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <input
-            className="input flex-1 text-sm"
-            placeholder="6-digit PIN (e.g. 123456)"
-            maxLength={6}
-            value={registerPin}
-            onChange={e => setRegisterPin(e.target.value.replace(/\D/g, ''))}
-          />
-          <button onClick={registerNumber} disabled={registering || registerPin.length !== 6}
-            className="btn-primary text-sm px-4 disabled:opacity-50 whitespace-nowrap">
-            {registering ? 'Registering…' : 'Register'}
-          </button>
+        )}
+
+        {/* SECTION: Advanced */}
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Advanced</h2>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                <Phone size={16} className="text-gray-500" />
+              </div>
+              <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                Register This Number
+                <span
+                  title="A one-time Meta requirement to activate a phone number for Cloud API sending/receiving — the same thing the 'Register' button in Meta's own dashboard does. Only needed if the connected number shows as 'Pending' in Meta Business Manager. Choose any 6-digit PIN you'll remember; this is a two-step-verification PIN for the number, not your Meta login password."
+                  className="cursor-help text-gray-400 font-normal">ⓘ</span>
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                className="input flex-1 text-sm"
+                placeholder="6-digit PIN (e.g. 123456)"
+                maxLength={6}
+                value={registerPin}
+                onChange={e => setRegisterPin(e.target.value.replace(/\D/g, ''))}
+              />
+              <button onClick={registerNumber} disabled={registering || registerPin.length !== 6}
+                className="btn-primary text-sm px-4 disabled:opacity-50 whitespace-nowrap">
+                {registering ? 'Registering…' : 'Register'}
+              </button>
+            </div>
+          </div>
         </div>
+
       </div>
       )}
 
       {/* ── Templates tab ── */}
-      {tab === 'templates' && <>
+      {tab === 'templates' && <div className="space-y-8">
 
       {/* ── New template form ── */}
       {showForm && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-5 space-y-4">
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-blue-900">New Template</h2>
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                <Plus size={16} className="text-blue-600" />
+              </div>
+              <h2 className="text-sm font-semibold text-gray-900">New Template</h2>
+            </div>
             <button onClick={() => { setShowForm(false); setForm({ ...BLANK_FORM }); }}
               className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
           </div>
@@ -647,9 +966,9 @@ export default function WhatsAppTemplatesPage() {
 
       {/* ── Templates list ── */}
       <div>
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
           Your Templates {!loading && `(${templates.length})`}
-        </p>
+        </h2>
 
         {loading ? (
           <div className="text-center py-10 text-gray-400 text-sm">Loading templates…</div>
@@ -715,62 +1034,120 @@ export default function WhatsAppTemplatesPage() {
       </div>
 
       {/* ── Required templates checklist ── */}
-      <div className={`rounded-xl border p-4 ${missingRequired.length > 0 ? 'border-orange-200 bg-orange-50/30' : 'border-green-200 bg-green-50/30'}`}>
-        <div className="flex items-center gap-2 mb-3">
-          {missingRequired.length > 0
-            ? <AlertCircle size={15} className="text-orange-500" />
-            : <CheckCircle2 size={15} className="text-green-500" />}
-          <p className="text-sm font-semibold text-gray-700">
-            {missingRequired.length === 0
-              ? 'All required templates are ready!'
-              : `${missingRequired.length} template${missingRequired.length > 1 ? 's' : ''} still needed`}
-          </p>
-        </div>
-        <div className="space-y-2">
-          {REQUIRED_TEMPLATES.map(r => {
-            const exists = existingNames.has(r.name);
-            return (
-              <div key={r.name}
-                className={`flex items-center justify-between gap-3 p-3 rounded-lg border
-                  ${exists ? 'bg-white border-green-200' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-center gap-2.5 min-w-0">
-                  {exists
-                    ? <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
-                    : <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 flex-shrink-0" />}
-                  <div className="min-w-0">
-                    <span className="font-mono text-xs font-semibold text-gray-800">{r.name}</span>
-                    <p className="text-xs text-gray-500 truncate">{TEMPLATE_DESC[r.name] ?? ''}</p>
+      <div>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Setup Checklist</h2>
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+          <div className="flex items-center gap-2.5 mb-4">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${missingRequired.length > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
+              {missingRequired.length > 0
+                ? <AlertCircle size={16} className="text-orange-500" />
+                : <CheckCircle2 size={16} className="text-green-600" />}
+            </div>
+            <p className="text-sm font-semibold text-gray-900">
+              {missingRequired.length === 0
+                ? 'All required templates are ready!'
+                : `${missingRequired.length} template${missingRequired.length > 1 ? 's' : ''} still needed`}
+            </p>
+          </div>
+          <div className="space-y-2">
+            {REQUIRED_TEMPLATES.map(r => {
+              const exists = existingNames.has(r.name);
+              return (
+                <div key={r.name}
+                  className={`flex items-center justify-between gap-3 p-3 rounded-xl border
+                    ${exists ? 'bg-green-50/40 border-green-200' : 'bg-gray-50/60 border-gray-200'}`}>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {exists
+                      ? <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
+                      : <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 flex-shrink-0" />}
+                    <div className="min-w-0">
+                      <span className="font-mono text-xs font-semibold text-gray-800">{r.name}</span>
+                      <p className="text-xs text-gray-500 truncate">{TEMPLATE_DESC[r.name] ?? ''}</p>
+                    </div>
                   </div>
+                  {!exists && (
+                    <button
+                      onClick={() => {
+                        setForm({ ...BLANK_FORM, name: r.name, category: 'UTILITY', language: 'en', headerText: 'Srivani Stores', bodyText: r.body, footerText: r.footer });
+                        setShowForm(true);
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg px-2.5 py-1 font-medium whitespace-nowrap transition-colors">
+                      <Plus size={11} /> Create
+                    </button>
+                  )}
                 </div>
-                {!exists && (
-                  <button
-                    onClick={() => {
-                      setForm({ ...BLANK_FORM, name: r.name, category: 'UTILITY', language: 'en', headerText: 'Srivani Stores', bodyText: r.body, footerText: r.footer });
-                      setShowForm(true);
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg px-2.5 py-1 font-medium whitespace-nowrap transition-colors">
-                    <Plus size={11} /> Create
-                  </button>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      </>}
+      </div>}
 
       {/* ── Campaigns tab ── */}
-      {tab === 'campaigns' && (
+      {tab === 'campaigns' && (() => {
+        const approvedTemplates = templates.filter(t => t.status === 'APPROVED');
+        const broadcastTemplate = approvedTemplates.find(t => t.name === broadcastTemplateName);
+        const broadcastVarCount = broadcastTemplate ? varCount(broadcastTemplate) : 0;
+        const selectedSegmentObj = segments.find(s => s.id === selectedSegment);
+        return (
+      <div className="space-y-8">
+      <div>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Broadcast</h2>
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+          <div className="flex items-center gap-2.5 mb-4">
+            <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center shrink-0">
+              <Megaphone size={16} className="text-purple-500" />
+            </div>
+            <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+              Broadcast Campaign
+              <span
+                title="Sends an approved template to every customer in the chosen segment. Only reaches customers with WhatsApp opt-in enabled on their profile. If the template has {{1}}, {{2}} etc. variables, the same value is sent to every recipient — not personalized per name."
+                className="cursor-help text-gray-400 font-normal">ⓘ</span>
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <select className="input text-sm" value={selectedSegment} onChange={e => setSelectedSegment(e.target.value)}>
+              <option value="">Choose segment…</option>
+              {segments.map(s => <option key={s.id} value={s.id}>{s.label} ({s.count})</option>)}
+            </select>
+            <select className="input text-sm" value={broadcastTemplateName} onChange={e => { setBroadcastTemplateName(e.target.value); setBroadcastParams([]); }}>
+              <option value="">Choose template…</option>
+              {approvedTemplates.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+            </select>
+            <button
+              onClick={sendBroadcast}
+              disabled={sendingBroadcast || !selectedSegment || !broadcastTemplateName || !selectedSegmentObj?.count}
+              className="btn-primary flex items-center justify-center gap-1.5 text-sm disabled:opacity-40"
+            >
+              <Send size={13} /> {sendingBroadcast ? 'Sending…' : 'Send Broadcast'}
+            </button>
+          </div>
+          {broadcastVarCount > 0 && (
+            <div className="mt-3 space-y-1.5">
+              <label className="label text-xs">Template variables <span className="text-gray-400 font-normal">(same value sent to everyone)</span></label>
+              {Array.from({ length: broadcastVarCount }, (_, i) => (
+                <input key={i} className="input text-sm" placeholder={`Value for {{${i + 1}}}`}
+                  value={broadcastParams[i] ?? ''}
+                  onChange={e => setBroadcastParams(p => { const next = [...p]; next[i] = e.target.value; return next; })} />
+              ))}
+            </div>
+          )}
+          {selectedSegmentObj && selectedSegmentObj.count === 0 && (
+            <p className="text-xs text-amber-600 mt-2">No customers currently match this segment.</p>
+          )}
+        </div>
+      </div>
+
       <div>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
             <Cake size={13} className="text-pink-400" /> Today&apos;s Birthdays {!birthdaysLoading && `(${birthdays.length})`}
             <span
               title="Customers need a saved Date of Birth and WhatsApp opt-in (both set on their customer profile) to appear here. Sending uses an approved template — free-text greetings can't reach customers outside the 24h session window."
               className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
-          </p>
+          </h2>
           <button onClick={loadBirthdays} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
             <RefreshCw size={12} />
           </button>
@@ -779,7 +1156,7 @@ export default function WhatsAppTemplatesPage() {
         {birthdaysLoading ? (
           <div className="text-center py-10 text-gray-400 text-sm">Loading…</div>
         ) : birthdays.length === 0 ? (
-          <div className="text-center py-10 border border-dashed border-gray-200 rounded-xl text-gray-400">
+          <div className="text-center py-10 border border-dashed border-gray-200 rounded-2xl text-gray-400">
             <Cake size={30} className="mx-auto mb-2 text-gray-300" />
             <p className="text-sm">No birthdays today.</p>
             <p className="text-xs mt-1">Customers need a Date of Birth saved and WhatsApp opt-in enabled to show up here.</p>
@@ -790,10 +1167,15 @@ export default function WhatsAppTemplatesPage() {
               const approved = templates.filter(t => t.status === 'APPROVED');
               const picked = approved.find(t => t.name === birthdayTemplatePick[c.id]);
               return (
-                <div key={c.id} className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between gap-3 flex-wrap">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
-                    <p className="text-xs text-gray-400">{c.phone ? `+${c.phone}` : 'No phone on file'}</p>
+                <div key={c.id} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-pink-50 flex items-center justify-center text-xs font-bold text-pink-500 shrink-0">
+                      {c.name.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
+                      <p className="text-xs text-gray-400">{c.phone ? `+${c.phone}` : 'No phone on file'}</p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <select
@@ -818,11 +1200,14 @@ export default function WhatsAppTemplatesPage() {
           </div>
         )}
       </div>
-      )}
+      </div>
+        );
+      })()}
 
       {/* ── Settings tab: message log ── */}
       {tab === 'settings' && (
-      <div>
+      <div className="max-w-3xl">
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Activity</h2>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1">
             Message Log {!waLoading && `(${waTotal})`}
@@ -941,6 +1326,62 @@ export default function WhatsAppTemplatesPage() {
       )}
 
     </div>
+
+    {/* ── Add/Edit phone number modal ── */}
+    {showNumberForm && (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Phone size={18} className="text-gray-600" />
+              <h3 className="font-semibold text-gray-900">{editingNumberId ? 'Edit Number' : 'Add Number'}</h3>
+            </div>
+            <button onClick={() => { setShowNumberForm(false); setNumberForm({ ...BLANK_NUMBER_FORM }); setEditingNumberId(null); }}
+              className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          </div>
+
+          <div>
+            <label className="label text-sm">Label</label>
+            <input className="input" placeholder="e.g. Sangareddy Store, Test Sandbox"
+              value={numberForm.label}
+              onChange={e => setNumberForm(f => ({ ...f, label: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label text-sm">Access Token {editingNumberId && <span className="text-gray-400 font-normal text-xs">(leave blank to keep existing)</span>}</label>
+            <input className="input font-mono text-xs" placeholder="EAAd…"
+              value={numberForm.accessToken}
+              onChange={e => setNumberForm(f => ({ ...f, accessToken: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label text-sm">Phone Number ID</label>
+              <input className="input text-sm" placeholder="1236691106193092"
+                value={numberForm.phoneNumberId}
+                onChange={e => setNumberForm(f => ({ ...f, phoneNumberId: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label text-sm">Business Account ID</label>
+              <input className="input text-sm" placeholder="4470398083206478"
+                value={numberForm.businessAccountId}
+                onChange={e => setNumberForm(f => ({ ...f, businessAccountId: e.target.value }))} />
+            </div>
+          </div>
+          <div>
+            <label className="label text-sm">Store Notify Number <span className="text-gray-400 font-normal text-xs">(optional)</span></label>
+            <input className="input text-sm" placeholder="919382828484"
+              value={numberForm.storeNotifyNumber}
+              onChange={e => setNumberForm(f => ({ ...f, storeNotifyNumber: e.target.value }))} />
+          </div>
+
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={() => { setShowNumberForm(false); setNumberForm({ ...BLANK_NUMBER_FORM }); setEditingNumberId(null); }} className="btn-outline text-sm">Cancel</button>
+            <button onClick={saveNumber} disabled={savingNumber} className="btn-primary text-sm">
+              {savingNumber ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* ── Credentials modal ── */}
     {showCredsModal && (

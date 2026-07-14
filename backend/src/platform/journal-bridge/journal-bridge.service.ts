@@ -33,6 +33,7 @@ const ACC = {
   SGST_PAYABLE:     '2101',
   IGST_PAYABLE:     '2102',
   SALES:            '4001',
+  PURCHASE_RETURNS: '5002',
   // Expense accounts by category
   EXPENSE_RENT:     '6100',
   EXPENSE_ELEC:     '6101',
@@ -108,6 +109,50 @@ export interface ExpenseSummary {
   paymentMode?: string | null;
 }
 
+export interface DebitNoteSummary {
+  id: string;
+  businessId: string;
+  debitNoteNumber?: string | null;
+  grandTotal: number | string;
+  taxableAmount: number | string;
+  cgstTotal: number | string;
+  sgstTotal: number | string;
+  igstTotal: number | string;
+  isMsmeSupplier?: boolean;
+}
+
+export interface SupplierPaymentSummary {
+  id: string;
+  businessId: string;
+  amount: number | string;
+  paymentMode: string;   // CASH | UPI | NEFT | RTGS | CHEQUE | CARD | ...
+  isMsmeSupplier?: boolean;
+}
+
+export interface SaleReturnSummary {
+  id: string;
+  businessId: string;
+  creditNoteNumber: string;
+  subtotalAmount: number | string;  // GST-inclusive
+  taxAmount: number | string;
+  cgstAmount: number | string;
+  sgstAmount: number | string;
+  igstAmount?: number | string;
+  refundMode: string;   // CASH | STORE_CREDIT | BANK_TRANSFER
+}
+
+export interface CreditNoteSummary {
+  id: string;
+  businessId: string;
+  scnNumber?: string | null;
+  grandTotal: number | string;
+  taxableAmount: number | string;
+  cgstTotal: number | string;
+  sgstTotal: number | string;
+  igstTotal: number | string;
+  isMsmeSupplier?: boolean;
+}
+
 @Injectable()
 export class JournalBridgeService {
   private readonly logger = new Logger(JournalBridgeService.name);
@@ -120,7 +165,7 @@ export class JournalBridgeService {
 
   // ── POS Sale ───────────────────────────────────────────────────────────────
 
-  async postSaleJournal(bill: PosBillSummary): Promise<void> {
+  async postSaleJournal(bill: PosBillSummary, isCancellation = false): Promise<void> {
     const { businessId } = bill;
 
     const fiscalPeriodId = await this.getOpenPeriodId(businessId);
@@ -171,7 +216,55 @@ export class JournalBridgeService {
       lines.push({ code: ACC.SALES, debit: diff > 0 ? 0 : Math.abs(diff), credit: diff > 0 ? diff : 0, narration: 'Rounding' });
     }
 
-    await this.postLines(businessId, fiscalPeriodId, `POS-${bill.billNumber}`, `POS Sale ${bill.billNumber}`, lines);
+    // A void is the accounting reverse of the sale — swap every line's debit
+    // and credit rather than rebuilding the shape, so the reversal is always
+    // exactly balanced and exactly mirrors what was actually posted.
+    const finalLines = isCancellation
+      ? lines.map((l) => ({ ...l, debit: l.credit, credit: l.debit, narration: l.narration ? `${l.narration} — reversed` : undefined }))
+      : lines;
+    const reference = isCancellation ? `POS-${bill.billNumber}-VOID` : `POS-${bill.billNumber}`;
+    const narration = isCancellation ? `POS Sale ${bill.billNumber} voided` : `POS Sale ${bill.billNumber}`;
+
+    await this.postLines(businessId, fiscalPeriodId, reference, narration, finalLines);
+  }
+
+  // ── POS Sale Return (customer credit note against returned items) ──────────
+  // Distinct from a void: this reverses only the returned items' share of a
+  // bill, not the whole sale, and money leaves via refund rather than never
+  // having been collected.
+
+  async postSaleReturnJournal(cn: SaleReturnSummary): Promise<void> {
+    const { businessId } = cn;
+
+    const fiscalPeriodId = await this.getOpenPeriodId(businessId);
+    if (!fiscalPeriodId) return;
+
+    const total   = n(cn.subtotalAmount);
+    const tax     = n(cn.taxAmount);
+    const cgst    = n(cn.cgstAmount);
+    const sgst    = n(cn.sgstAmount);
+    const igst    = n(cn.igstAmount ?? 0);
+    const taxable = round4(total - tax);
+
+    if (total <= 0) return;
+
+    // STORE_CREDIT increases what we owe the customer (or reduces what they
+    // owe us) — the same Receivables account postSaleJournal debits for a
+    // credit sale, just moving the other way. CASH/BANK_TRANSFER means money
+    // actually left the till/bank.
+    const creditCode = cn.refundMode === 'STORE_CREDIT' ? ACC.RECEIVABLES
+      : cn.refundMode === 'BANK_TRANSFER' ? ACC.BANK
+      : ACC.CASH;
+
+    const lines = [
+      { code: ACC.SALES,        debit: taxable, credit: 0, narration: 'Sales return' },
+      { code: ACC.CGST_PAYABLE, debit: cgst,    credit: 0, narration: 'CGST reversed' },
+      { code: ACC.SGST_PAYABLE, debit: sgst,    credit: 0, narration: 'SGST reversed' },
+      { code: ACC.IGST_PAYABLE, debit: igst,    credit: 0, narration: 'IGST reversed' },
+      { code: creditCode,       debit: 0,        credit: total, narration: cn.refundMode === 'STORE_CREDIT' ? 'Store credit issued' : 'Refund paid' },
+    ].filter((l) => l.debit > 0.009 || l.credit > 0.009);
+
+    await this.postLines(businessId, fiscalPeriodId, `CN-${cn.creditNoteNumber}`, `Sale return ${cn.creditNoteNumber}`, lines);
   }
 
   // ── GRN / Purchase ─────────────────────────────────────────────────────────
@@ -192,8 +285,16 @@ export class JournalBridgeService {
 
     const payablesCode = grn.isMsmeSupplier ? ACC.PAYABLES_MSME : ACC.PAYABLES;
 
+    // grandTotal also includes cess, freight, hamali, other charges, rounding,
+    // and bill/cash discounts — none of which have their own line here and
+    // none of which are GST-creditable, so (unlike CGST/SGST/IGST) they get
+    // capitalized into Stock rather than tracked separately. Without this,
+    // any GRN carrying those charges left debit != credit and the whole
+    // entry silently failed to post (caught and only logged).
+    const landedCostAdjustment = round4(grand - taxable - cgst - sgst - igst);
+
     const lines = [
-      { code: ACC.STOCK,    debit: taxable, credit: 0,     narration: 'Stock received' },
+      { code: ACC.STOCK,    debit: round4(taxable + landedCostAdjustment), credit: 0, narration: 'Stock received (incl. cess/freight/other charges)' },
       { code: ACC.ITC_CGST, debit: cgst,    credit: 0,     narration: 'CGST input credit' },
       { code: ACC.ITC_SGST, debit: sgst,    credit: 0,     narration: 'SGST input credit' },
       { code: ACC.ITC_IGST, debit: igst,    credit: 0,     narration: 'IGST input credit' },
@@ -202,6 +303,136 @@ export class JournalBridgeService {
 
     const ref = grn.grnNumber ?? grn.id;
     await this.postLines(businessId, fiscalPeriodId, `GRN-${ref}`, `Purchase GRN ${ref}`, lines);
+  }
+
+  // ── Purchase Debit Note (supplier return) — accounting reverse of a GRN ─────
+
+  async postDebitNoteJournal(dn: DebitNoteSummary, isCancellation = false): Promise<void> {
+    const { businessId } = dn;
+
+    const fiscalPeriodId = await this.getOpenPeriodId(businessId);
+    if (!fiscalPeriodId) return;
+
+    const grand   = n(dn.grandTotal);
+    const taxable = n(dn.taxableAmount);
+    const cgst    = n(dn.cgstTotal);
+    const sgst    = n(dn.sgstTotal);
+    const igst    = n(dn.igstTotal);
+
+    if (grand <= 0) return;
+
+    const payablesCode = dn.isMsmeSupplier ? ACC.PAYABLES_MSME : ACC.PAYABLES;
+    const ref = dn.debitNoteNumber ?? dn.id;
+
+    // Same landed-cost capitalization as postGrnJournal — a return's grand
+    // total includes cess, which isn't GST-creditable and isn't tracked
+    // separately, so it moves with the Stock line, not as its own account.
+    const landedCostAdjustment = round4(grand - taxable - cgst - sgst - igst);
+    const stockAmount = round4(taxable + landedCostAdjustment);
+
+    // A return is the accounting reverse of a purchase: debit/credit sides are
+    // swapped from postGrnJournal. A cancellation reverses it back, i.e. is
+    // shaped exactly like postGrnJournal itself.
+    const lines = isCancellation
+      ? [
+          { code: ACC.STOCK,    debit: stockAmount, credit: 0,     narration: 'Debit note cancelled — stock restored' },
+          { code: ACC.ITC_CGST, debit: cgst,        credit: 0,     narration: 'CGST input credit restored' },
+          { code: ACC.ITC_SGST, debit: sgst,        credit: 0,     narration: 'SGST input credit restored' },
+          { code: ACC.ITC_IGST, debit: igst,        credit: 0,     narration: 'IGST input credit restored' },
+          { code: payablesCode, debit: 0,            credit: grand, narration: 'Payable to supplier restored' },
+        ].filter((l) => l.debit > 0.009 || l.credit > 0.009)
+      : [
+          { code: payablesCode, debit: grand, credit: 0,           narration: 'Payable to supplier reduced' },
+          { code: ACC.STOCK,    debit: 0,      credit: stockAmount, narration: 'Stock returned' },
+          { code: ACC.ITC_CGST, debit: 0,      credit: cgst,        narration: 'CGST input credit reversed' },
+          { code: ACC.ITC_SGST, debit: 0,      credit: sgst,        narration: 'SGST input credit reversed' },
+          { code: ACC.ITC_IGST, debit: 0,      credit: igst,        narration: 'IGST input credit reversed' },
+        ].filter((l) => l.debit > 0.009 || l.credit > 0.009);
+
+    const reference = isCancellation ? `DN-${ref}-CANCEL` : `DN-${ref}`;
+    const narration = isCancellation ? `Debit note ${ref} cancelled` : `Purchase return ${ref}`;
+    await this.postLines(businessId, fiscalPeriodId, reference, narration, lines);
+  }
+
+  // ── Supplier Credit Note (scheme/rebate/rate-correction credit) ────────────
+  // Unlike a Debit Note, no physical goods move — the supplier is crediting us
+  // for a reason unrelated to a specific return, so the offsetting side is
+  // Purchase Returns (a contra-purchases account), never Stock.
+
+  async postCreditNoteJournal(cn: CreditNoteSummary, isCancellation = false): Promise<void> {
+    const { businessId } = cn;
+
+    const fiscalPeriodId = await this.getOpenPeriodId(businessId);
+    if (!fiscalPeriodId) return;
+
+    const grand   = n(cn.grandTotal);
+    const taxable = n(cn.taxableAmount);
+    const cgst    = n(cn.cgstTotal);
+    const sgst    = n(cn.sgstTotal);
+    const igst    = n(cn.igstTotal);
+
+    if (grand <= 0) return;
+
+    const payablesCode = cn.isMsmeSupplier ? ACC.PAYABLES_MSME : ACC.PAYABLES;
+    const ref = cn.scnNumber ?? cn.id;
+
+    // Cess (if any) isn't GST-creditable and has no account of its own, so it
+    // moves with the Purchase Returns line — same landed-cost-style residual
+    // used for GRN/Debit Note.
+    const residual = round4(grand - taxable - cgst - sgst - igst);
+    const purchaseReturnAmount = round4(taxable + residual);
+
+    const lines = isCancellation
+      ? [
+          { code: ACC.PURCHASE_RETURNS, debit: purchaseReturnAmount, credit: 0,     narration: 'Credit note cancelled — purchase return reversed' },
+          { code: ACC.ITC_CGST,         debit: cgst,                 credit: 0,     narration: 'CGST input credit restored' },
+          { code: ACC.ITC_SGST,         debit: sgst,                 credit: 0,     narration: 'SGST input credit restored' },
+          { code: ACC.ITC_IGST,         debit: igst,                 credit: 0,     narration: 'IGST input credit restored' },
+          { code: payablesCode,         debit: 0,                    credit: grand, narration: 'Payable to supplier restored' },
+        ].filter((l) => l.debit > 0.009 || l.credit > 0.009)
+      : [
+          { code: payablesCode,         debit: grand, credit: 0,                   narration: 'Payable to supplier reduced' },
+          { code: ACC.PURCHASE_RETURNS, debit: 0,      credit: purchaseReturnAmount, narration: 'Purchase return / rebate' },
+          { code: ACC.ITC_CGST,         debit: 0,      credit: cgst,                narration: 'CGST input credit reversed' },
+          { code: ACC.ITC_SGST,         debit: 0,      credit: sgst,                narration: 'SGST input credit reversed' },
+          { code: ACC.ITC_IGST,         debit: 0,      credit: igst,                narration: 'IGST input credit reversed' },
+        ].filter((l) => l.debit > 0.009 || l.credit > 0.009);
+
+    const reference = isCancellation ? `SCN-${ref}-CANCEL` : `SCN-${ref}`;
+    const narration = isCancellation ? `Credit note ${ref} cancelled` : `Supplier credit note ${ref}`;
+    await this.postLines(businessId, fiscalPeriodId, reference, narration, lines);
+  }
+
+  // ── Supplier Payment — reduces the Payables balance a GRN journal created ──
+
+  async postPaymentJournal(payment: SupplierPaymentSummary, isCancellation = false): Promise<void> {
+    const { businessId } = payment;
+
+    const fiscalPeriodId = await this.getOpenPeriodId(businessId);
+    if (!fiscalPeriodId) return;
+
+    const amount = n(payment.amount);
+    if (amount <= 0) return;
+
+    const payablesCode = payment.isMsmeSupplier ? ACC.PAYABLES_MSME : ACC.PAYABLES;
+    // Cash payment mode goes through the till; every other mode (UPI, NEFT,
+    // RTGS, cheque, card...) clears through the bank account, same split
+    // postSaleJournal already uses for the receiving side.
+    const cashOrBankCode = (payment.paymentMode ?? '').toUpperCase() === 'CASH' ? ACC.CASH : ACC.BANK;
+
+    const lines = isCancellation
+      ? [
+          { code: cashOrBankCode, debit: amount, credit: 0,      narration: 'Payment cancelled — cash/bank restored' },
+          { code: payablesCode,   debit: 0,      credit: amount, narration: 'Payable to supplier restored' },
+        ]
+      : [
+          { code: payablesCode,   debit: amount, credit: 0,      narration: 'Payable to supplier reduced' },
+          { code: cashOrBankCode, debit: 0,      credit: amount, narration: `Paid via ${payment.paymentMode}` },
+        ];
+
+    const reference = isCancellation ? `PAY-${payment.id}-CANCEL` : `PAY-${payment.id}`;
+    const narration = isCancellation ? 'Supplier payment cancelled' : 'Supplier payment';
+    await this.postLines(businessId, fiscalPeriodId, reference, narration, lines);
   }
 
   // ── Expense ────────────────────────────────────────────────────────────────
