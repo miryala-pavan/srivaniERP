@@ -137,7 +137,7 @@ export default function ProductCard({ product }: Props) {
           {product.name}
         </p>
 
-        {/* Product code */}
+        {/* PLU barcode */}
         <span style={{
           display:       'inline-block',
           fontSize:      '10px',
@@ -149,7 +149,7 @@ export default function ProductCard({ product }: Props) {
           borderRadius:  '4px',
           padding:       '1px 5px',
         }}>
-          {product.code}
+          {bestPack?.pluBarcode ?? product.code}
         </span>
 
         {/* Rating stars — only shown once the product has at least one published review */}
