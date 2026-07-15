@@ -113,7 +113,7 @@ function calcItem(item: GrnItem, taxType: string, isInterState: boolean) {
   const cashDiscLine   = r2(item.cashRs   * acceptedQty);
   const netLine        = Math.max(0, grossLine - tradeDiscLine - schemeDiscLine - cashDiscLine);
 
-  // netCostPrice per unit (for display in grid NET column)
+  // netCostPrice per unit (after discounts, before tax)
   const netCostPrice = acceptedQty > 0 ? r4(netLine / acceptedQty) : 0;
 
   const taxable = taxType === 'TAX_INCLUSIVE'
@@ -124,7 +124,9 @@ function calcItem(item: GrnItem, taxType: string, isInterState: boolean) {
   if (isInterState) { igst = taxable * item.gstRate / 100; }
   else { cgst = taxable * item.gstRate / 2 / 100; sgst = cgst; }
   const lineTotal = taxable + cgst + sgst + igst + cessAmount;
-  return { netCostPrice, totalReceivedQty, acceptedQty, taxable, cgst, sgst, igst, cess: cessAmount, lineTotal };
+  // netCostPrice + GST per unit (CP inclusive of tax — shown in NET column)
+  const netWithTaxPerUnit = acceptedQty > 0 ? r4(lineTotal / acceptedQty) : 0;
+  return { netCostPrice, netWithTaxPerUnit, totalReceivedQty, acceptedQty, taxable, cgst, sgst, igst, cess: cessAmount, lineTotal };
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -2130,7 +2132,7 @@ export default function GrnV2Page() {
                     <th className="px-2 py-2 text-center text-gray-700 font-semibold uppercase tracking-wide w-16">Rcvd</th>
                     <th className="px-2 py-2 text-center text-gray-700 font-semibold uppercase tracking-wide w-14">Free</th>
                     <th className="px-2 py-2 text-right text-gray-700 font-semibold uppercase tracking-wide w-20">CP</th>
-                    <th className="px-2 py-2 text-right text-gray-700 font-semibold uppercase tracking-wide w-20">Net</th>
+                    <th className="px-2 py-2 text-right text-gray-700 font-semibold uppercase tracking-wide w-24" title="Cost price including GST">Net+GST</th>
                     <th className="px-2 py-2 text-right text-gray-700 font-semibold uppercase tracking-wide w-20">MRP</th>
                     <th className="px-2 py-2 text-right text-gray-700 font-semibold uppercase tracking-wide w-24">Total</th>
                     <th className="px-2 py-2 w-8" title="Click any row to edit that item"></th>
@@ -2189,7 +2191,7 @@ export default function GrnV2Page() {
                           <td className="px-2 py-1.5 text-center font-bold text-gray-900">{c.totalReceivedQty || '—'}</td>
                           <td className="px-2 py-1.5 text-center text-gray-700">{(it.freeCases * it.packSize + it.freeLoose) || '—'}</td>
                           <td className="px-2 py-1.5 text-right font-semibold text-gray-900">{inr(it.basicCostPrice)}</td>
-                          <td className="px-2 py-1.5 text-right font-semibold text-gray-900">{inr(c.netCostPrice)}</td>
+                          <td className="px-2 py-1.5 text-right font-semibold text-blue-700">{inr(c.netWithTaxPerUnit)}</td>
                           <td className="px-2 py-1.5 text-right text-gray-700">{inr(it.mrp)}</td>
                           <td className="px-2 py-1.5 text-right font-bold text-blue-700">Rs.{inr(c.lineTotal)}</td>
                           <td className="px-2 py-1.5 text-center">
