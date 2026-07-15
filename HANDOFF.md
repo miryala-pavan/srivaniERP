@@ -308,7 +308,7 @@ Continuing the "well-scoped, next up" list. All five items typechecked clean; al
 
 5. **`rejectionAction` field cleanup.** `PurchaseItem.rejectionAction` (a free-text field on the schema) is defined but never read or written by any code path, confirmed dead during the original audit. Never resolved — could be removed as cleanup, or could be repurposed (e.g. to gate whether the "Return" auto-carry suggestion appears at all, vs. "destroy"/"write-off" reasons that shouldn't suggest a supplier return). Not urgent, flagged only.
 
-6. **Nothing has been committed or pushed to git.** All work described in this document is sitting as uncommitted local changes across both `backend/` and `frontend/`. Standing rule: only commit/push when the user explicitly says so, and never deploy to Hetzner without a separate explicit instruction.
+6. ~~**Nothing has been committed or pushed to git.**~~ **Done** — everything through batch 5 was committed and pushed to `origin/master` (commit `427d740`, "Fix stock/GL/security correctness gaps across GRN, POS, and supplier finance"). User explicitly asked to push to git and check Vercel, and explicitly said not to touch any other server — Hetzner was NOT touched, per the standing rule. Any future work is new uncommitted changes on top of this.
 
 ---
 

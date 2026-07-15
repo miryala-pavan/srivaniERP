@@ -12,6 +12,7 @@ import { CommandPalette } from '@/components/shared/CommandPalette';
 import { FYProvider } from '@/context/FYContext';
 import FYSwitcher from '@/components/layout/FYSwitcher';
 import OnlineOrderAlert from '@/components/layout/OnlineOrderAlert';
+import ServiceWorkerRegister from '@/components/layout/ServiceWorkerRegister';
 import { GstHealthBanner } from '@/components/layout/GstHealthBanner';
 import { GstToast } from '@/components/layout/GstToast';
 import { AssistantProvider } from '@/components/help/AssistantProvider';
@@ -226,6 +227,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (isCashier) {
     return (
       <WebSocketProvider>
+        <ServiceWorkerRegister />
         <div className="h-screen overflow-hidden">
           {children}
           {updateAvailable && <UpdateBanner onDismiss={dismiss} />}
@@ -237,6 +239,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <AssistantProvider>
       <WebSocketProvider>
+        <ServiceWorkerRegister />
         <FYProvider>
           <PopupProvider>
             <div className="min-h-screen bg-gray-50 flex">

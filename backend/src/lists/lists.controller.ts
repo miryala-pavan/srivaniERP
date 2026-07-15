@@ -13,6 +13,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
 import { WhatsAppService } from '../notifications/whatsapp.service';
+import { PushService } from '../notifications/push.service';
 import * as crypto from 'crypto';
 
 const WH_VERIFY_TOKEN = process.env.WA_WEBHOOK_VERIFY_TOKEN ?? 'srivani-wa-verify-2026';
@@ -30,6 +31,7 @@ export class WebhookController implements OnModuleInit {
     private onlineOrders: OnlineOrdersService,
     private events: EventsService,
     private whatsapp: WhatsAppService,
+    private push: PushService,
   ) {}
 
   onModuleInit() {
@@ -203,6 +205,17 @@ export class WebhookController implements OnModuleInit {
           createdAt: new Date().toISOString(),
         });
       } catch { /* fire-and-forget */ }
+
+      // Web push — reaches staff whose tab/app is closed or backgrounded,
+      // complementing the WebSocket event above (which only reaches an
+      // already-open tab). Fired from the same place, same trigger.
+      this.prisma.customer.findFirst({ where: { businessId, phone: senderPhone }, select: { name: true } })
+        .then((customer) => this.push.sendToBusiness(businessId, {
+          title: customer?.name ?? `+${senderPhone}`,
+          body:  bodyPreview?.slice(0, 150) ?? `[${messageType}]`,
+          phone: senderPhone,
+        }))
+        .catch(() => {});
 
       // Rule-based auto-reply — layered alongside the existing handlers below,
       // not a replacement for them (e.g. a text list-order can still be

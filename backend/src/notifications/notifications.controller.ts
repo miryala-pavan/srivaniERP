@@ -4,6 +4,13 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { NotificationsService } from './notifications.service';
 import { WhatsAppService } from './whatsapp.service';
+import { InternalNoteService } from './internal-note.service';
+import { CreateInternalNoteDto } from './dto/create-internal-note.dto';
+import { CannedReplyService } from './canned-reply.service';
+import { CreateCannedReplyDto } from './dto/create-canned-reply.dto';
+import { UpdateCannedReplyDto } from './dto/update-canned-reply.dto';
+import { PushService } from './push.service';
+import { SubscribePushDto } from './dto/subscribe-push.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -14,7 +21,24 @@ export class NotificationsController {
   constructor(
     private service: NotificationsService,
     private whatsapp: WhatsAppService,
+    private internalNotes: InternalNoteService,
+    private cannedReplies: CannedReplyService,
+    private push: PushService,
   ) {}
+
+  // ── Web push subscriptions ─────────────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('push/subscribe')
+  subscribePush(@Request() req: any, @Body() dto: SubscribePushDto) {
+    return this.push.subscribe(req.user.businessId, req.user.userId, dto);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('push/unsubscribe')
+  unsubscribePush(@Request() req: any, @Body('endpoint') endpoint: string) {
+    return this.push.unsubscribe(req.user.businessId, endpoint);
+  }
 
   @Get('unread-count')
   getUnreadCount(@Request() req: any) {
@@ -63,7 +87,10 @@ export class NotificationsController {
 
   // ── WhatsApp template management ───────────────────────────────────────────
 
-  @Roles('SUPER_ADMIN')
+  // Read-only, unlike create/delete below — a New Chat to a number with no
+  // open session needs an approved template, so BRANCH_MANAGER (who can use
+  // the inbox but not manage templates) still needs to see what's available.
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/templates')
   listTemplates() {
     return this.whatsapp.listTemplates();
@@ -94,8 +121,11 @@ export class NotificationsController {
   }
 
   // ── Send any template to any number ───────────────────────────────────────
+  // Powers both Campaigns (SUPER_ADMIN-only tab) and the chat inbox's New
+  // Chat flow (BRANCH_MANAGER too) — the only way to message a number with
+  // no open session, since Meta requires an approved template in that case.
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Post('whatsapp/send-template')
   sendTemplate(@Request() req: any, @Body() body: { phone: string; template: string; language?: string; params?: string[] }) {
     return this.whatsapp.sendTemplateToNumber(
@@ -109,7 +139,11 @@ export class NotificationsController {
 
   // ── WhatsApp credential management ────────────────────────────────────────
 
-  @Roles('SUPER_ADMIN')
+  // Read-only, unlike the PATCH below — returns a connected/not-connected
+  // flag plus non-secret ids (phoneId/wabaId), never the actual access
+  // token, so BRANCH_MANAGER can see whether the inbox they're using is
+  // actually connected without being able to change or view credentials.
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/credentials')
   getCredentials() {
     return this.whatsapp.getCredentials();
@@ -154,7 +188,7 @@ export class NotificationsController {
 
   // ── WhatsApp message log ───────────────────────────────────────────────────
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/messages')
   listWhatsAppMessages(
     @Request() req: any,
@@ -168,19 +202,29 @@ export class NotificationsController {
 
   // ── WhatsApp chat inbox ────────────────────────────────────────────────────
 
-  @Roles('SUPER_ADMIN')
+  // Deliberately before the more specific /conversations routes below so it
+  // never risks matching :phone param routes — Nest resolves in declaration
+  // order and 'unread-count' would otherwise need to be excluded from any
+  // :phone pattern.
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Get('whatsapp/conversations/unread-count')
+  getWhatsAppUnreadCount(@Request() req: any) {
+    return this.whatsapp.getUnreadCount(req.user.businessId).then(count => ({ count }));
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/conversations')
   listConversations(@Request() req: any) {
     return this.whatsapp.listConversations(req.user.businessId);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/conversations/search')
   searchMessages(@Request() req: any, @Query('q') q: string) {
     return this.whatsapp.searchMessages(req.user.businessId, q ?? '');
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/conversations/:phone/messages')
   getConversationMessages(
     @Request() req: any,
@@ -191,51 +235,51 @@ export class NotificationsController {
     return this.whatsapp.getConversationMessages(req.user.businessId, phone, Number(page), Number(limit));
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/conversations/:phone/window')
   getSessionWindow(@Request() req: any, @Param('phone') phone: string) {
     return this.whatsapp.getSessionWindowStatus(req.user.businessId, phone);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Post('whatsapp/conversations/:phone/reply')
   sendReply(@Request() req: any, @Param('phone') phone: string, @Body() body: { text: string }) {
     return this.whatsapp.sendReply(req.user.businessId, phone, body.text ?? '');
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Patch('whatsapp/conversations/:phone/read')
   markConversationRead(@Request() req: any, @Param('phone') phone: string) {
     return this.whatsapp.markConversationRead(req.user.businessId, phone);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/conversations/:phone/meta')
   getConversationMeta(@Request() req: any, @Param('phone') phone: string) {
     return this.whatsapp.getConversationMeta(req.user.businessId, phone);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Patch('whatsapp/conversations/:phone/meta')
   updateConversationMeta(@Request() req: any, @Param('phone') phone: string, @Body() body: {
-    status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[];
+    status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[]; assignedToUserId?: string | null;
   }) {
     return this.whatsapp.updateConversationMeta(req.user.businessId, phone, body);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/conversations/:phone/contact')
   getContactInfo(@Request() req: any, @Param('phone') phone: string) {
     return this.whatsapp.getContactInfo(req.user.businessId, phone);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Patch('whatsapp/conversations/:phone/contact')
   saveContactName(@Request() req: any, @Param('phone') phone: string, @Body() body: { name: string }) {
     return this.whatsapp.saveContactName(req.user.businessId, phone, body.name ?? '');
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Post('whatsapp/conversations/:phone/send-image')
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
@@ -254,7 +298,7 @@ export class NotificationsController {
     });
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Post('whatsapp/conversations/:phone/send-document')
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
@@ -273,7 +317,7 @@ export class NotificationsController {
     });
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Post('whatsapp/conversations/:phone/react')
   sendReaction(@Request() req: any, @Param('phone') phone: string, @Body() body: { messageId: string; emoji: string }) {
     return this.whatsapp.sendReaction(req.user.businessId, phone, body.messageId, body.emoji ?? '');
@@ -283,7 +327,7 @@ export class NotificationsController {
   // <img> tag via a blob fetch (with the Authorization header) from the
   // frontend, not a bare <img src>, since Meta's media URLs require the
   // bearer token and can't be hotlinked directly.
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/media/:mediaId')
   async getMedia(@Param('mediaId') mediaId: string, @Res() res: Response) {
     const media = await this.whatsapp.getMediaBuffer(mediaId);
@@ -310,10 +354,50 @@ export class NotificationsController {
     return this.whatsapp.updateBusinessProfile(body);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Post('whatsapp/conversations/:phone/typing')
   sendTypingIndicator(@Request() req: any, @Param('phone') phone: string) {
     return this.whatsapp.sendTypingIndicator(req.user.businessId, phone);
+  }
+
+  // ── Internal notes (staff-only, never sent to the customer) ───────────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Get('whatsapp/conversations/:phone/notes')
+  listNotes(@Request() req: any, @Param('phone') phone: string) {
+    return this.internalNotes.list(req.user.businessId, phone);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('whatsapp/conversations/:phone/notes')
+  createNote(@Request() req: any, @Param('phone') phone: string, @Body() dto: CreateInternalNoteDto) {
+    return this.internalNotes.create(req.user.businessId, phone, req.user.userId, dto.body);
+  }
+
+  // ── Canned / quick replies ─────────────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Get('whatsapp/canned-replies')
+  listCannedReplies(@Request() req: any) {
+    return this.cannedReplies.list(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('whatsapp/canned-replies')
+  createCannedReply(@Request() req: any, @Body() dto: CreateCannedReplyDto) {
+    return this.cannedReplies.create(req.user.businessId, dto);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Patch('whatsapp/canned-replies/:id')
+  updateCannedReply(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateCannedReplyDto) {
+    return this.cannedReplies.update(req.user.businessId, id, dto);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Delete('whatsapp/canned-replies/:id')
+  deleteCannedReply(@Request() req: any, @Param('id') id: string) {
+    return this.cannedReplies.delete(req.user.businessId, id);
   }
 
   // ── Campaigns ────────────────────────────────────────────────────────────────

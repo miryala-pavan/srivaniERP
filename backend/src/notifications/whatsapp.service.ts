@@ -236,6 +236,18 @@ export class WhatsAppService implements OnModuleInit {
   // ── Conversations (chat inbox) ──────────────────────────────────────────────
 
   /**
+   * Lightweight count for the Sidebar nav badge — deliberately not reusing
+   * listConversations (which joins customers/conversation-meta and does a
+   * DISTINCT ON scan) since this gets polled from every page in the app,
+   * not just while PaVa Connect is open.
+   */
+  async getUnreadCount(businessId: string): Promise<number> {
+    return this.prisma.waMessage.count({
+      where: { businessId, direction: 'INBOUND', readByStaffAt: null },
+    });
+  }
+
+  /**
    * One row per phone number: the latest message (either direction) plus an
    * unread count (inbound messages staff haven't opened yet). Uses Postgres
    * DISTINCT ON since Prisma has no "latest row per group" primitive.
@@ -265,7 +277,10 @@ export class WhatsAppService implements OnModuleInit {
       }),
       this.prisma.waConversation.findMany({
         where: { businessId, phone: { in: phones } },
-        select: { phone: true, status: true, pinned: true, labels: true },
+        select: {
+          phone: true, status: true, pinned: true, labels: true, assignedToUserId: true,
+          assignedTo: { select: { fullName: true } },
+        },
       }),
     ]);
     const nameMap = new Map(customers.map(c => [c.phone, c.name]));
@@ -286,6 +301,8 @@ export class WhatsAppService implements OnModuleInit {
           convStatus: meta?.status ?? 'OPEN',
           pinned: meta?.pinned ?? false,
           labels: meta?.labels ?? [],
+          assignedToUserId: meta?.assignedToUserId ?? null,
+          assignedToName: meta?.assignedTo?.fullName ?? null,
         };
       })
       .sort((a, b) => {
@@ -294,22 +311,37 @@ export class WhatsAppService implements OnModuleInit {
       });
   }
 
-  /** Fetches or lazily creates the organization state (status/pinned/labels) for one conversation. */
+  /** Fetches or lazily creates the organization state (status/pinned/labels/assignment) for one conversation. */
   async getConversationMeta(businessId: string, phone: string) {
     const to = this.e164(phone) ?? phone;
-    const meta = await this.prisma.waConversation.findUnique({ where: { businessId_phone: { businessId, phone: to } } });
-    return meta ?? { status: 'OPEN' as const, pinned: false, labels: [] as string[] };
+    const meta = await this.prisma.waConversation.findUnique({
+      where: { businessId_phone: { businessId, phone: to } },
+      include: { assignedTo: { select: { fullName: true } } },
+    });
+    return meta ?? { status: 'OPEN' as const, pinned: false, labels: [] as string[], assignedToUserId: null, assignedTo: null };
   }
 
   async updateConversationMeta(businessId: string, phone: string, data: {
-    status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[];
+    status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[]; assignedToUserId?: string | null;
   }) {
     const to = this.e164(phone) ?? phone;
     const meta = await this.prisma.waConversation.upsert({
       where:  { businessId_phone: { businessId, phone: to } },
       update: data,
       create: { businessId, phone: to, ...data },
+      include: { assignedTo: { select: { fullName: true } } },
     });
+
+    if (data.assignedToUserId !== undefined) {
+      try {
+        this.events.emitToBusiness(businessId, Events.WA_CONVERSATION_ASSIGNED, {
+          phone: to,
+          assignedToUserId: meta.assignedToUserId,
+          assignedToName: meta.assignedTo?.fullName ?? null,
+        });
+      } catch { /* fire-and-forget */ }
+    }
+
     return meta;
   }
 

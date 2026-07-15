@@ -80,6 +80,9 @@ model Business {
   waMessages          WaMessage[]
   waPhoneNumbers      WaPhoneNumber[]
   waConversations     WaConversation[]
+  waCannedReplies     WaCannedReply[]
+  waInternalNotes     WaInternalNote[]
+  pushSubscriptions   PushSubscription[]
   serviceablePincodes ServiceablePincode[]
   systemSettings      SystemSetting[]
   productReviews      ProductReview[]
@@ -178,10 +181,13 @@ model User {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
-  business    Business                 @relation(fields: [businessId], references: [id])
-  posShifts   PosShift[]
-  salesBills  SalesBill[]
-  memberships UserBusinessMembership[]
+  business              Business                 @relation(fields: [businessId], references: [id])
+  posShifts             PosShift[]
+  salesBills            SalesBill[]
+  memberships           UserBusinessMembership[]
+  assignedConversations WaConversation[]
+  waInternalNotes       WaInternalNote[]
+  pushSubscriptions     PushSubscription[]
 
   @@unique([businessId, username])
   @@map("user")
@@ -2184,19 +2190,68 @@ enum WaConversationStatus {
 // separate from Customer since a phone can have an active conversation before
 // it's ever saved as a named Customer.
 model WaConversation {
-  id         String               @id @default(cuid())
-  businessId String
-  phone      String
-  status     WaConversationStatus @default(OPEN)
-  pinned     Boolean              @default(false)
-  labels     String[]             @default([])
-  updatedAt  DateTime             @updatedAt
+  id               String               @id @default(cuid())
+  businessId       String
+  phone            String
+  status           WaConversationStatus @default(OPEN)
+  pinned           Boolean              @default(false)
+  labels           String[]             @default([])
+  assignedToUserId String?
+  updatedAt        DateTime             @updatedAt
 
-  business Business @relation(fields: [businessId], references: [id])
+  business   Business @relation(fields: [businessId], references: [id])
+  assignedTo User?    @relation(fields: [assignedToUserId], references: [id])
 
   @@unique([businessId, phone])
   @@index([businessId])
+  @@index([businessId, assignedToUserId])
   @@map("wa_conversation")
+}
+
+model WaCannedReply {
+  id         String   @id @default(cuid())
+  businessId String
+  title      String
+  body       String
+  category   String?
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@map("wa_canned_reply")
+}
+
+model WaInternalNote {
+  id                String   @id @default(cuid())
+  businessId        String
+  conversationPhone String
+  authorUserId      String
+  body              String
+  createdAt         DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+  author   User     @relation(fields: [authorUserId], references: [id])
+
+  @@index([businessId, conversationPhone])
+  @@map("wa_internal_note")
+}
+
+model PushSubscription {
+  id         String   @id @default(cuid())
+  businessId String
+  userId     String
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([businessId])
+  @@index([userId])
+  @@map("push_subscription")
 }
 
 // ─── PRODUCT REVIEWS ────────────────────────────────

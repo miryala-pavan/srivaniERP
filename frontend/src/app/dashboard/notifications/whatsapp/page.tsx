@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
+import { getUser } from '@/lib/auth';
 import WhatsAppChat from './WhatsAppChat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -87,7 +88,17 @@ interface PhoneNumberPreset {
 const BLANK_NUMBER_FORM = { label: '', accessToken: '', phoneNumberId: '', businessAccountId: '', storeNotifyNumber: '' };
 
 export default function WhatsAppTemplatesPage() {
+  // Templates/Campaigns/Settings all back onto SUPER_ADMIN-only routes
+  // (credentials, phone registration, template management, campaign sends) —
+  // BRANCH_MANAGER can use the Chat inbox but would just hit 403s on these,
+  // so the tabs themselves are hidden rather than shown-then-broken.
+  const isSuperAdmin = getUser<{ role: string }>()?.role === 'SUPER_ADMIN';
   const [tab, setTab] = useState<'chat' | 'templates' | 'campaigns' | 'settings'>('chat');
+  const [cannedReplies, setCannedReplies] = useState<{ id: string; title: string; body: string; category: string | null }[]>([]);
+  const [cannedRepliesLoaded, setCannedRepliesLoaded] = useState(false);
+  const [showCannedForm, setShowCannedForm] = useState(false);
+  const [cannedForm, setCannedForm] = useState({ title: '', body: '', category: '' });
+  const [savingCanned, setSavingCanned] = useState(false);
   const [birthdays, setBirthdays] = useState<BirthdayCustomer[]>([]);
   const [birthdaysLoading, setBirthdaysLoading] = useState(false);
   const [birthdaysLoaded, setBirthdaysLoaded] = useState(false);
@@ -185,7 +196,21 @@ export default function WhatsAppTemplatesPage() {
     }
   }, []);
 
-  useEffect(() => { load(); loadCreds(); loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); }, [load]);
+  // load() (templates) and loadCreds() (connected/not-connected status only,
+  // no secrets) are needed by everyone — BRANCH_MANAGER uses templates for
+  // New Chat, and the header's Connected/Not Connected badge is shown
+  // regardless of tab, so it needs real data rather than defaulting to a
+  // permanently-misleading "Not connected". The other three back onto
+  // SUPER_ADMIN-only config routes (autoreply, business-profile,
+  // phone-numbers) — fetching them for BRANCH_MANAGER just wastes a request
+  // that 403s, and loadPhoneNumbers() specifically surfaces that 403 as a
+  // visible error toast on every page load, so those three must not fire at
+  // all for non-admins.
+  useEffect(() => {
+    load();
+    loadCreds();
+    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); }
+  }, [load, isSuperAdmin]);
 
   async function loadCreds() {
     try {
@@ -221,6 +246,51 @@ export default function WhatsAppTemplatesPage() {
   useEffect(() => {
     if (tab === 'campaigns' && !segmentsLoaded) loadSegments();
   }, [tab, segmentsLoaded, loadSegments]);
+
+  const loadCannedReplies = useCallback(async () => {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/canned-replies');
+      setCannedReplies(Array.isArray(data) ? data : []);
+    } catch {
+      toast.error('Failed to load quick replies');
+    } finally {
+      setCannedRepliesLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'settings' && !cannedRepliesLoaded) loadCannedReplies();
+  }, [tab, cannedRepliesLoaded, loadCannedReplies]);
+
+  async function saveCannedReply() {
+    if (!cannedForm.title.trim() || !cannedForm.body.trim()) return;
+    setSavingCanned(true);
+    try {
+      await api.post('/notifications/whatsapp/canned-replies', {
+        title: cannedForm.title.trim(),
+        body: cannedForm.body.trim(),
+        category: cannedForm.category.trim() || undefined,
+      });
+      setCannedForm({ title: '', body: '', category: '' });
+      setShowCannedForm(false);
+      await loadCannedReplies();
+      toast.success('Quick reply saved');
+    } catch {
+      toast.error('Failed to save quick reply');
+    } finally {
+      setSavingCanned(false);
+    }
+  }
+
+  async function deleteCannedReply(id: string) {
+    if (!confirm('Delete this quick reply?')) return;
+    try {
+      await api.delete(`/notifications/whatsapp/canned-replies/${id}`);
+      await loadCannedReplies();
+    } catch {
+      toast.error('Failed to delete quick reply');
+    }
+  }
 
   async function sendBroadcast() {
     const segment = segments.find(s => s.id === selectedSegment);
@@ -508,6 +578,19 @@ export default function WhatsAppTemplatesPage() {
     setSendModal({ template: t, phone, params: Array(varCount(t)).fill(''), sending: false });
   }
 
+  // New Chat (Chat tab): a number with no message history has no open 24h
+  // session, so Meta only allows an approved template as the first message —
+  // reuses the exact same send-template modal/endpoint the Campaigns tab
+  // already uses, just opened with one phone instead of a whole segment.
+  function startNewChat(phone: string) {
+    const approved = templates.filter(t => t.status === 'APPROVED');
+    if (approved.length === 0) {
+      toast.error('No approved templates yet — add one in Settings → Templates first');
+      return;
+    }
+    openSendModalForPhone(approved[0], phone);
+  }
+
   async function sendFromModal() {
     if (!sendModal) return;
     if (!sendModal.phone.trim()) return toast.error('Enter a phone number');
@@ -576,9 +659,11 @@ export default function WhatsAppTemplatesPage() {
       <div className="flex items-center gap-1 border-b border-gray-200">
         {([
           { key: 'chat' as const,      label: 'Chat',      icon: <MessagesSquare size={14} /> },
-          { key: 'templates' as const, label: 'Templates', icon: <FileText size={14} /> },
-          { key: 'campaigns' as const, label: 'Campaigns', icon: <Cake size={14} /> },
-          { key: 'settings' as const,  label: 'Settings',  icon: <SettingsIcon size={14} /> },
+          ...(isSuperAdmin ? [
+            { key: 'templates' as const, label: 'Templates', icon: <FileText size={14} /> },
+            { key: 'campaigns' as const, label: 'Campaigns', icon: <Cake size={14} /> },
+            { key: 'settings' as const,  label: 'Settings',  icon: <SettingsIcon size={14} /> },
+          ] : []),
         ]).map(t => (
           <button
             key={t.key}
@@ -592,10 +677,10 @@ export default function WhatsAppTemplatesPage() {
       </div>
 
       {/* ── Chat tab ── */}
-      {tab === 'chat' && <WhatsAppChat />}
+      {tab === 'chat' && <WhatsAppChat onStartNewChat={startNewChat} />}
 
       {/* ── Settings tab ── */}
-      {tab === 'settings' && phoneNumbersLoaded && (
+      {isSuperAdmin && tab === 'settings' && phoneNumbersLoaded && (
       <div className="space-y-8 max-w-3xl">
 
         {/* SECTION: Connection */}
@@ -684,6 +769,86 @@ export default function WhatsAppTemplatesPage() {
                 className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 whitespace-nowrap transition-colors">
                 <Send size={12} /> {testing ? 'Sending…' : 'Send hello_world'}
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION: Quick Replies */}
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Quick Replies</h2>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                Saved Replies
+                <span
+                  title="One-click prefab replies staff can insert while chatting — type / in the message box to search them, or use the lightning-bolt button next to the composer."
+                  className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
+              </p>
+              <button
+                onClick={() => { setCannedForm({ title: '', body: '', category: '' }); setShowCannedForm(v => !v); }}
+                className="btn-outline flex items-center gap-1.5 text-xs px-2.5 py-1.5">
+                <Plus size={12} /> Add Quick Reply
+              </button>
+            </div>
+
+            {showCannedForm && (
+              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/60 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    className="input text-sm"
+                    placeholder="Title (e.g. Refund policy)"
+                    value={cannedForm.title}
+                    onChange={e => setCannedForm(f => ({ ...f, title: e.target.value }))}
+                  />
+                  <input
+                    className="input text-sm"
+                    placeholder="Category (optional, e.g. Billing)"
+                    value={cannedForm.category}
+                    onChange={e => setCannedForm(f => ({ ...f, category: e.target.value }))}
+                  />
+                </div>
+                <textarea
+                  className="input text-sm w-full resize-none"
+                  rows={3}
+                  placeholder="Reply text"
+                  value={cannedForm.body}
+                  onChange={e => setCannedForm(f => ({ ...f, body: e.target.value }))}
+                />
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setShowCannedForm(false)} className="btn-outline text-xs px-3 py-1.5">Cancel</button>
+                  <button
+                    onClick={saveCannedReply}
+                    disabled={savingCanned || !cannedForm.title.trim() || !cannedForm.body.trim()}
+                    className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50">
+                    {savingCanned ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="px-5 py-4">
+              {!cannedRepliesLoaded ? (
+                <p className="text-xs text-gray-400 text-center py-3">Loading…</p>
+              ) : cannedReplies.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-5 border border-dashed border-gray-200 rounded-xl">No quick replies yet — add one above.</p>
+              ) : (
+                <div className="space-y-2">
+                  {cannedReplies.map(r => (
+                    <div key={r.id} className="flex items-start justify-between gap-3 border border-gray-100 rounded-xl p-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
+                          {r.title}
+                          {r.category && <span className="text-[10px] font-normal text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5">{r.category}</span>}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">{r.body}</p>
+                      </div>
+                      <button onClick={() => deleteCannedReply(r.id)} className="text-gray-300 hover:text-red-500 shrink-0">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -853,7 +1018,7 @@ export default function WhatsAppTemplatesPage() {
       )}
 
       {/* ── Templates tab ── */}
-      {tab === 'templates' && <div className="space-y-8">
+      {isSuperAdmin && tab === 'templates' && <div className="space-y-8">
 
       {/* ── New template form ── */}
       {showForm && (
@@ -1086,7 +1251,7 @@ export default function WhatsAppTemplatesPage() {
       </div>}
 
       {/* ── Campaigns tab ── */}
-      {tab === 'campaigns' && (() => {
+      {isSuperAdmin && tab === 'campaigns' && (() => {
         const approvedTemplates = templates.filter(t => t.status === 'APPROVED');
         const broadcastTemplate = approvedTemplates.find(t => t.name === broadcastTemplateName);
         const broadcastVarCount = broadcastTemplate ? varCount(broadcastTemplate) : 0;
@@ -1205,7 +1370,7 @@ export default function WhatsAppTemplatesPage() {
       })()}
 
       {/* ── Settings tab: message log ── */}
-      {tab === 'settings' && (
+      {isSuperAdmin && tab === 'settings' && (
       <div className="max-w-3xl">
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Activity</h2>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -1444,11 +1609,28 @@ export default function WhatsAppTemplatesPage() {
       <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-gray-900">Send Template</h3>
-              <p className="text-xs text-gray-400 font-mono mt-0.5">{sendModal.template.name}</p>
-            </div>
+            <h3 className="font-semibold text-gray-900">Send Template</h3>
             <button onClick={() => setSendModal(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          </div>
+
+          <div>
+            <label className="label text-sm">Template</label>
+            {templates.filter(t => t.status === 'APPROVED').length > 1 ? (
+              <select
+                className="input text-sm font-mono"
+                value={sendModal.template.name}
+                onChange={e => {
+                  const t = templates.find(x => x.name === e.target.value);
+                  if (t) setSendModal(m => m ? { template: t, phone: m.phone, params: Array(varCount(t)).fill(''), sending: false } : null);
+                }}
+              >
+                {templates.filter(t => t.status === 'APPROVED').map(t => (
+                  <option key={t.name} value={t.name}>{t.name}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-xs text-gray-500 font-mono">{sendModal.template.name}</p>
+            )}
           </div>
 
           {/* WhatsApp message bubble */}

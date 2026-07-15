@@ -157,7 +157,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/business',                    label: 'Business',        icon: Building2,       roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/settings',                    label: 'Settings',        icon: Settings,        roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/settings/financial-year',     label: 'Financial Years', icon: CalendarRange,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
-      { href: '/dashboard/notifications/whatsapp',      label: 'PaVa Connect',    icon: MessageSquare,   roles: ['SUPER_ADMIN'] },
+      { href: '/dashboard/notifications/whatsapp',      label: 'PaVa Connect',    icon: MessageSquare,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/lists',                        label: 'Order Lists',      icon: FileText,        roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/settings/roles',               label: 'Role Permissions', icon: ShieldCheck,     roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/billing',                      label: 'Subscription',     icon: CreditCard,      roles: ['SUPER_ADMIN'] },
@@ -216,6 +216,18 @@ export default function Sidebar() {
   });
   useWebSocketEvent('online.order.placed',        () => qc.invalidateQueries({ queryKey: ['online-orders-pending-count'] }));
   useWebSocketEvent('online.order.status_changed', () => qc.invalidateQueries({ queryKey: ['online-orders-pending-count'] }));
+
+  const { data: waUnreadCount = 0 } = useQuery<number>({
+    queryKey: ['wa-unread-count'],
+    queryFn:  async () => {
+      const { data } = await api.get('/notifications/whatsapp/conversations/unread-count');
+      return data?.count ?? 0;
+    },
+    staleTime: 60_000,
+    enabled: mounted && ['SUPER_ADMIN', 'BRANCH_MANAGER'].includes(role),
+  });
+  useWebSocketEvent('wa.message.received', () => qc.invalidateQueries({ queryKey: ['wa-unread-count'] }));
+  useWebSocketEvent('wa.message.sent',     () => qc.invalidateQueries({ queryKey: ['wa-unread-count'] }));
 
   // Read persisted collapse state after hydration (avoids SSR mismatch)
   useEffect(() => {
@@ -346,9 +358,10 @@ export default function Sidebar() {
                   <div className="space-y-0.5 mt-0.5">
                     {visible.map(({ href, label, icon: Icon, external }) => {
                       const active = isActive(href);
-                      const badge = href === '/dashboard/online-orders' && pendingOnlineOrders > 0
-                        ? pendingOnlineOrders
-                        : 0;
+                      const badge =
+                        href === '/dashboard/online-orders' ? pendingOnlineOrders :
+                        href === '/dashboard/notifications/whatsapp' ? waUnreadCount :
+                        0;
                       const linkClass = `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                         active
                           ? 'bg-white/20 text-white'

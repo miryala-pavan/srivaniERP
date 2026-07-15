@@ -760,12 +760,9 @@ export default function PosPage() {
     if (isB2B && billType !== 'TAX_INVOICE') setBillType('TAX_INVOICE');
   }, [isB2B, billType]);
 
-  // ── PWA: register service worker ─────────────────────────
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
-    }
-  }, []);
+  // PWA service worker registration moved to a global component
+  // (ServiceWorkerRegister, mounted from dashboard/layout.tsx) — it now
+  // covers every route, not just POS.
 
   // ── ERP broadcast listener ───────────────────────────────
   useERPBroadcast((msg) => {

@@ -37,6 +37,7 @@ export const Events = {
   ONLINE_ORDER_STATUS_CHANGED: 'online.order.status_changed',
   WA_MESSAGE_RECEIVED:        'wa.message.received',
   WA_MESSAGE_SENT:            'wa.message.sent',
+  WA_CONVERSATION_ASSIGNED:   'wa.conversation.assigned',
 } as const;
 
 export type EventName = typeof Events[keyof typeof Events];

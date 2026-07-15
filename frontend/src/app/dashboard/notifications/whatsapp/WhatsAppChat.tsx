@@ -6,10 +6,16 @@ import {
   Send, Search, Clock, MessageSquare, Paperclip, Bot,
   Check, CheckCheck, AlertCircle, Pencil, ExternalLink, ShoppingBag, Award, Receipt,
   MapPin, FileText, SmilePlus, Pin, PinOff, CheckCircle2, Circle, Tag, X, Plus,
+  ChevronLeft, StickyNote, Zap, UserCircle2, MessageSquarePlus, Bell,
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
+import { getUser } from '@/lib/auth';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
+import { usePushSubscription } from '@/hooks/usePushSubscription';
+
+const PUSH_BANNER_DISMISSED_KEY = 'wa_push_banner_dismissed';
 
 interface Conversation {
   phone: string;
@@ -23,6 +29,13 @@ interface Conversation {
   convStatus?: 'OPEN' | 'RESOLVED';
   pinned?: boolean;
   labels?: string[];
+  assignedToUserId?: string | null;
+  assignedToName?: string | null;
+}
+
+interface StaffMember {
+  id: string;
+  fullName: string;
 }
 
 interface ThreadMessage {
@@ -80,6 +93,20 @@ interface WaMessageEvent {
   createdAt: string;
 }
 
+interface CannedReply {
+  id: string;
+  title: string;
+  body: string;
+  category: string | null;
+}
+
+interface InternalNote {
+  id: string;
+  body: string;
+  authorName: string;
+  createdAt: string;
+}
+
 interface ContactInfo {
   phone: string;
   customerId: string | null;
@@ -119,14 +146,40 @@ function fmtRelative(iso: string) {
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
-export default function WhatsAppChat() {
+interface WhatsAppChatProps {
+  /** Opens the Send Template modal (owned by the parent page — Meta requires
+   * an approved template for a number with no open session) pre-filled with
+   * the given phone, then selects that conversation here so the existing
+   * wa.message.sent listener below picks up the send once it lands. */
+  onStartNewChat?: (phone: string) => void;
+}
+
+export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
+  const push = usePushSubscription();
+  const [pushBannerDismissed, setPushBannerDismissed] = useState(true); // default true — flips false only after checking localStorage client-side, avoids SSR flash
+  const searchParams = useSearchParams();
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [convLoading, setConvLoading]     = useState(true);
   const [search, setSearch]               = useState('');
   const [msgSearchPhones, setMsgSearchPhones] = useState<Set<string> | null>(null);
   const [unreadOnly, setUnreadOnly]       = useState(false);
   const [showResolved, setShowResolved]   = useState(false);
+  const [assignedToMeOnly, setAssignedToMeOnly] = useState(false);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
+  const currentUser = getUser<{ userId?: string; id?: string; fullName?: string }>();
+  const currentUserId = currentUser?.userId ?? currentUser?.id ?? null;
+
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [showAssignPopover, setShowAssignPopover] = useState(false);
+  const [showNewChat, setShowNewChat]     = useState(false);
+  const [newChatPhone, setNewChatPhone]   = useState('');
+  // Below the `lg` breakpoint, only one of these three panes is visible at a
+  // time (WhatsApp-app style) — at `lg`+ this is ignored, all three panes
+  // show side-by-side as before. Selecting a conversation never clears
+  // selectedPhone, so resizing the window above `lg` mid-navigation still
+  // shows the last-opened thread.
+  const [mobileView, setMobileView] = useState<'list' | 'thread' | 'contact'>('list');
 
   const [messages, setMessages]         = useState<ThreadMessage[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -143,6 +196,19 @@ export default function WhatsAppChat() {
   const [savingName, setSavingName]     = useState(false);
   const [labelInput, setLabelInput]     = useState('');
   const [savingMeta, setSavingMeta]     = useState(false);
+
+  // Pane 3 (contact panel) Info/Notes tab switch
+  const [contactTab, setContactTab] = useState<'info' | 'notes'>('info');
+  const [notes, setNotes]           = useState<InternalNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [noteInput, setNoteInput]   = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+
+  // Canned/quick replies — fetched once (business-wide, not per-conversation).
+  // Popover visibility is derived (replyText starts with "/"), not its own
+  // state — see cannedFilterText below.
+  const [cannedReplies, setCannedReplies] = useState<CannedReply[]>([]);
+  const [cannedIndex, setCannedIndex] = useState(0);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef  = useRef<HTMLInputElement>(null);
@@ -162,6 +228,42 @@ export default function WhatsAppChat() {
   }, []);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
+
+  useEffect(() => {
+    try { setPushBannerDismissed(localStorage.getItem(PUSH_BANNER_DISMISSED_KEY) === '1'); } catch {}
+  }, []);
+
+  function dismissPushBanner() {
+    setPushBannerDismissed(true);
+    try { localStorage.setItem(PUSH_BANNER_DISMISSED_KEY, '1'); } catch {}
+  }
+
+  async function enablePush() {
+    const ok = await push.subscribe();
+    if (ok) { toast.success('Notifications enabled'); dismissPushBanner(); }
+    else if (push.permission === 'denied') toast.error('Notifications blocked — enable them in your browser\'s site settings');
+    else toast.error('Could not enable notifications');
+  }
+
+  // Deep-link from a push notification click (sw.js navigates to
+  // ?phone=<number>) — select that conversation once conversations exist.
+  useEffect(() => {
+    const phone = searchParams?.get('phone');
+    if (phone) { setSelectedPhone(phone); setMobileView('thread'); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  useEffect(() => {
+    api.get('/notifications/whatsapp/canned-replies')
+      .then(({ data }) => setCannedReplies(Array.isArray(data) ? data : []))
+      .catch(() => setCannedReplies([]));
+  }, []);
+
+  useEffect(() => {
+    api.get('/users')
+      .then(({ data }) => setStaffList(Array.isArray(data) ? data.map((u: any) => ({ id: u.id, fullName: u.fullName })) : []))
+      .catch(() => setStaffList([]));
+  }, []);
 
   // Debounced message-content search — hits the backend so results aren't
   // limited to conversations already in the loaded list's name/phone.
@@ -209,9 +311,41 @@ export default function WhatsAppChat() {
     }
   }, []);
 
+  const loadNotes = useCallback(async (phone: string) => {
+    setNotesLoading(true);
+    try {
+      const { data } = await api.get(`/notifications/whatsapp/conversations/${phone}/notes`);
+      setNotes(Array.isArray(data) ? data : []);
+    } catch {
+      setNotes([]);
+    } finally {
+      setNotesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (selectedPhone) { loadThread(selectedPhone); loadContact(selectedPhone); setEditingName(false); }
-  }, [selectedPhone, loadThread, loadContact]);
+    if (selectedPhone) {
+      loadThread(selectedPhone);
+      loadContact(selectedPhone);
+      loadNotes(selectedPhone);
+      setEditingName(false);
+      setContactTab('info');
+    }
+  }, [selectedPhone, loadThread, loadContact, loadNotes]);
+
+  async function addNote() {
+    if (!selectedPhone || !noteInput.trim()) return;
+    setSavingNote(true);
+    try {
+      await api.post(`/notifications/whatsapp/conversations/${selectedPhone}/notes`, { body: noteInput.trim() });
+      setNoteInput('');
+      await loadNotes(selectedPhone);
+    } catch {
+      toast.error('Failed to save note');
+    } finally {
+      setSavingNote(false);
+    }
+  }
 
   async function saveName() {
     if (!selectedPhone || !nameInput.trim()) return;
@@ -250,6 +384,36 @@ export default function WhatsAppChat() {
       loadThread(data.phone);
     }
   });
+
+  useWebSocketEvent<{ phone: string }>('wa.conversation.assigned', () => {
+    loadConversations();
+  });
+
+  function startNewChat() {
+    const digits = newChatPhone.replace(/\D/g, '');
+    const local = digits.length >= 10 ? digits.slice(-10) : digits;
+    if (!/^[6-9]\d{9}$/.test(local)) { toast.error('Enter a valid 10-digit Indian mobile number'); return; }
+    const e164 = `91${local}`;
+    setShowNewChat(false);
+    setNewChatPhone('');
+    // Select immediately (same "91"-prefixed format every conversation in
+    // this list already uses) so the existing wa.message.sent listener above
+    // picks up the send once it actually lands from the template modal.
+    setSelectedPhone(e164);
+    setMobileView('thread');
+    onStartNewChat?.(e164);
+  }
+
+  async function assignConversation(userId: string | null) {
+    if (!selectedPhone) return;
+    setShowAssignPopover(false);
+    try {
+      await api.patch(`/notifications/whatsapp/conversations/${selectedPhone}/meta`, { assignedToUserId: userId });
+      await loadConversations();
+    } catch {
+      toast.error('Failed to update assignment');
+    }
+  }
 
   async function sendReply() {
     if (!selectedPhone || !replyText.trim()) return;
@@ -345,9 +509,24 @@ export default function WhatsAppChat() {
     updateMeta({ labels: (selectedConv.labels ?? []).filter(l => l !== label) });
   }
 
+  // Slash-command filter: "/" alone shows everything, "/refund" filters by
+  // title/body/category containing "refund".
+  const cannedFilterText = replyText.startsWith('/') ? replyText.slice(1).toLowerCase() : null;
+  const filteredCannedReplies = cannedFilterText === null ? [] : cannedReplies.filter(r =>
+    r.title.toLowerCase().includes(cannedFilterText)
+    || r.body.toLowerCase().includes(cannedFilterText)
+    || (r.category ?? '').toLowerCase().includes(cannedFilterText)
+  );
+
+  function insertCannedReply(reply: CannedReply) {
+    setReplyText(reply.body);
+    setCannedIndex(0);
+  }
+
   const filtered = conversations.filter(c => {
     if (unreadOnly && c.unreadCount === 0) return false;
     if (!showResolved && c.convStatus === 'RESOLVED') return false;
+    if (assignedToMeOnly && c.assignedToUserId !== currentUserId) return false;
     const q = search.trim().toLowerCase();
     if (!q) return true;
     const localMatch = c.phone.includes(q)
@@ -360,19 +539,60 @@ export default function WhatsAppChat() {
   const selectedConv = conversations.find(c => c.phone === selectedPhone);
 
   return (
+    <div className="space-y-3">
+      {push.isSupported && push.permission === 'default' && !pushBannerDismissed && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-gray-100 shadow-sm bg-green-50/60 px-4 py-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Bell size={15} className="text-green-600 shrink-0" />
+            <p className="text-xs text-gray-700 truncate">Get notified of new messages even when this tab is closed</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={enablePush} disabled={push.busy} className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50">
+              {push.busy ? 'Enabling…' : 'Enable'}
+            </button>
+            <button onClick={dismissPushBanner} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
+          </div>
+        </div>
+      )}
     <div className="flex h-[calc(100vh-260px)] min-h-[480px] border border-gray-200 rounded-xl overflow-hidden bg-white">
       {/* ── Pane 1: Conversation list ── */}
-      <div className="w-72 sm:w-80 border-r border-gray-200 flex flex-col shrink-0">
+      <div className={`${mobileView === 'list' ? 'flex' : 'hidden'} lg:flex w-full lg:w-72 xl:w-80 border-r border-gray-200 flex-col shrink-0`}>
         <div className="p-3 border-b border-gray-100 space-y-2">
-          <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              className="input pl-8 text-sm h-8 py-1"
-              placeholder="Search name, number, or message"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <div className="flex items-center gap-1.5">
+            <div className="relative flex-1">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                className="input pl-8 text-sm h-8 py-1"
+                placeholder="Search name, number, or message"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <button
+              onClick={() => setShowNewChat(v => !v)}
+              title="Start a new chat with a number not in this list"
+              className={`flex items-center justify-center w-8 h-8 rounded-lg border shrink-0 transition-colors ${
+                showNewChat ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <MessageSquarePlus size={15} />
+            </button>
           </div>
+          {showNewChat && (
+            <div className="flex items-center gap-1.5">
+              <input
+                autoFocus
+                className="input text-sm h-8 py-1 flex-1"
+                placeholder="10-digit mobile number"
+                value={newChatPhone}
+                onChange={e => setNewChatPhone(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') startNewChat(); if (e.key === 'Escape') setShowNewChat(false); }}
+              />
+              <button onClick={startNewChat} disabled={!newChatPhone.trim()} className="btn-primary text-xs px-2.5 py-1.5 disabled:opacity-50">
+                Start
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setUnreadOnly(v => !v)}
@@ -391,6 +611,17 @@ export default function WhatsAppChat() {
             >
               Resolved
             </button>
+            {currentUserId && (
+              <button
+                onClick={() => setAssignedToMeOnly(v => !v)}
+                className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
+                  assignedToMeOnly ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                }`}
+                title="Only show conversations assigned to me"
+              >
+                Assigned to me
+              </button>
+            )}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
@@ -405,7 +636,7 @@ export default function WhatsAppChat() {
             filtered.map(c => (
               <button
                 key={c.phone}
-                onClick={() => setSelectedPhone(c.phone)}
+                onClick={() => { setSelectedPhone(c.phone); setMobileView('thread'); }}
                 className={`w-full text-left px-3.5 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selectedPhone === c.phone ? 'bg-green-50' : ''} ${c.convStatus === 'RESOLVED' ? 'opacity-60' : ''}`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -450,8 +681,8 @@ export default function WhatsAppChat() {
         </div>
       </div>
 
-      {/* ── Pane 2: Thread ── */}
-      <div className="flex-1 flex flex-col min-w-0 border-r border-gray-200">
+      {/* ── Pane 2: Thread — full-viewport takeover below `lg`, in-flow pane at `lg`+ ── */}
+      <div className={`${mobileView === 'thread' ? 'flex' : 'hidden'} lg:flex fixed inset-0 z-40 bg-white lg:static lg:inset-auto lg:z-auto flex-col lg:flex-1 min-w-0 lg:border-r lg:border-gray-200`}>
         {!selectedPhone ? (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
             <MessageSquare size={36} className="mb-2 text-gray-300" />
@@ -460,11 +691,69 @@ export default function WhatsAppChat() {
         ) : (
           <>
             <div className="px-4 py-3 border-b border-gray-100 shrink-0 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">
-                  {contact?.name ?? selectedConv?.customerName ?? `+${selectedPhone}`}
-                </p>
-                <p className="text-xs text-gray-500">+{selectedPhone}</p>
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  onClick={() => setMobileView('list')}
+                  className="lg:hidden -ml-1 p-1 text-gray-500 hover:text-gray-700 shrink-0"
+                  title="Back to conversations"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  onClick={() => setMobileView('contact')}
+                  className="lg:hidden flex items-center gap-2 min-w-0 text-left"
+                  title="View contact info"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
+                    {(contact?.name ?? selectedConv?.customerName ?? selectedPhone).slice(0, 1).toUpperCase()}
+                  </div>
+                  <span className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {contact?.name ?? selectedConv?.customerName ?? `+${selectedPhone}`}
+                    </p>
+                    <p className="text-xs text-gray-500">+{selectedPhone}</p>
+                  </span>
+                </button>
+                <div className="hidden lg:block min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">
+                    {contact?.name ?? selectedConv?.customerName ?? `+${selectedPhone}`}
+                  </p>
+                  <p className="text-xs text-gray-500">+{selectedPhone}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+              <div className="relative shrink-0">
+                <button
+                  onClick={() => setShowAssignPopover(v => !v)}
+                  title={selectedConv?.assignedToName ? `Assigned to ${selectedConv.assignedToName}` : 'Assign to a staff member'}
+                  className={`text-[10px] font-medium rounded-full px-2 py-1 border flex items-center gap-1 transition-colors ${
+                    selectedConv?.assignedToUserId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <UserCircle2 size={11} />
+                  {selectedConv?.assignedToName ?? 'Assign'}
+                </button>
+                {showAssignPopover && (
+                  <div className="absolute top-full right-0 mt-1 w-48 max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-20">
+                    {selectedConv?.assignedToUserId && (
+                      <button
+                        onClick={() => assignConversation(null)}
+                        className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 border-b border-gray-50"
+                      >
+                        Unassign
+                      </button>
+                    )}
+                    {staffList.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => assignConversation(s.id)}
+                        className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 ${s.id === selectedConv?.assignedToUserId ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-700'}`}
+                      >
+                        {s.fullName}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               {sessionOpen === false ? (
                 <span
@@ -479,13 +768,27 @@ export default function WhatsAppChat() {
                   <Clock size={10} /> Session open
                 </span>
               ) : null}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#e5ded8]/40">
               {threadLoading ? (
                 <div className="text-center text-gray-400 text-sm py-10">Loading…</div>
               ) : messages.length === 0 ? (
-                <div className="text-center text-gray-400 text-sm py-10">No messages yet</div>
+                <div className="text-center text-gray-400 text-sm py-10">
+                  <p>No messages yet</p>
+                  {sessionOpen === false && (
+                    <>
+                      <p className="text-xs mt-1 max-w-xs mx-auto">This number hasn't messaged you, so Meta requires an approved template to start the conversation.</p>
+                      <button
+                        onClick={() => onStartNewChat?.(selectedPhone!)}
+                        className="btn-primary text-xs px-3 py-1.5 mt-3 inline-flex items-center gap-1.5"
+                      >
+                        <MessageSquarePlus size={13} /> Send a Template
+                      </button>
+                    </>
+                  )}
+                </div>
               ) : (
                 messages.map(m => {
                   const [lat, lng] = m.messageType === 'LOCATION' && m.bodyPreview ? m.bodyPreview.split(',') : [null, null];
@@ -564,7 +867,25 @@ export default function WhatsAppChat() {
               <div ref={threadEndRef} />
             </div>
 
-            <div className="p-3 border-t border-gray-100 flex gap-2 shrink-0">
+            <div className="relative p-3 border-t border-gray-100 flex gap-2 shrink-0">
+              {cannedFilterText !== null && filteredCannedReplies.length > 0 && (
+                <div className="absolute bottom-full left-3 right-3 mb-1 max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-lg z-10">
+                  {filteredCannedReplies.map((r, idx) => (
+                    <button
+                      key={r.id}
+                      onClick={() => insertCannedReply(r)}
+                      onMouseEnter={() => setCannedIndex(idx)}
+                      className={`w-full text-left px-3 py-2 border-b border-gray-50 last:border-0 ${idx === cannedIndex ? 'bg-green-50' : 'hover:bg-gray-50'}`}
+                    >
+                      <p className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                        <Zap size={11} className="text-green-600 shrink-0" /> {r.title}
+                        {r.category && <span className="text-[9px] font-normal text-gray-400">· {r.category}</span>}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">{r.body}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -583,13 +904,34 @@ export default function WhatsAppChat() {
               >
                 <Paperclip size={15} />
               </button>
+              <button
+                onClick={() => { setReplyText('/'); setCannedIndex(0); }}
+                disabled={!sessionOpen || cannedReplies.length === 0}
+                title="Insert a quick reply"
+                className="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 shrink-0"
+              >
+                <Zap size={15} />
+              </button>
               <input
                 className="input flex-1 text-sm"
-                placeholder={sessionOpen ? 'Type a message…' : 'Reply unavailable — session closed, use a template'}
+                placeholder={sessionOpen ? 'Type a message… (try / for quick replies)' : 'Reply unavailable — session closed, use a template'}
                 value={replyText}
-                onChange={e => setReplyText(e.target.value)}
+                onChange={e => { setReplyText(e.target.value); setCannedIndex(0); }}
                 onFocus={() => { if (selectedPhone) api.post(`/notifications/whatsapp/conversations/${selectedPhone}/typing`).catch(() => {}); }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+                onKeyDown={e => {
+                  if (cannedFilterText !== null && filteredCannedReplies.length > 0) {
+                    if (e.key === 'ArrowDown') { e.preventDefault(); setCannedIndex(i => (i + 1) % filteredCannedReplies.length); return; }
+                    if (e.key === 'ArrowUp')   { e.preventDefault(); setCannedIndex(i => (i - 1 + filteredCannedReplies.length) % filteredCannedReplies.length); return; }
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const pick = filteredCannedReplies[cannedIndex] ?? filteredCannedReplies[0];
+                      insertCannedReply(pick);
+                      return;
+                    }
+                    if (e.key === 'Escape')    { e.preventDefault(); setReplyText(''); return; }
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); }
+                }}
                 disabled={!sessionOpen}
               />
               <button
@@ -604,9 +946,74 @@ export default function WhatsAppChat() {
         )}
       </div>
 
-      {/* ── Pane 3: Persistent contact panel ── */}
+      {/* ── Pane 3: Persistent contact panel — full-viewport takeover below `lg` ── */}
       {selectedPhone && (
-        <div className="w-72 shrink-0 flex flex-col overflow-y-auto p-4 gap-5 bg-gray-50/60">
+        <div className={`${mobileView === 'contact' ? 'flex' : 'hidden'} lg:flex fixed inset-0 z-40 bg-white lg:static lg:inset-auto lg:z-auto lg:w-72 xl:w-80 shrink-0 flex-col overflow-y-auto p-4 gap-5 bg-gray-50/60`}>
+          <button
+            onClick={() => setMobileView('thread')}
+            className="lg:hidden flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 -mt-1 -ml-1"
+          >
+            <ChevronLeft size={15} /> Back
+          </button>
+
+          {/* Info / Notes tab switch */}
+          <div className="flex items-center gap-3 border-b border-gray-200 -mt-1">
+            <button
+              onClick={() => setContactTab('info')}
+              className={`text-xs font-medium pb-1.5 border-b-2 -mb-px transition-colors ${
+                contactTab === 'info' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Info
+            </button>
+            <button
+              onClick={() => setContactTab('notes')}
+              className={`flex items-center gap-1 text-xs font-medium pb-1.5 border-b-2 -mb-px transition-colors ${
+                contactTab === 'notes' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Notes {notes.length > 0 && <span className="text-[10px] bg-gray-200 text-gray-600 rounded-full px-1.5">{notes.length}</span>}
+            </button>
+          </div>
+
+          {contactTab === 'notes' ? (
+            <div className="flex flex-col gap-3">
+              <div className="space-y-1.5">
+                <textarea
+                  className="input text-xs w-full resize-none"
+                  rows={3}
+                  placeholder="Add a note for the team — not visible to the customer"
+                  value={noteInput}
+                  onChange={e => setNoteInput(e.target.value)}
+                />
+                <button
+                  onClick={addNote}
+                  disabled={savingNote || !noteInput.trim()}
+                  className="btn-primary text-xs px-3 py-1 disabled:opacity-50 w-full"
+                >
+                  Add note
+                </button>
+              </div>
+              {notesLoading ? (
+                <p className="text-xs text-gray-400 text-center py-4">Loading…</p>
+              ) : notes.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">No internal notes yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {notes.map(n => (
+                    <div key={n.id} className="bg-amber-50 border border-amber-200 rounded-lg p-2">
+                      <p className="flex items-center gap-1 text-[10px] font-medium text-amber-700 mb-1">
+                        <StickyNote size={10} /> Internal note — not sent to customer
+                      </p>
+                      <p className="text-xs text-gray-800 whitespace-pre-wrap break-words">{n.body}</p>
+                      <p className="text-[10px] text-gray-400 mt-1">{n.authorName} · {fmtRelative(n.createdAt)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+          <>
           {/* Identity */}
           <div>
             <div className="w-14 h-14 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-600 mb-2">
@@ -740,8 +1147,11 @@ export default function WhatsAppChat() {
               </div>
             </div>
           )}
+          </>
+          )}
         </div>
       )}
+    </div>
     </div>
   );
 }
