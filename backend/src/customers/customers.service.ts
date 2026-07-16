@@ -10,14 +10,39 @@ import { CustomerQueryDto } from './dto/customer-query.dto';
 import { PosQuickAddCustomerDto } from './dto/pos-quick-add-customer.dto';
 import { CreateCustomerPaymentDto } from './dto/create-customer-payment.dto';
 import { CreateCustomerAddressDto, UpdateCustomerAddressDto } from './dto/create-customer-address.dto';
+import { BulkOptInDto, BulkOptInFilterDto } from './dto/bulk-opt-in.dto';
 import { wildcardFilter } from '../common/helpers/search.helper';
+import { AuditLogService, AuditActor } from '../audit-log/audit-log.service';
 
 @Injectable()
 export class CustomersService {
   constructor(
     private prisma: PrismaService,
     private eventsService: EventsService,
+    private auditLog: AuditLogService,
   ) {}
+
+  private buildWhere(businessId: string, filters: {
+    isActive?: string; channel?: string; customerGroup?: string;
+    whatsappOptIn?: string; search?: string;
+  }): any {
+    const where: any = { businessId };
+    if (filters.isActive !== undefined) where.isActive = filters.isActive === 'true';
+    if (filters.channel)       where.channel       = filters.channel;
+    if (filters.customerGroup) where.customerGroup = filters.customerGroup;
+    if (filters.whatsappOptIn !== undefined) where.whatsappOptIn = filters.whatsappOptIn === 'true';
+    if (filters.search) {
+      const wf = wildcardFilter(filters.search);
+      where.OR = [
+        { name:         wf },
+        { phone:        wf },
+        { customerCode: wf },
+        { email:        wf },
+        { gstin:        wf },
+      ];
+    }
+    return where;
+  }
 
   // ─── STEP 5: CODE GENERATION ─────────────────────────────────────────────────
 
@@ -110,20 +135,7 @@ export class CustomersService {
     const limit = Math.min(100, parseInt(query.limit ?? '20'));
     const skip  = (page - 1) * limit;
 
-    const where: any = { businessId };
-    if (query.isActive !== undefined) where.isActive = query.isActive === 'true';
-    if (query.channel)       where.channel       = query.channel;
-    if (query.customerGroup) where.customerGroup = query.customerGroup;
-    if (query.search) {
-      const wf = wildcardFilter(query.search);
-      where.OR = [
-        { name:         wf },
-        { phone:        wf },
-        { customerCode: wf },
-        { email:        wf },
-        { gstin:        wf },
-      ];
-    }
+    const where = this.buildWhere(businessId, query);
 
     const [customers, total] = await this.prisma.$transaction([
       this.prisma.customer.findMany({
@@ -136,6 +148,7 @@ export class CustomersService {
           gstin: true, customerType: true, channel: true, status: true,
           customerGroup: true, creditLimit: true, loyaltyPoints: true,
           openingBalance: true, isActive: true, isSystemDefault: true, createdAt: true,
+          whatsappOptIn: true, smsOptIn: true, consentGivenAt: true,
         },
       }),
       this.prisma.customer.count({ where }),
@@ -392,6 +405,41 @@ export class CustomersService {
     });
     this.eventsService.emitToBusiness(businessId, Events.CUSTOMER_UPDATED, { customerId: id });
     return updated;
+  }
+
+  // ─── ENDPOINT E3: BULK OPT-IN/OPT-OUT ────────────────────────────────────────
+
+  async bulkUpdateOptIn(businessId: string, dto: BulkOptInDto, actor: AuditActor) {
+    const hasIds    = !!dto.ids?.length;
+    const hasFilter = !!dto.filter;
+    if (hasIds === hasFilter) {
+      throw new BadRequestException('Provide exactly one of ids or filter');
+    }
+    if (dto.whatsappOptIn === undefined && dto.smsOptIn === undefined) {
+      throw new BadRequestException('Provide at least one of whatsappOptIn or smsOptIn');
+    }
+
+    const where: any = hasIds
+      ? { businessId, id: { in: dto.ids } }
+      : this.buildWhere(businessId, dto.filter as BulkOptInFilterDto);
+
+    const data: any = {};
+    if (dto.whatsappOptIn !== undefined) data.whatsappOptIn = dto.whatsappOptIn;
+    if (dto.smsOptIn      !== undefined) data.smsOptIn      = dto.smsOptIn;
+    if (dto.whatsappOptIn === true || dto.smsOptIn === true) data.consentGivenAt = new Date();
+
+    const result = await this.prisma.customer.updateMany({ where, data });
+
+    this.auditLog.log(actor, {
+      action: 'BULK_UPDATE',
+      entity: 'CUSTOMER',
+      description: `Bulk ${dto.whatsappOptIn !== undefined ? `WhatsApp opt-${dto.whatsappOptIn ? 'in' : 'out'}` : ''}${dto.whatsappOptIn !== undefined && dto.smsOptIn !== undefined ? ' / ' : ''}${dto.smsOptIn !== undefined ? `SMS opt-${dto.smsOptIn ? 'in' : 'out'}` : ''} for ${result.count} customer(s) by ${actor.userName}`,
+      meta: { mode: hasIds ? 'ids' : 'filter', count: result.count, whatsappOptIn: dto.whatsappOptIn, smsOptIn: dto.smsOptIn, filter: dto.filter, idsCount: dto.ids?.length },
+    }).catch(() => {});
+
+    this.eventsService.emitToBusiness(businessId, Events.CUSTOMER_UPDATED, { bulk: true, count: result.count });
+
+    return { updated: result.count };
   }
 
   // ─── ENDPOINT F: BILLS ────────────────────────────────────────────────────────

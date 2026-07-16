@@ -9,6 +9,7 @@ import { CustomerQueryDto } from './dto/customer-query.dto';
 import { PosQuickAddCustomerDto } from './dto/pos-quick-add-customer.dto';
 import { CreateCustomerPaymentDto } from './dto/create-customer-payment.dto';
 import { CreateCustomerAddressDto, UpdateCustomerAddressDto } from './dto/create-customer-address.dto';
+import { BulkOptInDto } from './dto/bulk-opt-in.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -45,6 +46,17 @@ export class CustomersController {
   profileLookup(@Request() req: any, @Query('phone') phone: string) {
     if (!phone) return { customer: null, profile: null, source: 'none' };
     return this.customersService.profileLookup(req.user.businessId, phone);
+  }
+
+  @Patch('bulk/opt-in')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  bulkOptIn(@Request() req: any, @Body() dto: BulkOptInDto) {
+    return this.customersService.bulkUpdateOptIn(req.user.businessId, dto, {
+      userId:   req.user.userId,
+      userName: req.user.fullName ?? req.user.username ?? 'Unknown',
+      userRole: req.user.role,
+      businessId: req.user.businessId,
+    });
   }
 
   // ─── COLLECTION ───────────────────────────────────────

@@ -24,4 +24,8 @@ export class CustomerQueryDto {
   @IsOptional()
   @IsString()
   customerGroup?: string;
+
+  @IsOptional()
+  @IsString()
+  whatsappOptIn?: string;
 }

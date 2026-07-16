@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { toSqlLike, hasWildcard, wildcardFilter } from '../common/helpers/search.helper';
 
-export type SearchResultType = 'product' | 'customer' | 'supplier' | 'grn' | 'bill';
+export type SearchResultType = 'product' | 'customer' | 'supplier' | 'grn' | 'bill' | 'conversation';
 
 export interface SearchResult {
   type: SearchResultType;
@@ -13,12 +13,13 @@ export interface SearchResult {
 }
 
 export interface UniversalSearchResponse {
-  products:  SearchResult[];
-  customers: SearchResult[];
-  suppliers: SearchResult[];
-  grns:      SearchResult[];
-  bills:     SearchResult[];
-  total:     number;
+  products:      SearchResult[];
+  customers:     SearchResult[];
+  suppliers:     SearchResult[];
+  grns:          SearchResult[];
+  bills:         SearchResult[];
+  conversations: SearchResult[];
+  total:         number;
 }
 
 @Injectable()
@@ -31,7 +32,7 @@ export class SearchService {
     limit = 5,
   ): Promise<UniversalSearchResponse> {
     const query = q.trim();
-    if (!query) return { products: [], customers: [], suppliers: [], grns: [], bills: [], total: 0 };
+    if (!query) return { products: [], customers: [], suppliers: [], grns: [], bills: [], conversations: [], total: 0 };
 
     const take   = Math.min(Math.max(Number(limit) || 5, 1), 20);
     const isWild = hasWildcard(query);
@@ -184,6 +185,50 @@ export class SearchService {
       ]);
     }
 
+    // ── WhatsApp conversations — matches wa_message.phone (91-prefixed, no
+    // ambiguity) or Customer.name resolved to an existing thread only (skip
+    // customers with no chat history — a "conversation" result should mean
+    // an actual thread, not duplicate the "customer" result type above).
+    const digitsQuery = query.replace(/\D/g, '');
+    const [phoneMatches, nameMatchedCustomers] = await Promise.all([
+      digitsQuery.length >= 3
+        ? this.prisma.waMessage.findMany({
+            where: { businessId, phone: { contains: digitsQuery } },
+            distinct: ['phone'],
+            select: { phone: true },
+            take,
+          })
+        : Promise.resolve([]),
+      this.prisma.customer.findMany({
+        where: { businessId, isActive: true, name: { contains: query, mode: 'insensitive' } },
+        select: { phone: true },
+        take,
+      }),
+    ]);
+    const candidatePhones = new Set<string>(phoneMatches.map((m) => m.phone));
+    for (const c of nameMatchedCustomers) {
+      if (c.phone) candidatePhones.add(`91${c.phone}`);
+    }
+    let conversations: { phone: string; customerName: string | null }[] = [];
+    if (candidatePhones.size > 0) {
+      const phones = [...candidatePhones].slice(0, take);
+      const threads = await this.prisma.waMessage.findMany({
+        where: { businessId, phone: { in: phones } },
+        distinct: ['phone'],
+        select: { phone: true },
+      });
+      const threadPhones = new Set(threads.map((t) => t.phone));
+      const localPhones = phones.map((p) => (p.length === 12 && p.startsWith('91') ? p.slice(2) : p));
+      const custByLocal = await this.prisma.customer.findMany({
+        where: { businessId, phone: { in: localPhones } },
+        select: { phone: true, name: true },
+      });
+      const nameByE164 = new Map(custByLocal.map((c) => [`91${c.phone}`, c.name]));
+      conversations = phones
+        .filter((p) => threadPhones.has(p))
+        .map((p) => ({ phone: p, customerName: nameByE164.get(p) ?? null }));
+    }
+
     const fmt = (n: any) =>
       n != null ? `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : undefined;
 
@@ -221,12 +266,19 @@ export class SearchService {
         sublabel: b.customerName ?? undefined,
         meta:     fmt(b.grandTotal),
       })),
+      conversations: conversations.map((c) => ({
+        type: 'conversation' as const,
+        id:       c.phone,
+        label:    c.customerName ?? `+${c.phone}`,
+        sublabel: `+${c.phone}`,
+      })),
       total: 0,
     };
 
     result.total =
       result.products.length + result.customers.length +
-      result.suppliers.length + result.grns.length + result.bills.length;
+      result.suppliers.length + result.grns.length + result.bills.length +
+      result.conversations.length;
 
     return result;
   }

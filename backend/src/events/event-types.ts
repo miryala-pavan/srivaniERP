@@ -38,6 +38,8 @@ export const Events = {
   WA_MESSAGE_RECEIVED:        'wa.message.received',
   WA_MESSAGE_SENT:            'wa.message.sent',
   WA_CONVERSATION_ASSIGNED:   'wa.conversation.assigned',
+  SOCIAL_MESSAGE_RECEIVED:    'social.message.received',
+  SOCIAL_MESSAGE_SENT:        'social.message.sent',
 } as const;
 
 export type EventName = typeof Events[keyof typeof Events];

@@ -607,6 +607,12 @@ export class OnlineOrdersService {
       }).catch(() => {});
     }
 
+    if (order.customerPhone) {
+      this.whatsapp.sendDeliveryFeedbackRequest(order.businessId, {
+        customerName: order.customerName, customerPhone: order.customerPhone, orderNumber,
+      }).catch(() => {});
+    }
+
     this.auditLog.log(
       { userName: order.customerName, userRole: 'CUSTOMER', businessId: order.businessId },
       { action: 'STATUS_CHANGE', entity: 'ONLINE_ORDER', entityRef: orderNumber, description: `Order ${orderNumber} delivery confirmed by customer` },
@@ -651,6 +657,12 @@ export class OnlineOrdersService {
         status,
         deliveryType:  order.deliveryType,
       }).catch(() => {});
+
+      if (status === OnlineOrderStatus.DELIVERED) {
+        this.whatsapp.sendDeliveryFeedbackRequest(order.businessId, {
+          customerName: order.customerName, customerPhone: order.customerPhone, orderNumber,
+        }).catch(() => {});
+      }
     }
 
     if (order.customerEmail) {

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
-  Plus, Search, Edit2, Phone, AlertTriangle, X, Check,
+  Plus, Search, Edit2, Phone, AlertTriangle, X, Check, MessageCircle,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
@@ -18,6 +18,9 @@ import {
 } from '@/lib/input-utils';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
+import { getUser } from '@/lib/auth';
+import { FieldHelp } from '@/components/ui/FieldHelp';
+import { OptInBadge } from '@/components/shared/OptInBadge';
 
 interface Customer {
   id: string;
@@ -36,6 +39,7 @@ interface Customer {
   outstandingBalance: number;
   isActive: boolean;
   isSystemDefault: boolean;
+  whatsappOptIn: boolean;
 }
 
 const EMPTY_FORM = {
@@ -75,6 +79,7 @@ function StatusBadge({ s, isActive }: { s: string; isActive: boolean }) {
   return <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-green-50 text-green-700">Active</span>;
 }
 
+
 // ── Toggle helper ────────────────────────────────────────────────────────────
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
@@ -98,13 +103,22 @@ export default function CustomersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage]                   = useState(1);
   const [showInactive, setShowInactive]   = useState(false);
+  const [optInFilter, setOptInFilter]     = useState<'all' | 'in' | 'out'>('all');
   const [showModal, setShowModal]         = useState(false);
   const [editing, setEditing]             = useState<Customer | null>(null);
   const [form, setForm]                   = useState({ ...EMPTY_FORM });
   const [phoneError, setPhoneError]       = useState<string | null>(null);
   const [emailError, setEmailError]       = useState(false);
 
+  const user       = getUser<{ role: string }>();
+  const canBulkOptIn = user?.role === 'SUPER_ADMIN' || user?.role === 'BRANCH_MANAGER';
+
+  const [selectedIds, setSelectedIds]         = useState<Set<string>>(new Set());
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [bulkConfirm, setBulkConfirm]         = useState<'in' | 'out' | null>(null);
+
   useEscapeKey(() => setShowModal(false), showModal);
+  useEscapeKey(() => setBulkConfirm(null), !!bulkConfirm && !showModal);
 
   useEffect(() => {
     const handler = () => setShowModal(true);
@@ -122,7 +136,7 @@ export default function CustomersPage() {
   // ── Query ──────────────────────────────────────────────────────────────────
 
   const { data, isLoading } = useQuery({
-    queryKey: ['customers', { page, search: debouncedSearch, showInactive }],
+    queryKey: ['customers', { page, search: debouncedSearch, showInactive, optInFilter }],
     queryFn: async () => {
       const res = await api.get('/customers', {
         params: {
@@ -130,6 +144,7 @@ export default function CustomersPage() {
           limit: 20,
           search: debouncedSearch || undefined,
           isActive: showInactive ? undefined : 'true',
+          whatsappOptIn: optInFilter === 'all' ? undefined : optInFilter === 'in' ? 'true' : 'false',
         },
       });
       return res.data as { data: Customer[]; meta: { totalPages: number; total: number } };
@@ -141,6 +156,60 @@ export default function CustomersPage() {
   const customers  = data?.data  ?? [];
   const totalPages = data?.meta.totalPages ?? 1;
   const total      = data?.meta.total      ?? 0;
+
+  // Clear selection whenever the filtered set changes underneath it
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+  }, [page, debouncedSearch, showInactive, optInFilter]);
+
+  const selectedCount = selectAllMatching ? total : selectedIds.size;
+  const allOnPageSelected = customers.length > 0 && customers.every((c) => selectedIds.has(c.id));
+
+  function toggleRow(id: string) {
+    setSelectAllMatching(false);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllOnPage() {
+    setSelectAllMatching(false);
+    setSelectedIds((prev) => {
+      if (allOnPageSelected) return new Set();
+      return new Set(customers.map((c) => c.id));
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+  }
+
+  const bulkOptInMutation = useMutation({
+    mutationFn: (whatsappOptIn: boolean) => {
+      const body: any = selectAllMatching
+        ? {
+            filter: {
+              search:        debouncedSearch || undefined,
+              isActive:      showInactive ? undefined : 'true',
+              whatsappOptIn: optInFilter === 'all' ? undefined : optInFilter === 'in' ? 'true' : 'false',
+            },
+            whatsappOptIn,
+          }
+        : { ids: Array.from(selectedIds), whatsappOptIn };
+      return api.patch('/customers/bulk/opt-in', body);
+    },
+    onSuccess: (res) => {
+      toast.success(`${res.data.updated} customer(s) updated`);
+      setBulkConfirm(null);
+      clearSelection();
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Bulk update failed'),
+  });
 
   // ── WS listeners ──────────────────────────────────────────────────────────
 
@@ -267,6 +336,26 @@ export default function CustomersPage() {
           >
             {showInactive ? 'Hide inactive' : 'Show inactive'}
           </button>
+          {canBulkOptIn && (
+            <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
+              {([
+                { key: 'all', label: 'All' },
+                { key: 'in',  label: 'Opted in' },
+                { key: 'out', label: 'Not opted in' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => { setOptInFilter(opt.key); setPage(1); }}
+                  className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    optInFilter === opt.key ? 'bg-[#1B4F8A] text-white' : 'text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              <FieldHelp title="WhatsApp opt-in" description="Controls eligibility for WhatsApp marketing/campaign broadcasts only. One-off messages from staff are unaffected." />
+            </div>
+          )}
           <span className="text-sm text-gray-400 ml-auto">
             {total} customer{total !== 1 ? 's' : ''}
           </span>
@@ -277,6 +366,41 @@ export default function CustomersPage() {
             <Plus className="w-4 h-4" /> Add Customer
           </button>
         </div>
+
+        {/* Bulk selection toolbar */}
+        {canBulkOptIn && selectedCount > 0 && (
+          <div className="flex items-center gap-3 flex-wrap bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 text-sm">
+            <span className="text-blue-800 font-medium">
+              {selectedCount} customer{selectedCount !== 1 ? 's' : ''} selected
+              {selectAllMatching ? ' (all matching this filter)' : ''}
+            </span>
+            {!selectAllMatching && allOnPageSelected && total > customers.length && (
+              <button
+                onClick={() => setSelectAllMatching(true)}
+                className="text-blue-600 underline hover:text-blue-800"
+              >
+                Select all {total} matching this filter
+              </button>
+            )}
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => setBulkConfirm('out')}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 bg-white hover:bg-gray-50"
+              >
+                Opt out (WhatsApp)
+              </button>
+              <button
+                onClick={() => setBulkConfirm('in')}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-600 text-white hover:bg-green-700"
+              >
+                Opt in (WhatsApp)
+              </button>
+              <button onClick={clearSelection} className="text-gray-400 hover:text-gray-600 text-xs underline">
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Table */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -291,6 +415,16 @@ export default function CustomersPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50/70 border-b border-gray-100">
                   <tr>
+                    {canBulkOptIn && (
+                      <th className="px-3 py-3 w-8">
+                        <input
+                          type="checkbox"
+                          checked={allOnPageSelected}
+                          onChange={toggleAllOnPage}
+                          className="rounded border-gray-300"
+                        />
+                      </th>
+                    )}
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide w-10">#</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide w-20">Code</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Name</th>
@@ -300,6 +434,7 @@ export default function CustomersPage() {
                     <th className="text-right px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Outstanding</th>
                     <th className="text-right px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden xl:table-cell">Credit Limit</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden md:table-cell">Status</th>
+                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden lg:table-cell">WhatsApp</th>
                     <th className="px-3 py-3 w-10"></th>
                   </tr>
                 </thead>
@@ -310,6 +445,16 @@ export default function CustomersPage() {
                     const overLimit   = limit > 0 && outstanding > limit;
                     return (
                       <tr key={c.id} className="hover:bg-gray-50/70 transition-colors">
+                        {canBulkOptIn && (
+                          <td className="px-3 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(c.id)}
+                              onChange={() => toggleRow(c.id)}
+                              className="rounded border-gray-300"
+                            />
+                          </td>
+                        )}
                         <td className="px-3 py-3 text-gray-400 text-xs tabular-nums">
                           {(page - 1) * 20 + idx + 1}
                         </td>
@@ -363,6 +508,9 @@ export default function CustomersPage() {
                         </td>
                         <td className="px-3 py-3 hidden md:table-cell">
                           <StatusBadge s={c.status} isActive={c.isActive} />
+                        </td>
+                        <td className="px-3 py-3 hidden lg:table-cell">
+                          <OptInBadge on={c.whatsappOptIn} />
                         </td>
                         <td className="px-3 py-3">
                           <button
@@ -659,6 +807,49 @@ export default function CustomersPage() {
               >
                 <Check className="w-4 h-4" />
                 {saveMutation.isPending ? 'Saving...' : editing ? 'Update Customer' : 'Add Customer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk opt-in/opt-out confirmation */}
+      {bulkConfirm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setBulkConfirm(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-base font-semibold text-gray-800">
+                {bulkConfirm === 'in' ? 'Opt in to WhatsApp marketing?' : 'Opt out of WhatsApp marketing?'}
+              </h2>
+            </div>
+            <div className="p-6 space-y-3">
+              <p className="text-sm text-gray-700">
+                This will {bulkConfirm === 'in' ? 'opt in' : 'opt out'}{' '}
+                <span className="font-semibold">{selectedCount} customer{selectedCount !== 1 ? 's' : ''}</span>{' '}
+                for WhatsApp marketing/campaign messages.
+              </p>
+              {bulkConfirm === 'in' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                  Only proceed if these customers have genuinely consented to receive WhatsApp marketing —
+                  this action is recorded in the audit log and affects your WhatsApp Business account's reputation.
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 px-6 py-4 border-t border-gray-200">
+              <button
+                onClick={() => setBulkConfirm(null)}
+                className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => bulkOptInMutation.mutate(bulkConfirm === 'in')}
+                disabled={bulkOptInMutation.isPending}
+                className={`flex-1 py-2.5 text-sm font-medium rounded-xl disabled:opacity-60 ${
+                  bulkConfirm === 'in' ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-700 text-white hover:bg-gray-800'
+                }`}
+              >
+                {bulkOptInMutation.isPending ? 'Updating...' : `Confirm ${bulkConfirm === 'in' ? 'opt-in' : 'opt-out'}`}
               </button>
             </div>
           </div>

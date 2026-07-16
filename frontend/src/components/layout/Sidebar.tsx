@@ -51,6 +51,7 @@ import {
   AlarmClock,
   Percent,
   Banknote,
+  Camera,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import type { User } from '@/types';
@@ -158,6 +159,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/settings',                    label: 'Settings',        icon: Settings,        roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/settings/financial-year',     label: 'Financial Years', icon: CalendarRange,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/notifications/whatsapp',      label: 'PaVa Connect',    icon: MessageSquare,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
+      { href: '/dashboard/notifications/social',        label: 'Facebook & Instagram', icon: Camera, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/lists',                        label: 'Order Lists',      icon: FileText,        roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/settings/roles',               label: 'Role Permissions', icon: ShieldCheck,     roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/billing',                      label: 'Subscription',     icon: CreditCard,      roles: ['SUPER_ADMIN'] },
@@ -228,6 +230,18 @@ export default function Sidebar() {
   });
   useWebSocketEvent('wa.message.received', () => qc.invalidateQueries({ queryKey: ['wa-unread-count'] }));
   useWebSocketEvent('wa.message.sent',     () => qc.invalidateQueries({ queryKey: ['wa-unread-count'] }));
+
+  const { data: socialUnreadCount = 0 } = useQuery<number>({
+    queryKey: ['social-unread-count'],
+    queryFn:  async () => {
+      const { data } = await api.get('/notifications/social/conversations/unread-count');
+      return data?.count ?? 0;
+    },
+    staleTime: 60_000,
+    enabled: mounted && ['SUPER_ADMIN', 'BRANCH_MANAGER'].includes(role),
+  });
+  useWebSocketEvent('social.message.received', () => qc.invalidateQueries({ queryKey: ['social-unread-count'] }));
+  useWebSocketEvent('social.message.sent',     () => qc.invalidateQueries({ queryKey: ['social-unread-count'] }));
 
   // Read persisted collapse state after hydration (avoids SSR mismatch)
   useEffect(() => {
@@ -361,6 +375,7 @@ export default function Sidebar() {
                       const badge =
                         href === '/dashboard/online-orders' ? pendingOnlineOrders :
                         href === '/dashboard/notifications/whatsapp' ? waUnreadCount :
+                        href === '/dashboard/notifications/social' ? socialUnreadCount :
                         0;
                       const linkClass = `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                         active

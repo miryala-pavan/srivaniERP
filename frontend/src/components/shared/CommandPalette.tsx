@@ -5,20 +5,28 @@ import { useRouter } from 'next/navigation';
 import {
   Search, Package, Users, Truck, ClipboardList, Receipt,
   LayoutDashboard, Settings, X, BarChart2, Layers, Building2,
-  ShoppingCart, FileText, ArrowRight, Hash, CreditCard,
+  ShoppingCart, FileText, ArrowRight, Hash, CreditCard, MessagesSquare,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SearchResultType = 'product' | 'customer' | 'supplier' | 'grn' | 'bill';
+type SearchResultType = 'product' | 'customer' | 'supplier' | 'grn' | 'bill' | 'conversation';
 
 interface SearchResult {
   type: SearchResultType;
   id: string;
   label: string;
   sublabel?: string;
+}
+
+// Backend /search returns results grouped by type, not a flat array — see
+// backend/src/search/search.service.ts's UniversalSearchResponse.
+interface SearchResponse {
+  products: SearchResult[]; customers: SearchResult[]; suppliers: SearchResult[];
+  grns: SearchResult[]; bills: SearchResult[]; conversations: SearchResult[];
+  total: number;
 }
 
 type FlatItem =
@@ -62,14 +70,19 @@ const TYPE_META: Record<SearchResultType, {
   icon: React.ElementType;
   route: (id: string) => string;
 }> = {
-  product:  { label: 'Products',  icon: Package,      route: (id) => `/dashboard/products/${id}` },
-  customer: { label: 'Customers', icon: Users,        route: (id) => `/dashboard/customers/${id}` },
-  supplier: { label: 'Suppliers', icon: Truck,        route: (id) => `/dashboard/suppliers/${id}` },
-  grn:      { label: 'GRN',       icon: ClipboardList,route: (id) => `/dashboard/grn/${id}` },
-  bill:     { label: 'Bills',     icon: Receipt,      route: () => `/dashboard/bills` },
+  product:      { label: 'Products',      icon: Package,       route: (id) => `/dashboard/products/${id}` },
+  customer:     { label: 'Customers',     icon: Users,         route: (id) => `/dashboard/customers/${id}` },
+  supplier:     { label: 'Suppliers',     icon: Truck,         route: (id) => `/dashboard/suppliers/${id}` },
+  grn:          { label: 'GRN',           icon: ClipboardList, route: (id) => `/dashboard/grn/${id}` },
+  bill:         { label: 'Bills',         icon: Receipt,       route: () => `/dashboard/bills` },
+  // id here is the already-91-prefixed phone (see search.service.ts) — lands
+  // on the Chat tab, which defaults to 'chat' on a fresh navigation, so no
+  // extra tab-switch wiring is needed even though the palette is mounted
+  // globally outside the WhatsApp page tree.
+  conversation: { label: 'Conversations', icon: MessagesSquare, route: (id) => `/dashboard/notifications/whatsapp?phone=${id}` },
 };
 
-const RESULT_ORDER: SearchResultType[] = ['product', 'customer', 'supplier', 'grn', 'bill'];
+const RESULT_ORDER: SearchResultType[] = ['product', 'customer', 'supplier', 'grn', 'bill', 'conversation'];
 
 // ─── CommandPalette ───────────────────────────────────────────────────────────
 
@@ -126,8 +139,15 @@ export function CommandPalette() {
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await api.get('/search', { params: { q: query.trim(), limit: 5 } });
-        setResults(res.data ?? []);
+        const res = await api.get<SearchResponse>('/search', { params: { q: query.trim(), limit: 5 } });
+        const data = res.data;
+        // Backend returns results grouped by type — flatten before storing,
+        // since everything below (groupedResults, filteredCannedReplies-style
+        // .filter(r => r.type === type)) expects a flat SearchResult[].
+        setResults([
+          ...(data.products ?? []), ...(data.customers ?? []), ...(data.suppliers ?? []),
+          ...(data.grns ?? []), ...(data.bills ?? []), ...(data.conversations ?? []),
+        ]);
       } catch {
         setResults([]);
       } finally {

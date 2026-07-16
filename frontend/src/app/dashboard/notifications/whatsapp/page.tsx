@@ -1,16 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle,
   Send, KeyRound, PlayCircle, X, Wifi, WifiOff, AlertCircle,
   CheckCheck, ArrowUpRight, ArrowDownLeft, MousePointerClick,
   MessagesSquare, FileText, Settings as SettingsIcon, Bot, Cake, Phone, MapPin, Megaphone, Building2, Pencil,
+  Contact as ContactIcon, Award,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { getUser } from '@/lib/auth';
 import WhatsAppChat from './WhatsAppChat';
+import ContactsTab from './ContactsTab';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,13 +40,34 @@ const TEMPLATE_DESC: Record<string, string> = {
   svn_payment_done:  '✅ Payment receipt — sent to customer after online payment',
   svn_order_update:  '🔔 Status update — sent to customer on order progress',
   hello_world:       '👋 Meta built-in test template',
+  post_delivery_feedback: '⭐ Feedback request — sent to customer after order is delivered',
+  google_review_request:  '🌟 Review nudge — sent when a customer taps the positive feedback button',
 };
 
-const REQUIRED_TEMPLATES = [
+interface RequiredTemplate {
+  name: string; body: string; footer: string; headerText?: string;
+  buttonMode?: 'quick_reply' | 'cta';
+  quickReplies?: string[];
+  ctaWebText?: string; ctaWebUrl?: string;
+}
+
+const REQUIRED_TEMPLATES: RequiredTemplate[] = [
   { name: 'test_order',       body: 'Hello! New order {{1}} from {{2}} ({{3}}). Items: {{4}} | Total: ₹{{5}} | {{6}} | {{7}}',                                                                   footer: '- Srivani Stores' },
   { name: 'svn_order_placed', body: 'Hello {{1}}, your order *{{2}}* has been placed at Srivani Stores! Total: ₹{{3}} | {{4}}. Thank you for shopping with us!',                               footer: '- Srivani Stores' },
   { name: 'svn_payment_done', body: 'Hello {{1}}, payment of ₹{{2}} received! Order *{{3}}* is confirmed. We will start preparing it now. - Srivani Stores',                                  footer: '' },
   { name: 'svn_order_update', body: 'Hello {{1}}, your order *{{2}}* update: {{3}} - Team Srivani Stores',                                                                                      footer: '' },
+  {
+    name: 'post_delivery_feedback',
+    body: 'Hi {{1}}, your order *{{2}}* was delivered! How was your experience?',
+    footer: 'Tap a button below to let us know', headerText: '',
+    buttonMode: 'quick_reply', quickReplies: ['👍 Great!', '👎 Not great', ''],
+  },
+  {
+    name: 'google_review_request',
+    body: 'Hi {{1}}, glad you had a great experience! Would you mind sharing it on Google? It really helps us.',
+    footer: '', headerText: '',
+    buttonMode: 'cta', ctaWebText: 'Rate us on Google', ctaWebUrl: '',
+  },
 ];
 
 const BLANK_FORM  = {
@@ -93,7 +117,8 @@ export default function WhatsAppTemplatesPage() {
   // BRANCH_MANAGER can use the Chat inbox but would just hit 403s on these,
   // so the tabs themselves are hidden rather than shown-then-broken.
   const isSuperAdmin = getUser<{ role: string }>()?.role === 'SUPER_ADMIN';
-  const [tab, setTab] = useState<'chat' | 'templates' | 'campaigns' | 'settings'>('chat');
+  const router = useRouter();
+  const [tab, setTab] = useState<'chat' | 'contacts' | 'templates' | 'campaigns' | 'settings'>('chat');
   const [cannedReplies, setCannedReplies] = useState<{ id: string; title: string; body: string; category: string | null }[]>([]);
   const [cannedRepliesLoaded, setCannedRepliesLoaded] = useState(false);
   const [showCannedForm, setShowCannedForm] = useState(false);
@@ -142,6 +167,9 @@ export default function WhatsAppTemplatesPage() {
   const [locationLng, setLocationLng]           = useState('');
   const [locationName, setLocationName]         = useState('');
   const [locationAddr, setLocationAddr]         = useState('');
+  const [feedbackSettings, setFeedbackSettings] = useState({ googleReviewUrl: '' });
+  const [feedbackSettingsLoaded, setFeedbackSettingsLoaded] = useState(false);
+  const [savingFeedbackSettings, setSavingFeedbackSettings] = useState(false);
   const [sendModal, setSendModal]     = useState<{
     template: WaTemplate; phone: string; params: string[]; sending: boolean;
   } | null>(null);
@@ -209,7 +237,7 @@ export default function WhatsAppTemplatesPage() {
   useEffect(() => {
     load();
     loadCreds();
-    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); }
+    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); loadFeedbackSettings(); }
   }, [load, isSuperAdmin]);
 
   async function loadCreds() {
@@ -358,6 +386,28 @@ export default function WhatsAppTemplatesPage() {
       setLocationAddr(data?.locationAddr ?? '');
     } catch { /* ignore */ } finally {
       setAutoReplyLoaded(true);
+    }
+  }
+
+  async function loadFeedbackSettings() {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/feedback-settings');
+      setFeedbackSettings({ googleReviewUrl: data?.googleReviewUrl ?? '' });
+    } catch { /* ignore */ } finally {
+      setFeedbackSettingsLoaded(true);
+    }
+  }
+
+  async function saveFeedbackSettings(next: { googleReviewUrl?: string }) {
+    setSavingFeedbackSettings(true);
+    try {
+      const { data } = await api.patch('/notifications/whatsapp/feedback-settings', next);
+      setFeedbackSettings({ googleReviewUrl: data?.googleReviewUrl ?? '' });
+      toast.success('Feedback settings saved');
+    } catch {
+      toast.error('Failed to save feedback settings');
+    } finally {
+      setSavingFeedbackSettings(false);
     }
   }
 
@@ -591,6 +641,19 @@ export default function WhatsAppTemplatesPage() {
     openSendModalForPhone(approved[0], phone);
   }
 
+  // Contacts tab action: an existing thread just needs the Chat tab focused
+  // on that phone (same ?phone= deep-link WhatsAppChat already reads on
+  // mount for push-notification click-through); no thread yet reuses the
+  // New Chat flow directly.
+  function openContact(phone: string, hasThread: boolean) {
+    if (hasThread) {
+      router.push(`/dashboard/notifications/whatsapp?phone=91${phone}`);
+      setTab('chat');
+    } else {
+      startNewChat(phone);
+    }
+  }
+
   async function sendFromModal() {
     if (!sendModal) return;
     if (!sendModal.phone.trim()) return toast.error('Enter a phone number');
@@ -623,7 +686,7 @@ export default function WhatsAppTemplatesPage() {
 
   return (
     <>
-    <div className={`p-6 mx-auto space-y-5 ${tab === 'chat' ? 'max-w-6xl' : 'max-w-4xl'}`}>
+    <div className={`p-6 mx-auto space-y-5 ${tab === 'chat' || tab === 'contacts' ? 'max-w-full' : 'max-w-4xl'}`}>
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -659,6 +722,7 @@ export default function WhatsAppTemplatesPage() {
       <div className="flex items-center gap-1 border-b border-gray-200">
         {([
           { key: 'chat' as const,      label: 'Chat',      icon: <MessagesSquare size={14} /> },
+          { key: 'contacts' as const,  label: 'Contacts',  icon: <ContactIcon size={14} /> },
           ...(isSuperAdmin ? [
             { key: 'templates' as const, label: 'Templates', icon: <FileText size={14} /> },
             { key: 'campaigns' as const, label: 'Campaigns', icon: <Cake size={14} /> },
@@ -678,6 +742,9 @@ export default function WhatsAppTemplatesPage() {
 
       {/* ── Chat tab ── */}
       {tab === 'chat' && <WhatsAppChat onStartNewChat={startNewChat} />}
+
+      {/* ── Contacts tab ── */}
+      {tab === 'contacts' && <ContactsTab onOpenContact={openContact} />}
 
       {/* ── Settings tab ── */}
       {isSuperAdmin && tab === 'settings' && phoneNumbersLoaded && (
@@ -932,6 +999,37 @@ export default function WhatsAppTemplatesPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+        )}
+
+        {/* SECTION: Feedback & Reviews */}
+        {feedbackSettingsLoaded && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Feedback &amp; Reviews</h2>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                <Award size={16} className="text-amber-500" />
+              </div>
+              <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                Google Review Link
+                <span
+                  title="Reference only — the actual link customers see is baked into the google_review_request template's button when you create it below. Stored here so it can pre-fill that form and be reused later."
+                  className="cursor-help text-gray-400 font-normal">ⓘ</span>
+              </p>
+            </div>
+            <label className="label text-xs">Your Google Business review link</label>
+            <input
+              className="input text-sm" placeholder="https://g.page/r/.../review"
+              value={feedbackSettings.googleReviewUrl}
+              onChange={e => setFeedbackSettings({ googleReviewUrl: e.target.value })}
+              onBlur={() => saveFeedbackSettings({ googleReviewUrl: feedbackSettings.googleReviewUrl.trim() })}
+              disabled={savingFeedbackSettings}
+            />
+            <p className="text-xs text-gray-400 mt-1.5">
+              Set up the <span className="font-mono">post_delivery_feedback</span> and <span className="font-mono">google_review_request</span> templates below (Setup Checklist) to start asking delivered customers for feedback and nudging happy ones toward a Google review.
+            </p>
           </div>
         </div>
         )}
@@ -1233,7 +1331,16 @@ export default function WhatsAppTemplatesPage() {
                   {!exists && (
                     <button
                       onClick={() => {
-                        setForm({ ...BLANK_FORM, name: r.name, category: 'UTILITY', language: 'en', headerText: 'Srivani Stores', bodyText: r.body, footerText: r.footer });
+                        setForm({
+                          ...BLANK_FORM,
+                          name: r.name, category: 'UTILITY', language: 'en',
+                          headerText: r.headerText ?? 'Srivani Stores',
+                          bodyText: r.body, footerText: r.footer,
+                          buttonMode: r.buttonMode ?? 'none',
+                          quickReplies: r.quickReplies ?? ['', '', ''],
+                          ctaWebText: r.ctaWebText ?? '',
+                          ctaWebUrl: r.ctaWebUrl ?? feedbackSettings.googleReviewUrl ?? '',
+                        });
                         setShowForm(true);
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}

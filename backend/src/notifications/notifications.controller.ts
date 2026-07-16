@@ -11,6 +11,9 @@ import { CreateCannedReplyDto } from './dto/create-canned-reply.dto';
 import { UpdateCannedReplyDto } from './dto/update-canned-reply.dto';
 import { PushService } from './push.service';
 import { SubscribePushDto } from './dto/subscribe-push.dto';
+import { SocialMessagingService } from './social-messaging.service';
+import { CreateCommentCampaignDto } from './dto/create-comment-campaign.dto';
+import { UpdateCommentCampaignDto } from './dto/update-comment-campaign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -24,6 +27,7 @@ export class NotificationsController {
     private internalNotes: InternalNoteService,
     private cannedReplies: CannedReplyService,
     private push: PushService,
+    private social: SocialMessagingService,
   ) {}
 
   // ── Web push subscriptions ─────────────────────────────────────────────────
@@ -435,5 +439,163 @@ export class NotificationsController {
     locationLat?: string; locationLng?: string; locationName?: string; locationAddr?: string;
   }) {
     return this.whatsapp.updateAutoReplySettings(req.user.businessId, body);
+  }
+
+  // ── Post-delivery feedback settings ─────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/feedback-settings')
+  getFeedbackSettings(@Request() req: any) {
+    return this.whatsapp.getFeedbackSettings(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('whatsapp/feedback-settings')
+  updateFeedbackSettings(@Request() req: any, @Body() body: { googleReviewUrl?: string }) {
+    return this.whatsapp.updateFeedbackSettings(req.user.businessId, body);
+  }
+
+  // ── Facebook / Instagram: credentials ───────────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('social/credentials')
+  getSocialCredentials() {
+    return this.social.getCredentials();
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('social/credentials')
+  saveSocialCredentials(@Request() req: any, @Body() body: { pageToken?: string; pageId?: string; igId?: string }) {
+    return this.social.saveCredentials(req.user.businessId, body);
+  }
+
+  // ── Facebook / Instagram: saved Page presets ────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('social/page-accounts')
+  listPageAccounts(@Request() req: any) {
+    return this.social.listPageAccounts(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('social/page-accounts')
+  savePageAccount(@Request() req: any, @Body() body: {
+    id?: string; label: string; pageAccessToken?: string; pageId: string; igBusinessAccountId?: string;
+  }) {
+    return this.social.savePageAccount(req.user.businessId, body);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Delete('social/page-accounts/:id')
+  deletePageAccount(@Request() req: any, @Param('id') id: string) {
+    return this.social.deletePageAccount(req.user.businessId, id);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('social/page-accounts/:id/activate')
+  activatePageAccount(@Request() req: any, @Param('id') id: string) {
+    return this.social.activatePageAccount(req.user.businessId, id);
+  }
+
+  // ── Facebook / Instagram: comment-to-DM campaigns ───────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('social/comment-campaigns')
+  listCommentCampaigns(@Request() req: any) {
+    return this.social.listCommentCampaigns(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('social/comment-campaigns')
+  createCommentCampaign(@Request() req: any, @Body() dto: CreateCommentCampaignDto) {
+    return this.social.createCommentCampaign(req.user.businessId, dto);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('social/comment-campaigns/:id')
+  updateCommentCampaign(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateCommentCampaignDto) {
+    return this.social.updateCommentCampaign(req.user.businessId, id, dto);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Delete('social/comment-campaigns/:id')
+  deleteCommentCampaign(@Request() req: any, @Param('id') id: string) {
+    return this.social.deleteCommentCampaign(req.user.businessId, id);
+  }
+
+  // ── Facebook / Instagram: inbox ─────────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Get('social/conversations/unread-count')
+  getSocialUnreadCount(@Request() req: any) {
+    return this.social.getUnreadCount(req.user.businessId).then((count) => ({ count }));
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Get('social/conversations')
+  listSocialConversations(@Request() req: any) {
+    return this.social.listConversations(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Get('social/conversations/:channel/:externalUserId/messages')
+  getSocialConversationMessages(
+    @Request() req: any,
+    @Param('channel') channel: 'FACEBOOK' | 'INSTAGRAM',
+    @Param('externalUserId') externalUserId: string,
+  ) {
+    return this.social.getConversationMessages(req.user.businessId, channel, externalUserId);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Patch('social/conversations/:channel/:externalUserId/read')
+  markSocialConversationRead(
+    @Request() req: any,
+    @Param('channel') channel: 'FACEBOOK' | 'INSTAGRAM',
+    @Param('externalUserId') externalUserId: string,
+  ) {
+    return this.social.markConversationRead(req.user.businessId, channel, externalUserId);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('social/conversations/:channel/:externalUserId/reply')
+  sendSocialReply(
+    @Request() req: any,
+    @Param('channel') channel: 'FACEBOOK' | 'INSTAGRAM',
+    @Param('externalUserId') externalUserId: string,
+    @Body('text') text: string,
+  ) {
+    return this.social.sendDirectMessage(req.user.businessId, channel, externalUserId, text ?? '');
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('social/conversations/:channel/:externalUserId/recommend')
+  sendSocialRecommendationRequest(
+    @Request() req: any,
+    @Param('channel') channel: 'FACEBOOK' | 'INSTAGRAM',
+    @Param('externalUserId') externalUserId: string,
+  ) {
+    return this.social.sendRecommendationRequest(req.user.businessId, channel, externalUserId);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Get('social/conversations/:channel/:externalUserId/meta')
+  getSocialConversationMeta(
+    @Request() req: any,
+    @Param('channel') channel: 'FACEBOOK' | 'INSTAGRAM',
+    @Param('externalUserId') externalUserId: string,
+  ) {
+    return this.social.getConversationMeta(req.user.businessId, channel, externalUserId);
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Patch('social/conversations/:channel/:externalUserId/meta')
+  updateSocialConversationMeta(
+    @Request() req: any,
+    @Param('channel') channel: 'FACEBOOK' | 'INSTAGRAM',
+    @Param('externalUserId') externalUserId: string,
+    @Body() body: { status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[]; assignedToUserId?: string | null },
+  ) {
+    return this.social.updateConversationMeta(req.user.businessId, channel, externalUserId, body);
   }
 }

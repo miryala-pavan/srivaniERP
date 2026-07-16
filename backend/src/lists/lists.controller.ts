@@ -181,12 +181,17 @@ export class WebhookController implements OnModuleInit {
       // Dedup: Meta retries webhook delivery at-least-once for the same message.
       const location = msg.type === 'location' ? msg.location : undefined;
       const bodyPreview = msg.text?.body ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title
+        ?? msg.button?.text
         ?? (location ? `${location.latitude},${location.longitude}` : undefined);
       const messageType = msg.type === 'interactive'
         ? (msg.interactive?.list_reply ? 'LIST_REPLY' : 'BUTTON_REPLY')
+        : msg.type === 'button' ? 'BUTTON_REPLY'
         : msg.type.toUpperCase();
       const mediaId = msg.type === 'image' ? msg.image?.id : msg.type === 'document' ? msg.document?.id : undefined;
-      const selectionId = msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id;
+      // msg.button is Meta's shape for a tap on a TEMPLATE's quick-reply button
+      // (distinct from msg.interactive, which is a tap on a session message's
+      // button/list) — payload carries whatever we set at send time.
+      const selectionId = msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id ?? msg.button?.payload;
       const isNew = await this.logInbound(businessId, msg.id, {
         phone: senderPhone,
         messageType,
@@ -232,6 +237,13 @@ export class WebhookController implements OnModuleInit {
         return;
       }
 
+      // A tap on a TEMPLATE's quick-reply button (e.g. post_delivery_feedback)
+      // arrives with this shape, not the "interactive" shape above.
+      if (msg.type === 'button' && msg.button?.payload) {
+        await this.handleButtonReply(msg.button.payload as string);
+        return;
+      }
+
       if (msg.type === 'text') {
         await this.lists.handleIncoming(businessId, {
           senderPhone, senderName,
@@ -271,7 +283,34 @@ export class WebhookController implements OnModuleInit {
       await this.onlineOrders.confirmDelivery(param).catch(err =>
         this.logger.error(`confirmDelivery via WA button failed for ${param}: ${err}`),
       );
+    } else if (action === 'FEEDBACK_POS' && param) {
+      await this.handlePositiveFeedback(param).catch(err =>
+        this.logger.error(`Positive feedback handling failed for ${param}: ${err}`),
+      );
+    } else if (action === 'FEEDBACK_NEG' && param) {
+      await this.handleNegativeFeedback(param).catch(err =>
+        this.logger.error(`Negative feedback handling failed for ${param}: ${err}`),
+      );
     }
+  }
+
+  private async handlePositiveFeedback(orderNumber: string) {
+    const order = await this.prisma.onlineOrder.findUnique({ where: { orderNumber } });
+    if (!order || !order.customerPhone) return;
+    await this.whatsapp.sendGoogleReviewRequest(order.businessId, {
+      customerName: order.customerName, customerPhone: order.customerPhone,
+    });
+  }
+
+  private async handleNegativeFeedback(orderNumber: string) {
+    const order = await this.prisma.onlineOrder.findUnique({ where: { orderNumber } });
+    if (!order || !order.customerPhone) return;
+    const meta = await this.whatsapp.getConversationMeta(order.businessId, order.customerPhone);
+    const labels = meta.labels.includes('Needs follow-up') ? meta.labels : [...meta.labels, 'Needs follow-up'];
+    await this.whatsapp.updateConversationMeta(order.businessId, order.customerPhone, { labels, pinned: true });
+    // Safe as free text — the tap that got us here just reopened the 24h session window.
+    await this.whatsapp.sendTextMessage(order.businessId, order.customerPhone,
+      "Thanks for letting us know — our team will reach out to help.").catch(() => {});
   }
 }
 

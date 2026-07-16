@@ -14,12 +14,17 @@ import api from '@/lib/api';
 import { getUser } from '@/lib/auth';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
 import { usePushSubscription } from '@/hooks/usePushSubscription';
+import { useReportParams } from '@/hooks/useReportParams';
+import { Avatar } from '@/components/shared/Avatar';
+import SavedViews from '@/components/reports/SavedViews';
 
 const PUSH_BANNER_DISMISSED_KEY = 'wa_push_banner_dismissed';
 
 interface Conversation {
   phone: string;
   customerName: string | null;
+  customerId: string | null;
+  outstandingDue: number | null;
   lastMessage: string | null;
   lastMessageType: string;
   lastDirection: 'OUTBOUND' | 'INBOUND';
@@ -82,6 +87,31 @@ function ChatImage({ mediaId }: { mediaId: string }) {
     <a href={src} target="_blank" rel="noopener noreferrer">
       <img src={src} alt="Sent image" className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
     </a>
+  );
+}
+
+function ConversationRowSkeleton() {
+  return (
+    <div className="px-3.5 py-3 flex items-center gap-2.5 border-b border-gray-50">
+      <div className="w-9 h-9 rounded-full bg-gray-100 animate-pulse shrink-0" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="h-3 w-2/5 bg-gray-100 rounded animate-pulse" />
+        <div className="h-2.5 w-3/5 bg-gray-100 rounded animate-pulse" />
+      </div>
+    </div>
+  );
+}
+
+function ThreadSkeleton() {
+  const widths = ['w-40', 'w-56', 'w-32', 'w-48'];
+  return (
+    <>
+      {widths.map((w, i) => (
+        <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
+          <div className={`h-9 ${w} bg-white/70 rounded-2xl animate-pulse`} />
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -158,15 +188,23 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const push = usePushSubscription();
   const [pushBannerDismissed, setPushBannerDismissed] = useState(true); // default true — flips false only after checking localStorage client-side, avoids SSR flash
   const searchParams = useSearchParams();
+  // Raw window.location.search reads/writes (history.replaceState), separate
+  // from Next's router-managed useSearchParams() above which only tracks the
+  // ?phone= deep link — SavedViews restores filters via a full reload, so
+  // the two mechanisms never need to live-sync with each other.
+  const params = useReportParams();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [convLoading, setConvLoading]     = useState(true);
-  const [search, setSearch]               = useState('');
+  const [search, setSearch]               = useState(() => params.get('q', ''));
   const [msgSearchPhones, setMsgSearchPhones] = useState<Set<string> | null>(null);
-  const [unreadOnly, setUnreadOnly]       = useState(false);
-  const [showResolved, setShowResolved]   = useState(false);
-  const [assignedToMeOnly, setAssignedToMeOnly] = useState(false);
+  const [unreadOnly, setUnreadOnly]       = useState(() => params.get('unread') === '1');
+  const [showResolved, setShowResolved]   = useState(() => params.get('resolved') === '1');
+  const [assignedToMeOnly, setAssignedToMeOnly] = useState(() => params.get('mine') === '1');
+  const [waitingOnly, setWaitingOnly]     = useState(() => params.get('waiting') === '1');
+  const [vipOnly, setVipOnly]             = useState(() => params.get('vip') === '1');
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex]     = useState(-1);
   const currentUser = getUser<{ userId?: string; id?: string; fullName?: string }>();
   const currentUserId = currentUser?.userId ?? currentUser?.id ?? null;
 
@@ -270,8 +308,9 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     const q = search.trim();
-    if (q.length < 2) { setMsgSearchPhones(null); return; }
+    if (q.length < 2) { setMsgSearchPhones(null); params.set({ q: q || null }); return; }
     searchDebounceRef.current = setTimeout(async () => {
+      params.set({ q: q || null });
       try {
         const { data } = await api.get('/notifications/whatsapp/conversations/search', { params: { q } });
         const rows = Array.isArray(data) ? data : [];
@@ -417,18 +456,32 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
 
   async function sendReply() {
     if (!selectedPhone || !replyText.trim()) return;
+    const text = replyText.trim();
+    // Optimistic: show the message immediately instead of waiting on the round
+    // trip — loadThread() below (or the wa.message.sent WS event) replaces the
+    // whole `messages` array with the server's real copy shortly after, which
+    // naturally supersedes this temp entry. No dedup needed.
+    const tempId = `temp-${Date.now()}`;
+    setMessages(m => [...m, {
+      id: tempId, waMessageId: tempId, direction: 'OUTBOUND', phone: selectedPhone,
+      messageType: 'TEXT', templateName: null, bodyPreview: text, buttonId: null,
+      mediaId: null, isAutoReply: false, status: 'QUEUED', errorMessage: null,
+      createdAt: new Date().toISOString(),
+    }]);
+    setReplyText('');
     setSending(true);
     try {
-      const { data } = await api.post(`/notifications/whatsapp/conversations/${selectedPhone}/reply`, {
-        text: replyText.trim(),
-      });
+      const { data } = await api.post(`/notifications/whatsapp/conversations/${selectedPhone}/reply`, { text });
       if (data?.ok) {
-        setReplyText('');
         await loadThread(selectedPhone);
       } else {
+        setMessages(m => m.filter(msg => msg.id !== tempId));
+        setReplyText(text);
         toast.error(data?.reason ?? 'Send failed — session window may be closed');
       }
     } catch (e: any) {
+      setMessages(m => m.filter(msg => msg.id !== tempId));
+      setReplyText(text);
       toast.error(e?.response?.data?.message ?? 'Send failed');
     } finally {
       setSending(false);
@@ -523,10 +576,18 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     setCannedIndex(0);
   }
 
+  function toggleFilter(key: string, current: boolean, setter: (v: boolean) => void) {
+    const next = !current;
+    setter(next);
+    params.set({ [key]: next ? '1' : null });
+  }
+
   const filtered = conversations.filter(c => {
     if (unreadOnly && c.unreadCount === 0) return false;
     if (!showResolved && c.convStatus === 'RESOLVED') return false;
     if (assignedToMeOnly && c.assignedToUserId !== currentUserId) return false;
+    if (waitingOnly && c.lastDirection !== 'OUTBOUND') return false;
+    if (vipOnly && !(c.labels ?? []).some(l => l.toUpperCase() === 'VIP')) return false;
     const q = search.trim().toLowerCase();
     if (!q) return true;
     const localMatch = c.phone.includes(q)
@@ -537,6 +598,38 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   });
 
   const selectedConv = conversations.find(c => c.phone === selectedPhone);
+
+  // Power-user list navigation: Up/Down to move, Enter to open — skipped
+  // whenever focus is inside an input/textarea/select/contentEditable (search
+  // box, composer, canned-reply popover, name/label edit fields all already
+  // handle their own Up/Down/Enter locally) so this never double-fires.
+  useEffect(() => {
+    function isTyping() {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || (el as HTMLElement).isContentEditable;
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (isTyping() || filtered.length === 0) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIndex(i => (i < filtered.length - 1 ? i + 1 : 0));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIndex(i => (i > 0 ? i - 1 : filtered.length - 1));
+      } else if (e.key === 'Enter' && activeIndex >= 0 && activeIndex < filtered.length) {
+        e.preventDefault();
+        const c = filtered[activeIndex];
+        setSelectedPhone(c.phone);
+        setMobileView('thread');
+      } else if (e.key === 'Escape') {
+        setActiveIndex(-1);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [filtered, activeIndex]);
 
   return (
     <div className="space-y-3">
@@ -554,9 +647,9 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
           </div>
         </div>
       )}
-    <div className="flex h-[calc(100vh-260px)] min-h-[480px] border border-gray-200 rounded-xl overflow-hidden bg-white">
+    <div className="flex h-[calc(100dvh-200px)] min-h-[560px] border border-gray-200 rounded-xl overflow-hidden bg-white">
       {/* ── Pane 1: Conversation list ── */}
-      <div className={`${mobileView === 'list' ? 'flex' : 'hidden'} lg:flex w-full lg:w-72 xl:w-80 border-r border-gray-200 flex-col shrink-0`}>
+      <div className={`${mobileView === 'list' ? 'flex' : 'hidden'} lg:flex w-full lg:w-80 xl:w-96 border-r border-gray-200 flex-col shrink-0`}>
         <div className="p-3 border-b border-gray-100 space-y-2">
           <div className="flex items-center gap-1.5">
             <div className="relative flex-1">
@@ -577,6 +670,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
             >
               <MessageSquarePlus size={15} />
             </button>
+            <SavedViews />
           </div>
           {showNewChat && (
             <div className="flex items-center gap-1.5">
@@ -593,9 +687,9 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
               </button>
             </div>
           )}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <button
-              onClick={() => setUnreadOnly(v => !v)}
+              onClick={() => toggleFilter('unread', unreadOnly, setUnreadOnly)}
               className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
                 unreadOnly ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
               }`}
@@ -603,7 +697,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
               Unread
             </button>
             <button
-              onClick={() => setShowResolved(v => !v)}
+              onClick={() => toggleFilter('resolved', showResolved, setShowResolved)}
               className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
                 showResolved ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
               }`}
@@ -613,7 +707,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
             </button>
             {currentUserId && (
               <button
-                onClick={() => setAssignedToMeOnly(v => !v)}
+                onClick={() => toggleFilter('mine', assignedToMeOnly, setAssignedToMeOnly)}
                 className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
                   assignedToMeOnly ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
                 }`}
@@ -622,39 +716,67 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                 Assigned to me
               </button>
             )}
+            <button
+              onClick={() => toggleFilter('waiting', waitingOnly, setWaitingOnly)}
+              className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
+                waitingOnly ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+              title="Conversations where we sent the last message and the customer hasn't replied yet"
+            >
+              Waiting for reply
+            </button>
+            <button
+              onClick={() => toggleFilter('vip', vipOnly, setVipOnly)}
+              className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
+                vipOnly ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+              title={'Only show conversations labeled "VIP" — add the label from the contact panel'}
+            >
+              VIP
+            </button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {convLoading ? (
-            <div className="p-4 text-center text-gray-400 text-sm">Loading…</div>
+            <div>{Array.from({ length: 6 }).map((_, i) => <ConversationRowSkeleton key={i} />)}</div>
           ) : filtered.length === 0 ? (
-            <div className="p-6 text-center text-gray-400">
-              <MessageSquare size={26} className="mx-auto mb-2 text-gray-300" />
-              <p className="text-sm">No conversations found</p>
+            <div className="p-8 text-center text-gray-400">
+              <MessageSquare size={28} className="mx-auto mb-2.5 text-gray-300" />
+              <p className="text-sm font-medium text-gray-500">
+                {search || unreadOnly || assignedToMeOnly || waitingOnly || vipOnly ? 'No conversations match your filters' : 'No conversations yet'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                {search || unreadOnly || assignedToMeOnly || waitingOnly || vipOnly ? 'Try clearing a filter or searching something else' : 'New chats will show up here'}
+              </p>
             </div>
           ) : (
-            filtered.map(c => (
+            filtered.map((c, idx) => (
               <button
                 key={c.phone}
-                onClick={() => { setSelectedPhone(c.phone); setMobileView('thread'); }}
-                className={`w-full text-left px-3.5 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selectedPhone === c.phone ? 'bg-green-50' : ''} ${c.convStatus === 'RESOLVED' ? 'opacity-60' : ''}`}
+                onClick={() => { setSelectedPhone(c.phone); setMobileView('thread'); setActiveIndex(idx); }}
+                className={`w-full text-left px-3.5 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selectedPhone === c.phone ? 'bg-green-50' : ''} ${activeIndex === idx ? 'ring-2 ring-inset ring-green-400' : ''} ${c.convStatus === 'RESOLVED' ? 'opacity-60' : ''}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
-                      {(c.customerName ?? c.phone).slice(0, 1).toUpperCase()}
-                    </div>
+                    <Avatar seed={c.customerName ?? c.phone} />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1">
+                      <p className={`text-sm truncate flex items-center gap-1 ${c.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-900'}`}>
                         {c.pinned && <Pin size={10} className="text-amber-500 shrink-0" fill="currentColor" />}
                         <span className="truncate">{c.customerName ?? `+${c.phone}`}</span>
                       </p>
                       <p className={`text-xs truncate ${c.unreadCount > 0 ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
                         {c.lastDirection === 'OUTBOUND' ? 'You: ' : ''}{c.lastMessage ?? `[${c.lastMessageType}]`}
                       </p>
-                      {(c.labels?.length ?? 0) > 0 && (
+                      {(c.outstandingDue || (c.labels?.length ?? 0) > 0) && (
                         <div className="flex items-center gap-1 mt-1 flex-wrap">
-                          {c.labels!.slice(0, 2).map(l => (
+                          {c.outstandingDue && (
+                            <span
+                              title="Outstanding balance owed by this customer"
+                              className="text-[9px] font-semibold bg-red-50 text-red-600 border border-red-200 rounded-full px-1.5 py-0.5">
+                              Due ₹{Math.round(c.outstandingDue).toLocaleString('en-IN')}
+                            </span>
+                          )}
+                          {(c.labels ?? []).slice(0, 2).map(l => (
                             <span key={l} className="text-[9px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5">
                               {l}
                             </span>
@@ -704,9 +826,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                   className="lg:hidden flex items-center gap-2 min-w-0 text-left"
                   title="View contact info"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
-                    {(contact?.name ?? selectedConv?.customerName ?? selectedPhone).slice(0, 1).toUpperCase()}
-                  </div>
+                  <Avatar seed={contact?.name ?? selectedConv?.customerName ?? selectedPhone ?? '?'} size="sm" />
                   <span className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">
                       {contact?.name ?? selectedConv?.customerName ?? `+${selectedPhone}`}
@@ -773,7 +893,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#e5ded8]/40">
               {threadLoading ? (
-                <div className="text-center text-gray-400 text-sm py-10">Loading…</div>
+                <div className="space-y-2"><ThreadSkeleton /></div>
               ) : messages.length === 0 ? (
                 <div className="text-center text-gray-400 text-sm py-10">
                   <p>No messages yet</p>
@@ -948,7 +1068,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
 
       {/* ── Pane 3: Persistent contact panel — full-viewport takeover below `lg` ── */}
       {selectedPhone && (
-        <div className={`${mobileView === 'contact' ? 'flex' : 'hidden'} lg:flex fixed inset-0 z-40 bg-white lg:static lg:inset-auto lg:z-auto lg:w-72 xl:w-80 shrink-0 flex-col overflow-y-auto p-4 gap-5 bg-gray-50/60`}>
+        <div className={`${mobileView === 'contact' ? 'flex' : 'hidden'} lg:flex fixed inset-0 z-40 bg-white lg:static lg:inset-auto lg:z-auto lg:w-80 xl:w-96 shrink-0 flex-col overflow-y-auto p-4 gap-5 bg-gray-50/60`}>
           <button
             onClick={() => setMobileView('thread')}
             className="lg:hidden flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 -mt-1 -ml-1"
@@ -1016,8 +1136,8 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
           <>
           {/* Identity */}
           <div>
-            <div className="w-14 h-14 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-600 mb-2">
-              {(contact?.name ?? selectedConv?.customerName ?? selectedPhone).slice(0, 1).toUpperCase()}
+            <div className="mb-2">
+              <Avatar seed={contact?.name ?? selectedConv?.customerName ?? selectedPhone ?? '?'} size="lg" />
             </div>
             {editingName ? (
               <div className="flex items-center gap-1.5">

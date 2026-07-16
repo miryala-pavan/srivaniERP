@@ -425,6 +425,18 @@ export default function CustomerDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              {customer.phone && (
+                <a
+                  href={`/dashboard/notifications/whatsapp?phone=91${customer.phone}`}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm border border-green-200 text-green-700 bg-green-50 rounded-lg hover:bg-green-100 font-medium transition-colors"
+                  title={customer.whatsappOptIn ? undefined : 'Not opted in for marketing — one-off messages are still allowed'}
+                >
+                  <MessageCircle className="w-4 h-4" /> Message on WhatsApp
+                  {!customer.whatsappOptIn && (
+                    <span className="text-[10px] font-normal text-green-600/70">(not opted in)</span>
+                  )}
+                </a>
+              )}
               <button
                 onClick={() => { setPayForm({ ...EMPTY_PAY }); setShowPay(true); }}
                 className="px-3.5 py-1.5 text-sm bg-[#1B4F8A] text-white rounded-lg hover:bg-[#163d6e] font-medium transition-colors"

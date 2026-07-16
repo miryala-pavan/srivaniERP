@@ -270,10 +270,14 @@ export class WhatsAppService implements OnModuleInit {
     const unreadMap = new Map(unreadRows.map(r => [r.phone, r._count._all]));
 
     const phones = latest.map(l => l.phone);
+    // WaMessage.phone is 91-prefixed E.164; Customer.phone is bare 10-digit —
+    // strip the prefix before matching, then key back by the original 91-prefixed
+    // value so lookups below stay keyed the same way as `phones`/`latest`.
+    const localPhones = phones.map(p => (p.length === 12 && p.startsWith('91') ? p.slice(2) : p));
     const [customers, convMeta] = await Promise.all([
       this.prisma.customer.findMany({
-        where: { businessId, phone: { in: phones } },
-        select: { phone: true, name: true },
+        where: { businessId, phone: { in: localPhones } },
+        select: { id: true, phone: true, name: true, openingBalance: true },
       }),
       this.prisma.waConversation.findMany({
         where: { businessId, phone: { in: phones } },
@@ -283,15 +287,40 @@ export class WhatsAppService implements OnModuleInit {
         },
       }),
     ]);
-    const nameMap = new Map(customers.map(c => [c.phone, c.name]));
+    const custByE164 = new Map(customers.map(c => [`91${c.phone}`, c]));
     const metaMap = new Map(convMeta.map(m => [m.phone, m]));
+
+    // Batched outstanding-balance lookup — same cheap 2-groupBy pattern as
+    // customers.service.ts findAll (O(1) extra queries regardless of list
+    // size), not the expensive per-customer computeCustomerOutstanding.
+    const customerIds = customers.map(c => c.id);
+    const [billGroups, payGroups] = await Promise.all([
+      customerIds.length ? this.prisma.salesBill.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds }, businessId, saleType: 'CREDIT' as any, status: 'FINAL' as any },
+        _sum: { balanceAmount: true },
+      }) : [],
+      customerIds.length ? this.prisma.customerPayment.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds }, businessId },
+        _sum: { amount: true },
+      }) : [],
+    ]);
+    const billMap = new Map((billGroups as any[]).map(g => [g.customerId, Number(g._sum.balanceAmount ?? 0)]));
+    const payMap  = new Map((payGroups  as any[]).map(g => [g.customerId, Number(g._sum.amount       ?? 0)]));
 
     return latest
       .map(l => {
         const meta = metaMap.get(l.phone);
+        const customer = custByE164.get(l.phone);
+        const outstanding = customer
+          ? Number(customer.openingBalance) + (billMap.get(customer.id) ?? 0) - (payMap.get(customer.id) ?? 0)
+          : 0;
         return {
           phone: l.phone,
-          customerName: nameMap.get(l.phone) ?? null,
+          customerName: customer?.name ?? null,
+          customerId: customer?.id ?? null,
+          outstandingDue: outstanding > 0 ? outstanding : null,
           lastMessage: l.bodyPreview,
           lastMessageType: l.messageType,
           lastDirection: l.direction,
@@ -771,6 +800,32 @@ export class WhatsAppService implements OnModuleInit {
     return this.getAutoReplySettings(businessId);
   }
 
+  // ── Post-delivery feedback ──────────────────────────────────────────────────
+  // Reference value only — the actual review link lives inside the approved
+  // google_review_request template's URL button (set once per business when
+  // the template is created). Stored here so the template-creation form can
+  // pre-fill it, and for reuse by any future feature (e.g. a QR code).
+
+  private static readonly FEEDBACK_KEYS = { googleReviewUrl: 'wa.google_review_url' } as const;
+
+  async getFeedbackSettings(businessId: string) {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { businessId_key: { businessId, key: WhatsAppService.FEEDBACK_KEYS.googleReviewUrl } },
+    });
+    return { googleReviewUrl: row?.value ?? '' };
+  }
+
+  async updateFeedbackSettings(businessId: string, data: { googleReviewUrl?: string }) {
+    if (data.googleReviewUrl !== undefined) {
+      await this.prisma.systemSetting.upsert({
+        where:  { businessId_key: { businessId, key: WhatsAppService.FEEDBACK_KEYS.googleReviewUrl } },
+        update: { value: data.googleReviewUrl },
+        create: { businessId, key: WhatsAppService.FEEDBACK_KEYS.googleReviewUrl, value: data.googleReviewUrl },
+      });
+    }
+    return this.getFeedbackSettings(businessId);
+  }
+
   /**
    * Called from the webhook right after an inbound message is logged.
    * Rule-based only — no AI — so behavior is predictable and auditable:
@@ -1146,22 +1201,28 @@ export class WhatsAppService implements OnModuleInit {
     name: string,
     params: string[],
     meta?: { relatedType?: string; relatedId?: string },
+    buttonPayloads?: { index: number; payload: string }[],
   ): Promise<void> {
+    const components: any[] = [
+      {
+        type: 'body',
+        parameters: params.map(text => ({ type: 'text', text })),
+      },
+    ];
+    for (const bp of buttonPayloads ?? []) {
+      components.push({
+        type: 'button',
+        sub_type: 'quick_reply',
+        index: String(bp.index),
+        parameters: [{ type: 'payload', payload: bp.payload }],
+      });
+    }
     await this.logAndSend(
       businessId,
       {
         to,
         type: 'template',
-        template: {
-          name,
-          language: { code: 'en' },
-          components: [
-            {
-              type: 'body',
-              parameters: params.map(text => ({ type: 'text', text })),
-            },
-          ],
-        },
+        template: { name, language: { code: 'en' }, components },
       },
       {
         phone: to,
@@ -1322,6 +1383,39 @@ export class WhatsAppService implements OnModuleInit {
       order.orderNumber,
       msg,
     ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber });
+  }
+
+  /**
+   * Template: post_delivery_feedback — quick-reply buttons, tap payloads are
+   * namespaced FEEDBACK_POS:{orderNumber} / FEEDBACK_NEG:{orderNumber} (same
+   * convention as CONFIRM_DELIVERY above), handled by WebhookController.
+   */
+  async sendDeliveryFeedbackRequest(businessId: string, order: {
+    customerName: string;
+    customerPhone: string;
+    orderNumber: string;
+  }): Promise<void> {
+    const to = this.e164(order.customerPhone);
+    if (!to) return;
+    await this.sendTemplate(
+      businessId, to, 'post_delivery_feedback',
+      [order.customerName, order.orderNumber],
+      { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber },
+      [
+        { index: 0, payload: `FEEDBACK_POS:${order.orderNumber}` },
+        { index: 1, payload: `FEEDBACK_NEG:${order.orderNumber}` },
+      ],
+    );
+  }
+
+  /** Template: google_review_request — static URL button, no payload override needed. */
+  async sendGoogleReviewRequest(businessId: string, customer: {
+    customerName: string;
+    customerPhone: string;
+  }): Promise<void> {
+    const to = this.e164(customer.customerPhone);
+    if (!to) return;
+    await this.sendTemplate(businessId, to, 'google_review_request', [customer.customerName]);
   }
 
   /**
