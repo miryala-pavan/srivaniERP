@@ -86,6 +86,7 @@ model Business {
   socialConversations SocialConversation[]
   commentCampaigns    CommentCampaign[]
   socialPageAccounts  SocialPageAccount[]
+  googleContactSyncs  CustomerGoogleSync[]
   pushSubscriptions   PushSubscription[]
   serviceablePincodes ServiceablePincode[]
   systemSettings      SystemSetting[]
@@ -621,6 +622,7 @@ model Customer {
   salesBills SalesBill[]
   addresses  CustomerAddress[]
   payments   CustomerPayment[]
+  googleSync CustomerGoogleSync?
 
   @@unique([businessId, customerCode])
   @@index([businessId, phone])
@@ -2377,6 +2379,31 @@ model SocialPageAccount {
   @@map("social_page_account")
 }
 
+// ─── GOOGLE CONTACTS SYNC ───────────────────────────────
+// One row per Customer that has been explicitly opted into Google Contacts
+// sync (never created automatically — see CustomerGoogleSync.syncEnabled).
+// googleResourceName/googleEtag are People API identifiers used to map a
+// synced row back to its Google-side contact and detect conflicting writes.
+model CustomerGoogleSync {
+  id                 String    @id @default(cuid())
+  businessId         String
+  customerId         String    @unique
+  googleResourceName String              // "people/c12345"
+  googleEtag         String
+  syncEnabled        Boolean   @default(true)
+  lastSyncedAt       DateTime?
+  lastSyncDirection  String?             // 'PUSH' | 'PULL' | 'CONFLICT'
+  lastError          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@unique([businessId, googleResourceName])
+  @@index([businessId, syncEnabled])
+  @@map("customer_google_sync")
+}
 
 model PushSubscription {
   id         String   @id @default(cuid())

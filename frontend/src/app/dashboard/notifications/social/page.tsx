@@ -173,7 +173,7 @@ export default function SocialPage() {
   const isConnected = credsStatus?.tokenConfigured;
 
   return (
-    <div className="p-6 mx-auto max-w-6xl space-y-5">
+    <div className="p-6 max-w-full space-y-5">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2">

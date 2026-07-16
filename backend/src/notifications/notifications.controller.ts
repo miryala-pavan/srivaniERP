@@ -13,6 +13,7 @@ import { PushService } from './push.service';
 import { SubscribePushDto } from './dto/subscribe-push.dto';
 import { SocialMessagingService } from './social-messaging.service';
 import { CreateCommentCampaignDto } from './dto/create-comment-campaign.dto';
+import { BulkSendTemplateDto } from './dto/bulk-send-template.dto';
 import { UpdateCommentCampaignDto } from './dto/update-comment-campaign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -422,6 +423,19 @@ export class NotificationsController {
   @Post('whatsapp/campaigns/send')
   sendCampaign(@Request() req: any, @Body() body: { segmentId: string; template: string; language: string; params: string[] }) {
     return this.whatsapp.sendCampaign(req.user.businessId, body.segmentId, body.template, body.language, body.params ?? []);
+  }
+
+  // Not SUPER_ADMIN-only like sendCampaign above — this is triggered from
+  // the Contacts tab, which BRANCH_MANAGER can already see and use.
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('whatsapp/campaigns/send-bulk')
+  sendBulkTemplate(@Request() req: any, @Body() body: BulkSendTemplateDto) {
+    return this.whatsapp.sendBulkTemplate(req.user.businessId, body.ids, body.template, body.language, body.params ?? [], {
+      userId: req.user.userId,
+      userName: req.user.fullName ?? req.user.username ?? 'Unknown',
+      userRole: req.user.role,
+      businessId: req.user.businessId,
+    });
   }
 
   // ── Auto-reply settings ─────────────────────────────────────────────────────

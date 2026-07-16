@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   MessageSquare, Plus, Trash2, RefreshCw, CheckCircle2, Clock, XCircle,
   Send, KeyRound, PlayCircle, X, Wifi, WifiOff, AlertCircle,
@@ -118,7 +118,23 @@ export default function WhatsAppTemplatesPage() {
   // so the tabs themselves are hidden rather than shown-then-broken.
   const isSuperAdmin = getUser<{ role: string }>()?.role === 'SUPER_ADMIN';
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<'chat' | 'contacts' | 'templates' | 'campaigns' | 'settings'>('chat');
+
+  // Landing back here after the Google OAuth consent screen — oauth/callback
+  // redirects to this page with one of these two params set.
+  useEffect(() => {
+    if (searchParams?.get('googleContactsConnected')) {
+      toast.success('Google Contacts connected');
+      setTab('settings');
+      router.replace('/dashboard/notifications/whatsapp');
+    } else if (searchParams?.get('googleContactsError')) {
+      toast.error('Failed to connect Google Contacts — try again');
+      setTab('settings');
+      router.replace('/dashboard/notifications/whatsapp');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [cannedReplies, setCannedReplies] = useState<{ id: string; title: string; body: string; category: string | null }[]>([]);
   const [cannedRepliesLoaded, setCannedRepliesLoaded] = useState(false);
   const [showCannedForm, setShowCannedForm] = useState(false);
@@ -170,9 +186,12 @@ export default function WhatsAppTemplatesPage() {
   const [feedbackSettings, setFeedbackSettings] = useState({ googleReviewUrl: '' });
   const [feedbackSettingsLoaded, setFeedbackSettingsLoaded] = useState(false);
   const [savingFeedbackSettings, setSavingFeedbackSettings] = useState(false);
-  const [sendModal, setSendModal]     = useState<{
-    template: WaTemplate; phone: string; params: string[]; sending: boolean;
-  } | null>(null);
+  const [googleCreds, setGoogleCreds] = useState<{ configured: boolean; connected: boolean; connectedAccountEmail: string | null } | null>(null);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [syncingGoogle, setSyncingGoogle] = useState(false);
+  const [sendModal, setSendModal]     = useState<({
+    template: WaTemplate; params: string[]; sending: boolean;
+  } & ({ mode: 'single'; phone: string } | { mode: 'bulk'; ids: string[] })) | null>(null);
 
   // Message log
   const [waMessages, setWaMessages]     = useState<WaMessage[]>([]);
@@ -237,8 +256,49 @@ export default function WhatsAppTemplatesPage() {
   useEffect(() => {
     load();
     loadCreds();
-    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); loadFeedbackSettings(); }
+    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); loadFeedbackSettings(); loadGoogleCreds(); }
   }, [load, isSuperAdmin]);
+
+  async function loadGoogleCreds() {
+    try {
+      const { data } = await api.get('/google-contacts/credentials');
+      setGoogleCreds(data);
+    } catch { /* ignore */ }
+  }
+
+  async function connectGoogle() {
+    setConnectingGoogle(true);
+    try {
+      const { data } = await api.get('/google-contacts/oauth/start');
+      window.location.href = data.url;
+    } catch {
+      toast.error('Failed to start Google connection');
+      setConnectingGoogle(false);
+    }
+  }
+
+  async function disconnectGoogle() {
+    if (!confirm('Disconnect Google Contacts? Existing sync links stay on affected customers but nothing will sync until you reconnect.')) return;
+    try {
+      await api.post('/google-contacts/disconnect');
+      toast.success('Google Contacts disconnected');
+      loadGoogleCreds();
+    } catch {
+      toast.error('Failed to disconnect');
+    }
+  }
+
+  async function syncGoogleNow() {
+    setSyncingGoogle(true);
+    try {
+      const { data } = await api.post('/google-contacts/sync/now');
+      toast.success(`Synced: ${data.pushed} pushed, ${data.pulled} pulled, ${data.conflicts} conflict(s), ${data.failed} failed`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Sync failed');
+    } finally {
+      setSyncingGoogle(false);
+    }
+  }
 
   async function loadCreds() {
     try {
@@ -621,11 +681,23 @@ export default function WhatsAppTemplatesPage() {
   }
 
   function openSendModal(t: WaTemplate) {
-    setSendModal({ template: t, phone: testPhone || '', params: Array(varCount(t)).fill(''), sending: false });
+    setSendModal({ mode: 'single', template: t, phone: testPhone || '', params: Array(varCount(t)).fill(''), sending: false });
   }
 
   function openSendModalForPhone(t: WaTemplate, phone: string) {
-    setSendModal({ template: t, phone, params: Array(varCount(t)).fill(''), sending: false });
+    setSendModal({ mode: 'single', template: t, phone, params: Array(varCount(t)).fill(''), sending: false });
+  }
+
+  // Contacts tab bulk action: same shared modal, template picked automatically
+  // (first approved one, matching startNewChat's own default) since most
+  // selected address-book contacts have no open session.
+  function openBulkSendModal(ids: string[]) {
+    const approved = templates.filter(t => t.status === 'APPROVED');
+    if (approved.length === 0) {
+      toast.error('No approved templates yet — add one in Settings → Templates first');
+      return;
+    }
+    setSendModal({ mode: 'bulk', template: approved[0], ids, params: Array(varCount(approved[0])).fill(''), sending: false });
   }
 
   // New Chat (Chat tab): a number with no message history has no open 24h
@@ -656,9 +728,20 @@ export default function WhatsAppTemplatesPage() {
 
   async function sendFromModal() {
     if (!sendModal) return;
-    if (!sendModal.phone.trim()) return toast.error('Enter a phone number');
+    if (sendModal.mode === 'single' && !sendModal.phone.trim()) return toast.error('Enter a phone number');
     setSendModal(m => m ? { ...m, sending: true } : null);
     try {
+      if (sendModal.mode === 'bulk') {
+        const { data } = await api.post('/notifications/whatsapp/campaigns/send-bulk', {
+          ids:      sendModal.ids,
+          template: sendModal.template.name,
+          language: sendModal.template.language,
+          params:   sendModal.params,
+        });
+        toast.success(`"${sendModal.template.name}" sent to ${data.sent}/${data.requested} selected contact(s)${data.eligible < data.requested ? ` (${data.requested - data.eligible} skipped — not opted in)` : ''}`);
+        setSendModal(null);
+        return;
+      }
       const { data } = await api.post('/notifications/whatsapp/send-template', {
         phone:    sendModal.phone.trim(),
         template: sendModal.template.name,
@@ -686,7 +769,7 @@ export default function WhatsAppTemplatesPage() {
 
   return (
     <>
-    <div className={`p-6 mx-auto space-y-5 ${tab === 'chat' || tab === 'contacts' ? 'max-w-full' : 'max-w-4xl'}`}>
+    <div className={`p-6 space-y-5 ${tab === 'chat' || tab === 'contacts' ? 'max-w-full' : 'max-w-4xl mx-auto'}`}>
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -744,7 +827,7 @@ export default function WhatsAppTemplatesPage() {
       {tab === 'chat' && <WhatsAppChat onStartNewChat={startNewChat} />}
 
       {/* ── Contacts tab ── */}
-      {tab === 'contacts' && <ContactsTab onOpenContact={openContact} />}
+      {tab === 'contacts' && <ContactsTab onOpenContact={openContact} onBulkSend={openBulkSendModal} />}
 
       {/* ── Settings tab ── */}
       {isSuperAdmin && tab === 'settings' && phoneNumbersLoaded && (
@@ -1109,6 +1192,51 @@ export default function WhatsAppTemplatesPage() {
                 {registering ? 'Registering…' : 'Register'}
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* SECTION: Google Contacts */}
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Google Contacts</h2>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${googleCreds?.connected ? 'bg-green-50' : 'bg-gray-100'}`}>
+                <ContactIcon size={16} className={googleCreds?.connected ? 'text-green-600' : 'text-gray-500'} />
+              </div>
+              <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                Two-way sync
+                <span
+                  title="Opt-in per contact, from the Contacts tab — nothing syncs to your personal Google account by default. Google is authoritative for name/phone/email on synced contacts (with a conflict recorded, not silently overwritten, if both sides changed); opt-in status, credit limit, and other business fields never leave this app."
+                  className="cursor-help text-gray-400 font-normal">ⓘ</span>
+              </p>
+            </div>
+
+            {googleCreds?.connected ? (
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="text-sm text-gray-700">Connected{googleCreds.connectedAccountEmail ? ` as ${googleCreds.connectedAccountEmail}` : ''}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Runs automatically every 6 hours, or sync now.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={syncGoogleNow} disabled={syncingGoogle} className="btn-outline text-xs px-3 py-1.5 disabled:opacity-50">
+                    {syncingGoogle ? 'Syncing…' : 'Sync Now'}
+                  </button>
+                  <button onClick={disconnectGoogle} className="text-xs text-red-500 hover:text-red-700 px-2">Disconnect</button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs text-gray-500 mb-3">
+                  {googleCreds?.configured
+                    ? 'Not connected yet.'
+                    : 'Not set up yet — needs a Google Cloud project and OAuth client (see backend/.env.example for the one-time setup steps).'}
+                </p>
+                <button onClick={connectGoogle} disabled={!googleCreds?.configured || connectingGoogle}
+                  className="btn-primary text-sm px-4 disabled:opacity-50">
+                  {connectingGoogle ? 'Redirecting…' : 'Connect Google Account'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1728,7 +1856,7 @@ export default function WhatsAppTemplatesPage() {
                 value={sendModal.template.name}
                 onChange={e => {
                   const t = templates.find(x => x.name === e.target.value);
-                  if (t) setSendModal(m => m ? { template: t, phone: m.phone, params: Array(varCount(t)).fill(''), sending: false } : null);
+                  if (t) setSendModal(m => m ? { ...m, template: t, params: Array(varCount(t)).fill('') } : null);
                 }}
               >
                 {templates.filter(t => t.status === 'APPROVED').map(t => (
@@ -1746,10 +1874,21 @@ export default function WhatsAppTemplatesPage() {
           </div>
 
           <div>
-            <label className="label text-sm">Send to (phone number)</label>
-            <input className="input" placeholder="93828 28484"
-              value={sendModal.phone}
-              onChange={e => setSendModal(m => m ? { ...m, phone: e.target.value } : null)} />
+            {sendModal.mode === 'bulk' ? (
+              <>
+                <label className="label text-sm">Sending to</label>
+                <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  {sendModal.ids.length} selected contact{sendModal.ids.length !== 1 ? 's' : ''}
+                </p>
+              </>
+            ) : (
+              <>
+                <label className="label text-sm">Send to (phone number)</label>
+                <input className="input" placeholder="93828 28484"
+                  value={sendModal.phone}
+                  onChange={e => setSendModal(m => (m && m.mode === 'single') ? { ...m, phone: e.target.value } : m)} />
+              </>
+            )}
           </div>
 
           {sendModal.params.length > 0 && (

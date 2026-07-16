@@ -198,6 +198,10 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const [convLoading, setConvLoading]     = useState(true);
   const [search, setSearch]               = useState(() => params.get('q', ''));
   const [msgSearchPhones, setMsgSearchPhones] = useState<Set<string> | null>(null);
+  // Address-book matches for the current search — people in the Customers
+  // directory with no message thread yet, so they'd otherwise be invisible
+  // in this tab (which only ever lists existing conversations).
+  const [addressBookMatches, setAddressBookMatches] = useState<{ id: string; name: string; phone: string }[]>([]);
   const [unreadOnly, setUnreadOnly]       = useState(() => params.get('unread') === '1');
   const [showResolved, setShowResolved]   = useState(() => params.get('resolved') === '1');
   const [assignedToMeOnly, setAssignedToMeOnly] = useState(() => params.get('mine') === '1');
@@ -308,7 +312,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     const q = search.trim();
-    if (q.length < 2) { setMsgSearchPhones(null); params.set({ q: q || null }); return; }
+    if (q.length < 2) { setMsgSearchPhones(null); setAddressBookMatches([]); params.set({ q: q || null }); return; }
     searchDebounceRef.current = setTimeout(async () => {
       params.set({ q: q || null });
       try {
@@ -318,9 +322,21 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
       } catch {
         setMsgSearchPhones(null);
       }
+      try {
+        const { data } = await api.get('/customers', { params: { search: q, limit: 5 } });
+        const rows = Array.isArray(data?.data) ? data.data : [];
+        const existingPhones = new Set(conversations.map((c) => c.phone));
+        setAddressBookMatches(
+          rows
+            .filter((c: any) => c.phone && !existingPhones.has(`91${c.phone}`))
+            .map((c: any) => ({ id: c.id, name: c.name, phone: c.phone })),
+        );
+      } catch {
+        setAddressBookMatches([]);
+      }
     }, 300);
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
-  }, [search]);
+  }, [search, conversations]);
 
   const loadThread = useCallback(async (phone: string) => {
     setThreadLoading(true);
@@ -428,8 +444,9 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     loadConversations();
   });
 
-  function startNewChat() {
-    const digits = newChatPhone.replace(/\D/g, '');
+  function startNewChat(rawPhone?: string) {
+    const source = typeof rawPhone === 'string' ? rawPhone : newChatPhone;
+    const digits = source.replace(/\D/g, '');
     const local = digits.length >= 10 ? digits.slice(-10) : digits;
     if (!/^[6-9]\d{9}$/.test(local)) { toast.error('Enter a valid 10-digit Indian mobile number'); return; }
     const e164 = `91${local}`;
@@ -682,7 +699,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                 onChange={e => setNewChatPhone(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') startNewChat(); if (e.key === 'Escape') setShowNewChat(false); }}
               />
-              <button onClick={startNewChat} disabled={!newChatPhone.trim()} className="btn-primary text-xs px-2.5 py-1.5 disabled:opacity-50">
+              <button onClick={() => startNewChat()} disabled={!newChatPhone.trim()} className="btn-primary text-xs px-2.5 py-1.5 disabled:opacity-50">
                 Start
               </button>
             </div>
@@ -739,7 +756,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
         <div className="flex-1 overflow-y-auto">
           {convLoading ? (
             <div>{Array.from({ length: 6 }).map((_, i) => <ConversationRowSkeleton key={i} />)}</div>
-          ) : filtered.length === 0 ? (
+          ) : filtered.length === 0 && addressBookMatches.length === 0 ? (
             <div className="p-8 text-center text-gray-400">
               <MessageSquare size={28} className="mx-auto mb-2.5 text-gray-300" />
               <p className="text-sm font-medium text-gray-500">
@@ -799,6 +816,27 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                 </div>
               </button>
             ))
+          )}
+          {addressBookMatches.length > 0 && (
+            <div>
+              <p className="px-3.5 pt-3 pb-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                In your address book — no chat yet
+              </p>
+              {addressBookMatches.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => startNewChat(m.phone)}
+                  className="w-full text-left px-3.5 py-2.5 border-b border-gray-50 hover:bg-gray-50 transition-colors flex items-center gap-2.5"
+                >
+                  <Avatar seed={m.name || m.phone} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900 truncate">{m.name || `+91${m.phone}`}</p>
+                    <p className="text-xs text-gray-400 truncate">+91{m.phone}</p>
+                  </div>
+                  <MessageSquarePlus size={13} className="text-gray-300 shrink-0" />
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </div>

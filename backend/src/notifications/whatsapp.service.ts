@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
+import { AuditLogService, AuditActor } from '../audit-log/audit-log.service';
 
 const API_VERSION = 'v25.0';
 
@@ -23,7 +24,7 @@ export class WhatsAppService implements OnModuleInit {
   private _wabaId:   string | undefined;
   private _storeNum: string | undefined;
 
-  constructor(private prisma: PrismaService, private events: EventsService) {}
+  constructor(private prisma: PrismaService, private events: EventsService, private auditLog: AuditLogService) {}
 
   async onModuleInit() {
     await this.loadCredentialsFromDb();
@@ -742,15 +743,53 @@ export class WhatsAppService implements OnModuleInit {
     return [];
   }
 
-  /** Sends an approved template to every customer in a segment. Sequential to stay well under Meta's rate limits. */
-  async sendCampaign(businessId: string, segmentId: string, templateName: string, language: string, params: string[]) {
-    const customers = await this.getSegmentCustomers(businessId, segmentId);
+  /** Sequential send loop shared by sendCampaign and sendBulkTemplate — sequential to stay well under Meta's rate limits. */
+  private async sendTemplateToCustomers(
+    customers: { phone: string; name: string }[],
+    businessId: string, templateName: string, language: string, params: string[],
+  ) {
     let sent = 0, failed = 0;
     for (const c of customers) {
       const result = await this.sendTemplateToNumber(businessId, c.phone, templateName, language, params);
       if (result.ok) sent++; else failed++;
     }
     return { total: customers.length, sent, failed };
+  }
+
+  /** Sends an approved template to every customer in a segment. */
+  async sendCampaign(businessId: string, segmentId: string, templateName: string, language: string, params: string[]) {
+    const customers = await this.getSegmentCustomers(businessId, segmentId);
+    return this.sendTemplateToCustomers(customers, businessId, templateName, language, params);
+  }
+
+  /**
+   * Sends an approved template to an explicit, staff-picked list of
+   * customers (e.g. a multi-select in the Contacts tab). Filters server-side
+   * to whatsappOptIn=true, phone present — the same enforcement
+   * getSegmentCustomers' ALL_OPTED_IN branch already applies — so the
+   * compliance boundary holds even if the request carries a stale/tampered
+   * id list; any id that fails the filter is silently excluded, and the
+   * eligible/requested counts in the response make that visible.
+   */
+  async sendBulkTemplate(
+    businessId: string, ids: string[], templateName: string, language: string, params: string[],
+    actor: AuditActor,
+  ) {
+    const rows = await this.prisma.customer.findMany({
+      where: { businessId, id: { in: ids }, whatsappOptIn: true, phone: { not: null } },
+      select: { phone: true, name: true },
+    });
+    const eligible = rows.filter((r): r is { phone: string; name: string } => !!r.phone);
+    const result = await this.sendTemplateToCustomers(eligible, businessId, templateName, language, params);
+
+    this.auditLog.log(actor, {
+      action: 'BULK_SEND',
+      entity: 'WA_MESSAGE',
+      description: `Bulk WhatsApp template "${templateName}" sent to ${result.sent}/${ids.length} selected contact(s) by ${actor.userName}`,
+      meta: { requested: ids.length, eligible: eligible.length, sent: result.sent, failed: result.failed, template: templateName },
+    }).catch(() => {});
+
+    return { requested: ids.length, eligible: eligible.length, sent: result.sent, failed: result.failed };
   }
 
   // ── Auto-reply (rule-based) ─────────────────────────────────────────────────

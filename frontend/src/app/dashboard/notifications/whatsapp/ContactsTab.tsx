@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { Search, MessageCircle, Phone as PhoneIcon } from 'lucide-react';
+import { Search, MessageCircle, Phone as PhoneIcon, Send, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { OptInBadge } from '@/components/shared/OptInBadge';
@@ -13,6 +13,7 @@ interface Contact {
   name: string;
   phone: string | null;
   whatsappOptIn: boolean;
+  googleSync: { syncEnabled: boolean } | null;
 }
 
 interface Conversation {
@@ -21,6 +22,7 @@ interface Conversation {
 
 interface ContactsTabProps {
   onOpenContact: (phone: string, hasThread: boolean) => void;
+  onBulkSend: (ids: string[]) => void;
 }
 
 // "Not reviewed" is a pragmatic proxy for whatsappOptIn=false — consentGivenAt
@@ -33,12 +35,16 @@ const FILTERS = [
   { key: 'out', label: 'Not reviewed' },
 ] as const;
 
-export default function ContactsTab({ onOpenContact }: ContactsTabProps) {
+export default function ContactsTab({ onOpenContact, onBulkSend }: ContactsTabProps) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<'all' | 'in' | 'out'>('all');
+  // Deliberately no "select all matching filter" mode here (unlike the
+  // Customers page's bulk opt-in) — a message send is a bigger blast radius
+  // than a reversible opt-in toggle, so selection stays capped and explicit.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const LIMIT = 30;
 
   useEffect(() => {
@@ -46,7 +52,16 @@ export default function ContactsTab({ onOpenContact }: ContactsTabProps) {
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setPage(1); }, [debouncedSearch, filter]);
+  useEffect(() => { setPage(1); setSelectedIds(new Set()); }, [debouncedSearch, filter]);
+
+  function toggleRow(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() { setSelectedIds(new Set()); }
 
   const { data, isLoading } = useQuery({
     queryKey: ['contacts-tab-customers', { page, search: debouncedSearch, filter }],
@@ -87,6 +102,22 @@ export default function ContactsTab({ onOpenContact }: ContactsTabProps) {
     onError: () => toast.error('Failed to update opt-in status'),
   });
 
+  const toggleGoogleSync = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api.patch(`/google-contacts/customers/${id}/sync-enabled`, { enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['contacts-tab-customers'] }),
+    onError: () => toast.error('Failed to update Google sync — is Google Contacts connected in Settings?'),
+  });
+
+  const bulkGoogleSync = useMutation({
+    mutationFn: (ids: string[]) => api.post('/google-contacts/customers/bulk/sync-enabled', { ids, enabled: true }),
+    onSuccess: (res) => {
+      toast.success(`Synced ${res.data.succeeded}/${res.data.requested} contact(s) to Google`);
+      queryClient.invalidateQueries({ queryKey: ['contacts-tab-customers'] });
+    },
+    onError: () => toast.error('Bulk Google sync failed — is Google Contacts connected in Settings?'),
+  });
+
   // Sticky alphabetical grouping — computed from this page's already
   // name-sorted results, so it can split across a page boundary. Acceptable
   // for v1; fetching all contacts at once to group perfectly isn't worth it.
@@ -120,6 +151,28 @@ export default function ContactsTab({ onOpenContact }: ContactsTabProps) {
         <span className="text-xs text-gray-400 ml-auto">{total} contact{total !== 1 ? 's' : ''}</span>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-5 py-2.5 bg-green-50 border-b border-green-100">
+          <span className="text-sm font-medium text-green-800">{selectedIds.size} selected</span>
+          <button
+            onClick={() => bulkGoogleSync.mutate(Array.from(selectedIds))}
+            disabled={bulkGoogleSync.isPending}
+            className="ml-auto flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+          >
+            <RefreshCw size={12} /> Sync to Google
+          </button>
+          <button
+            onClick={() => { onBulkSend(Array.from(selectedIds)); clearSelection(); }}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700"
+          >
+            <Send size={12} /> Send template to selected
+          </button>
+          <button onClick={clearSelection} className="text-gray-400 hover:text-gray-600 text-xs underline">
+            Clear
+          </button>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>
       ) : contacts.length === 0 ? (
@@ -142,6 +195,14 @@ export default function ContactsTab({ onOpenContact }: ContactsTabProps) {
                   </div>
                 )}
                 <div className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/70 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(c.id)}
+                    onChange={() => toggleRow(c.id)}
+                    disabled={!c.phone || !c.whatsappOptIn}
+                    title={!c.whatsappOptIn ? 'Not opted in for WhatsApp marketing — opt in first to include in a bulk send' : undefined}
+                    className="rounded border-gray-300 shrink-0 disabled:opacity-30"
+                  />
                   <Avatar seed={c.name || c.phone || '?'} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
@@ -158,6 +219,18 @@ export default function ContactsTab({ onOpenContact }: ContactsTabProps) {
                     title="Toggle WhatsApp marketing opt-in"
                   >
                     <OptInBadge on={c.whatsappOptIn} />
+                  </button>
+                  <button
+                    onClick={() => toggleGoogleSync.mutate({ id: c.id, enabled: !c.googleSync?.syncEnabled })}
+                    disabled={toggleGoogleSync.isPending}
+                    className={`shrink-0 p-1.5 rounded-lg border transition-colors disabled:opacity-50 ${
+                      c.googleSync?.syncEnabled
+                        ? 'border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100'
+                        : 'border-gray-200 text-gray-300 hover:text-gray-400'
+                    }`}
+                    title={c.googleSync?.syncEnabled ? 'Synced with Google Contacts — click to stop' : 'Not synced with Google Contacts — click to sync'}
+                  >
+                    <RefreshCw size={12} />
                   </button>
                   <button
                     onClick={() => c.phone && onOpenContact(c.phone, hasThread)}

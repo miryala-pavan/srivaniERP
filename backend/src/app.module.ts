@@ -47,6 +47,7 @@ import { StorefrontProfileModule } from './storefront-profile/storefront-profile
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { ListsModule } from './lists/lists.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { GoogleContactsModule } from './google-contacts/google-contacts.module';
 import { VolumePricingModule } from './volume-pricing/volume-pricing.module';
 import { RepackModule } from './repack/repack.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
@@ -89,6 +90,7 @@ import { LedgerApiModule } from './ledger/ledger-api.module';
     StorefrontProfileModule,
     AuditLogModule,
     ListsModule,
+    GoogleContactsModule,
     ReviewsModule,
     VolumePricingModule,
     RepackModule,

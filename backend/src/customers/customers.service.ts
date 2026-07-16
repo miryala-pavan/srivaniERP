@@ -149,6 +149,7 @@ export class CustomersService {
           customerGroup: true, creditLimit: true, loyaltyPoints: true,
           openingBalance: true, isActive: true, isSystemDefault: true, createdAt: true,
           whatsappOptIn: true, smsOptIn: true, consentGivenAt: true,
+          googleSync: { select: { syncEnabled: true } },
         },
       }),
       this.prisma.customer.count({ where }),
