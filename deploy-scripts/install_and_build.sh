@@ -2,9 +2,15 @@
 set -e
 APP=/var/srivani/app
 
-echo "--- backend: npm install + build ---"
+echo "--- backend: npm install ---"
 cd "$APP/backend"
 npm install
+
+echo "--- prisma generate (must run before build - the compiler needs the
+     types regenerated from the current schema, not the previous one) ---"
+./node_modules/.bin/prisma generate 2>&1 | tail -3
+
+echo "--- backend: build ---"
 npm run build
 
 echo "--- frontend: npm install + build ---"
@@ -20,7 +26,3 @@ if [ ! -f .env.production ]; then
 fi
 npm install
 npm run build
-
-echo "--- prisma generate ---"
-cd "$APP/backend"
-./node_modules/.bin/prisma generate 2>&1 | tail -3
