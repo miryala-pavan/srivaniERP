@@ -32,7 +32,7 @@ export default async function HomePage() {
       <section className="mini-hero">
         <div className="seal-wrap">
           <div className="seal">
-            <svg className="ring" viewBox="0 0 230 230" aria-hidden="true" focusable="false">
+            <svg className="seal-ring" viewBox="0 0 230 230" aria-hidden="true" focusable="false">
               <defs>
                 <path
                   id="home-circle"

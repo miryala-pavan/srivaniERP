@@ -473,6 +473,9 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
 .seal-wrap {
   display: flex;
   justify-content: center;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
   outline: none !important;
   border: none !important;
   -webkit-tap-highlight-color: transparent;
@@ -482,11 +485,14 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
   width: 115px;
   height: 115px;
   flex-shrink: 0;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
   outline: none !important;
   border: none !important;
   -webkit-tap-highlight-color: transparent;
 }
-.seal .ring {
+.seal .seal-ring {
   width: 100%;
   height: 100%;
   animation: spin 26s linear infinite;
@@ -495,24 +501,27 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
   overflow: visible;
   pointer-events: none;
   user-select: none;
+  -webkit-user-select: none;
 }
-/* Prevent browser from drawing focus ring on SVG paths */
-.seal svg, .seal svg *, .seal path, .seal text, .seal textPath {
+/* Block every interactive/paint artefact on the seal and all descendants */
+.seal, .seal *, .seal svg, .seal svg *, .seal path, .seal text, .seal textPath {
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
   outline: none !important;
   border: none !important;
-  -webkit-tap-highlight-color: transparent;
+  -webkit-tap-highlight-color: transparent !important;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .seal text {
   font-family: var(--font-hanken), 'Hanken Grotesk', sans-serif;
-  font-size: 6.1px;
+  /* SVG viewBox is 230×230 displayed at 115px (0.5× scale).
+     font-size here is in SVG user units → 12.2 × 0.5 = 6.1px on screen. */
+  font-size: 12.2px;
   letter-spacing: 3.5px;
   text-transform: uppercase;
   fill: var(--ink-soft);
   font-weight: 600;
-  user-select: none;
-  -webkit-user-select: none;
-  outline: none;
 }
 .seal .core {
   position: absolute;
