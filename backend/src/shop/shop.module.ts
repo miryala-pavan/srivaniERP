@@ -9,5 +9,6 @@ import { SettingsModule } from '../settings/settings.module';
   imports: [ShopCacheModule, ServiceablePincodesModule, SettingsModule],
   controllers: [ShopController],
   providers: [ShopService],
+  exports: [ShopService],
 })
 export class ShopModule {}

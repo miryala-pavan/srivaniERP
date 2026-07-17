@@ -11,9 +11,10 @@ import { SocialMessagingService } from './social-messaging.service';
 import { EventsModule } from '../events/events.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { ShopModule } from '../shop/shop.module';
 
 @Module({
-  imports:     [EventsModule, PrismaModule, AuditLogModule],
+  imports:     [EventsModule, PrismaModule, AuditLogModule, ShopModule],
   providers:   [NotificationsService, WhatsAppService, EmailService, InternalNoteService, CannedReplyService, PushService, SocialMessagingService],
   controllers: [NotificationsController, SocialWebhookController],
   exports:     [NotificationsService, WhatsAppService, EmailService, InternalNoteService, CannedReplyService, PushService, SocialMessagingService],

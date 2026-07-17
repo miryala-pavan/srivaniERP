@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
 import { AuditLogService, AuditActor } from '../audit-log/audit-log.service';
+import { ShopService } from '../shop/shop.service';
 
 const API_VERSION = 'v25.0';
 
@@ -24,7 +25,12 @@ export class WhatsAppService implements OnModuleInit {
   private _wabaId:   string | undefined;
   private _storeNum: string | undefined;
 
-  constructor(private prisma: PrismaService, private events: EventsService, private auditLog: AuditLogService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventsService,
+    private auditLog: AuditLogService,
+    private shop: ShopService,
+  ) {}
 
   async onModuleInit() {
     await this.loadCredentialsFromDb();
@@ -892,17 +898,56 @@ export class WhatsAppService implements OnModuleInit {
     if (selection === 'WA_TRACK_ORDER')    return this.autoReplyOrderStatus(businessId, phone);
     if (selection === 'WA_STORE_HOURS')    return this.autoReplyStoreHours(businessId, phone);
     if (selection === 'WA_TALK_STAFF')     return this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
-    if (selection === 'WA_BROWSE_STORE')   return this.autoReplyText(businessId, phone, "🛒 Browse and order online here: https://shop.srivani.com");
+    if (selection === 'WA_BROWSE_STORE')   return this.autoReplyText(businessId, phone, `🛒 Browse and order online here: ${process.env.SHOP_URL ?? 'https://shop.srivani.com'}`);
     if (selection === 'WA_STORE_LOCATION') return this.autoReplyStoreLocation(businessId, phone);
 
     const body = exact;
     if (/order|status|track/.test(body)) return this.autoReplyOrderStatus(businessId, phone);
     if (/hour|timing|open|close/.test(body)) return this.autoReplyStoreHours(businessId, phone);
 
+    // Broader fallback: does this look like a product query ("do you have X",
+    // "price of Y")? Checked after the specific keyword rules above (so e.g.
+    // "order status" never gets treated as a product search) and before the
+    // first-message welcome below (so it doesn't preempt that greeting).
+    if (await this.autoReplyProductSearch(businessId, phone, opts.messageBody ?? '')) return;
+
     // Greet only on the very first inbound message ever received from this number
     // (the current message has already been logged by the time this runs).
     const inboundCount = await this.prisma.waMessage.count({ where: { businessId, phone: this.e164(phone) ?? phone, direction: 'INBOUND' } });
     if (inboundCount <= 1) return this.autoReplyWelcome(businessId, phone);
+  }
+
+  // Common conversational words/phrases that could otherwise "contains"-match
+  // a product name and trigger an unhelpful product-search reply to plain chit-chat.
+  private static readonly SEARCH_STOPLIST = new Set([
+    'ok', 'okay', 'k', 'hi', 'hii', 'hello', 'hey', 'thanks', 'thank you', 'thnx', 'ty',
+    'bye', 'goodbye', 'yes', 'no', 'yeah', 'yep', 'nope', 'sure', 'good',
+    'good morning', 'good afternoon', 'good evening', 'good night', 'gm', 'gn',
+  ]);
+
+  /**
+   * Free-text product search fallback: "do you have X" / "price of Y" style
+   * messages. Reuses ShopService.suggest() — the same online-scoped search
+   * that powers the storefront's own search bar — so results are guaranteed
+   * to be products a customer can actually order. Returns true (and sends a
+   * reply) only when at least one match is found; on zero matches it does
+   * nothing and lets the message fall through to the human inbox, same as
+   * any other unmatched message today — a bot-generated "no results" reply
+   * would just be noise for the many messages that were never product
+   * queries in the first place.
+   */
+  private async autoReplyProductSearch(businessId: string, phone: string, query: string): Promise<boolean> {
+    const trimmed = query.trim();
+    if (trimmed.length < 3 || WhatsAppService.SEARCH_STOPLIST.has(trimmed.toLowerCase())) return false;
+
+    const { products } = await this.shop.suggest(trimmed, 3);
+    if (products.length === 0) return false;
+
+    const shopUrl = process.env.SHOP_URL ?? 'https://shop.srivani.com';
+    const lines = products.map(p => `🛍️ *${p.name}* — ₹${p.sellingPrice}\n${shopUrl}/product/${p.code}`);
+    const header = products.length === 1 ? "Here's what we found:" : `Found ${products.length} matching products:`;
+    await this.autoReplyText(businessId, phone, `${header}\n\n${lines.join('\n\n')}`);
+    return true;
   }
 
   /** Opt-in keyword handler: creates the Customer if needed and flags whatsappOptIn=true. */
@@ -931,13 +976,17 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   private async autoReplyWelcome(businessId: string, phone: string) {
+    const shopHost = (() => {
+      try { return new URL(process.env.SHOP_URL ?? 'https://shop.srivani.com').host; }
+      catch { return 'shop.srivani.com'; }
+    })();
     await this.autoReplyInteractiveList(
       businessId, phone,
       "Hi! 👋 Welcome to Srivani Stores. How can we help you today?",
       'Menu',
       [
         { id: 'WA_TRACK_ORDER',  title: 'Track Order',   description: 'Check the status of your latest order' },
-        { id: 'WA_BROWSE_STORE',   title: 'Browse Store',   description: 'Shop online at shop.srivani.com' },
+        { id: 'WA_BROWSE_STORE',   title: 'Browse Store',   description: `Shop online at ${shopHost}` },
         { id: 'WA_STORE_HOURS',    title: 'Store Hours',    description: 'When we\'re open' },
         { id: 'WA_STORE_LOCATION', title: 'Store Location', description: 'Get directions to our store' },
         { id: 'WA_TALK_STAFF',     title: 'Talk to Staff',  description: 'Chat with our team directly' },
