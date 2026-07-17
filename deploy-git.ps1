@@ -74,7 +74,11 @@ if ($localStatus) {
 }
 
 Say "Pushing to origin/master"
-git.exe push origin master
+# credential.helper=manager-core is stale in this machine's global git config
+# (resolves to a nonexistent git-credential-manager-core.exe) and can hang
+# waiting on an interactive fallback prompt. Override it for this one
+# command only - never touches the user's actual git config.
+git.exe -c credential.helper=manager push origin master
 if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "git push failed" }
 Pop-Location
 
