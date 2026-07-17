@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { STORE_WA_NUMBER } from '@/lib/constants';
 
 export default function SiteFooter() {
   return (
@@ -13,7 +14,7 @@ export default function SiteFooter() {
         {/* Social links */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', margin: '14px 0 4px' }}>
           <a
-            href="https://wa.me/919382828484"
+            href={`https://wa.me/${STORE_WA_NUMBER}`}
             target="_blank"
             rel="noopener noreferrer"
             aria-label="WhatsApp"

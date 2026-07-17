@@ -10,6 +10,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { WishlistProvider } from '@/context/WishlistContext';
 import CartPanel from '@/components/CartPanel';
 import SentryInit from '@/components/SentryInit';
+import { STORE_CALL_NUMBER, STORE_WA_NUMBER } from '@/lib/constants';
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -30,13 +31,13 @@ const LOCAL_BUSINESS_LD = {
   '@type': ['GroceryStore', 'LocalBusiness'],
   name: 'Srivani Stores',
   alternateName: 'Sri Vani Kirana & General Stores',
-  description: 'Fresh groceries, staples, oils, dals, masalas, dairy and household essentials. Serving Sangareddy, Telangana since 1983.',
+  description: 'Fresh groceries, staples, oils, dals, masalas, dairy and household essentials. Serving Sangareddy, Telangana since 1980.',
   url: SITE_URL,
-  telephone: '+919382828484',
+  telephone: `+${STORE_CALL_NUMBER}`,
   email: 'srivanistore.srd@gmail.com',
   logo: `${SITE_URL}/logo.png`,
   image: `${SITE_URL}/logo.png`,
-  foundingDate: '1983',
+  foundingDate: '1980',
   priceRange: '₹-₹₹',
   paymentAccepted: 'Cash, UPI, Debit Card, Credit Card',
   currenciesAccepted: 'INR',
@@ -63,7 +64,7 @@ const LOCAL_BUSINESS_LD = {
   ],
   hasMap: 'https://www.google.com/maps/search/Srivani+Stores+Sangareddy',
   sameAs: [
-    'https://wa.me/919382828484',
+    `https://wa.me/${STORE_WA_NUMBER}`,
     'https://www.facebook.com/srivanistore/',
     'https://www.instagram.com/srivanigroup/',
   ],
@@ -91,7 +92,7 @@ export const metadata: Metadata = {
     template: '%s | Srivani Stores, Sangareddy',
   },
   description:
-    'Shop fresh groceries, staples, oils, dals, masalas and household essentials online. Free home delivery in Sangareddy, Telangana. Trusted since 1983.',
+    'Shop fresh groceries, staples, oils, dals, masalas and household essentials online. Free home delivery in Sangareddy, Telangana. Trusted since 1980.',
   keywords: [
     'grocery store Sangareddy', 'kirana store Sangareddy', 'online grocery Sangareddy',
     'home delivery grocery Sangareddy', 'grocery Telangana', 'Srivani Stores',
@@ -103,13 +104,13 @@ export const metadata: Metadata = {
     siteName: 'Srivani Stores',
     title: 'Srivani Stores — Online Grocery, Sangareddy, Telangana',
     description:
-      'Shop fresh groceries, staples, oils, dals, masalas and household essentials online. Free home delivery in Sangareddy, Telangana. Trusted since 1983.',
-    images: [{ url: '/logo.png', width: 512, height: 512, alt: 'Srivani Stores — Pure, Trust & Quality since 1983' }],
+      'Shop fresh groceries, staples, oils, dals, masalas and household essentials online. Free home delivery in Sangareddy, Telangana. Trusted since 1980.',
+    images: [{ url: '/logo.png', width: 512, height: 512, alt: 'Srivani Stores — Pure, Trust & Quality since 1980' }],
   },
   twitter: {
     card: 'summary',
     title: 'Srivani Stores — Online Grocery, Sangareddy',
-    description: 'Fresh groceries delivered home in Sangareddy, Telangana. Pure, Trust & Quality since 1983.',
+    description: 'Fresh groceries delivered home in Sangareddy, Telangana. Pure, Trust & Quality since 1980.',
     images: ['/logo.png'],
   },
   robots: { index: true, follow: true },

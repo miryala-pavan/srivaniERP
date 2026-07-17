@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { confirmDelivery } from '@/lib/orders';
 import type { OnlineOrder } from '@/lib/orders';
+import { STORE_WA_NUMBER } from '@/lib/constants';
 
 type Props = {
   order: OnlineOrder | null;
@@ -20,9 +21,12 @@ export default function ConfirmDeliveryClient({ order, orderNumber }: Props) {
         <div className="bg-white rounded-2xl shadow p-8 max-w-sm w-full text-center">
           <div className="text-4xl mb-4">&#128269;</div>
           <h1 className="text-xl font-bold text-gray-800 mb-2">Order Not Found</h1>
-          <p className="text-gray-500 text-sm mb-6">We couldn't find order <span className="font-mono font-semibold">{orderNumber}</span>.</p>
-          <Link href="/" className="inline-block bg-green-700 text-white font-semibold px-6 py-3 rounded-xl text-sm">
-            Back to Shop
+          <p className="text-gray-500 text-sm mb-6">
+            We couldn&apos;t find order <span className="font-mono font-semibold">{orderNumber}</span> with that link.
+            View your order status page first to confirm your phone number.
+          </p>
+          <Link href={`/order/${orderNumber}`} className="inline-block bg-green-700 text-white font-semibold px-6 py-3 rounded-xl text-sm">
+            View Order Status
           </Link>
         </div>
       </div>
@@ -38,10 +42,10 @@ export default function ConfirmDeliveryClient({ order, orderNumber }: Props) {
           <p className="text-gray-600 text-sm mb-1">Delivery confirmed for</p>
           <p className="font-mono font-semibold text-gray-800 mb-6">{orderNumber}</p>
           <p className="text-gray-500 text-sm mb-4">We're glad your order reached you safely!</p>
-          <Link href={`/order/${orderNumber}/review`} className="block w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold px-6 py-3 rounded-xl text-sm mb-3">
+          <Link href={`/order/${orderNumber}/review?phone=${encodeURIComponent(order.customerPhone)}`} className="block w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold px-6 py-3 rounded-xl text-sm mb-3">
             ⭐ Rate Your Items
           </Link>
-          <Link href={`/order/${orderNumber}`} className="inline-block bg-green-700 text-white font-semibold px-6 py-3 rounded-xl text-sm mr-2">
+          <Link href={`/order/${orderNumber}?phone=${encodeURIComponent(order.customerPhone)}`} className="inline-block bg-green-700 text-white font-semibold px-6 py-3 rounded-xl text-sm mr-2">
             View Order
           </Link>
           <Link href="/" className="inline-block border border-gray-300 text-gray-700 font-semibold px-6 py-3 rounded-xl text-sm">
@@ -76,7 +80,7 @@ export default function ConfirmDeliveryClient({ order, orderNumber }: Props) {
   async function handleConfirm() {
     setState('loading');
     try {
-      await confirmDelivery(orderNumber);
+      await confirmDelivery(orderNumber, order!.customerPhone);
       setState('done');
     } catch (err: any) {
       setErrorMsg(err?.message ?? 'Something went wrong. Please try again.');
@@ -109,7 +113,7 @@ export default function ConfirmDeliveryClient({ order, orderNumber }: Props) {
         </button>
 
         <a
-          href={`https://wa.me/919382828484?text=Hi%2C+I+have+an+issue+with+order+${orderNumber}`}
+          href={`https://wa.me/${STORE_WA_NUMBER}?text=Hi%2C+I+have+an+issue+with+order+${orderNumber}`}
           target="_blank"
           rel="noopener noreferrer"
           className="block text-sm text-green-700 font-medium py-2"

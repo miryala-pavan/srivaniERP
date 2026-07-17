@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { STORE_CALL_NUMBER, STORE_CALL_DISPLAY, STORE_WA_NUMBER } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Page Not Found — Srivani Stores',
@@ -57,12 +58,12 @@ export default function NotFound() {
 
         <div style={{ marginTop: '56px', color: 'var(--ink-soft)', fontSize: '13px' }}>
           Need help?{' '}
-          <a href="tel:+919382828484" style={{ color: 'var(--saffron-deep)', fontWeight: 700 }}>
-            Call +91 93828 28484
+          <a href={`tel:+${STORE_CALL_NUMBER}`} style={{ color: 'var(--saffron-deep)', fontWeight: 700 }}>
+            Call {STORE_CALL_DISPLAY}
           </a>{' '}
           or{' '}
           <a
-            href="https://wa.me/919382828484"
+            href={`https://wa.me/${STORE_WA_NUMBER}`}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: 'var(--saffron-deep)', fontWeight: 700 }}

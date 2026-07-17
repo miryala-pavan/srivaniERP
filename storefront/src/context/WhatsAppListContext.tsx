@@ -41,14 +41,20 @@ function load(): ListItem[] {
 
 export function WhatsAppListProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ListItem[]>([]);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     setItems(load());
+    setHydrated(true);
   }, []);
 
   useEffect(() => {
+    // Don't persist until the initial load-from-storage above has run —
+    // otherwise this effect can fire first (with the empty initial state)
+    // and clobber the real list before it's ever read back.
+    if (!hydrated) return;
     localStorage.setItem(LS_KEY, JSON.stringify(items));
-  }, [items]);
+  }, [items, hydrated]);
 
   const addItem = useCallback((item: Omit<ListItem, 'qty'>) => {
     setItems(prev => {

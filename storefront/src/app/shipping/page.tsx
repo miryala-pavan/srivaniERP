@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { STORE_CALL_NUMBER, STORE_CALL_DISPLAY } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Shipping & Delivery Policy — Srivani Stores',
@@ -54,7 +55,7 @@ export default function ShippingPage() {
         <p>
           For any questions about this policy, contact us at{' '}
           <a href="mailto:srivanistore.srd@gmail.com">srivanistore.srd@gmail.com</a> or{' '}
-          <a href="tel:+919382828484">+91 93828 28484</a>.
+          <a href={`tel:+${STORE_CALL_NUMBER}`}>{STORE_CALL_DISPLAY}</a>.
           Also see our <Link href="/refund">Refund &amp; Cancellation Policy</Link>.
         </p>
       </div>

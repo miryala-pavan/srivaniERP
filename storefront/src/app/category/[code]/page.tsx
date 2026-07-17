@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: Props) {
   const cat = categories.find(c => c.code === params.code);
   const name = cat?.label || cat?.name || params.code;
   const count = cat?.productCount;
-  const description = `Shop ${name} at Srivani Stores, Sangareddy${count ? ` — ${count} products available` : ''}. Fresh groceries, pure quality since 1983. Order via WhatsApp.`;
+  const description = `Shop ${name} at Srivani Stores, Sangareddy${count ? ` — ${count} products available` : ''}. Fresh groceries, pure quality since 1980. Order via WhatsApp.`;
 
   return {
     title: `${name} — Srivani Stores`,

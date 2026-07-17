@@ -233,14 +233,14 @@ export class WebhookController implements OnModuleInit {
       }).catch(err => this.logger.error(`Auto-reply failed for ${senderPhone}: ${err}`));
 
       if (msg.type === 'interactive' && msg.interactive?.type === 'button_reply') {
-        await this.handleButtonReply(msg.interactive.button_reply.id as string);
+        await this.handleButtonReply(msg.interactive.button_reply.id as string, senderPhone);
         return;
       }
 
       // A tap on a TEMPLATE's quick-reply button (e.g. post_delivery_feedback)
       // arrives with this shape, not the "interactive" shape above.
       if (msg.type === 'button' && msg.button?.payload) {
-        await this.handleButtonReply(msg.button.payload as string);
+        await this.handleButtonReply(msg.button.payload as string, senderPhone);
         return;
       }
 
@@ -277,10 +277,14 @@ export class WebhookController implements OnModuleInit {
 
   // Dispatches an inbound button tap to the action it represents.
   // Button ids are namespaced "ACTION:param" (see WhatsAppService.sendCustomerOrderUpdate).
-  private async handleButtonReply(buttonId: string) {
+  // senderPhone is the WhatsApp number the tap came from — required now to
+  // verify the tapper actually owns the order (confirmDelivery checks it
+  // matches the order's customerPhone), since Meta only tells us who sent
+  // the button tap, not which order it's "supposed" to be for.
+  private async handleButtonReply(buttonId: string, senderPhone: string) {
     const [action, param] = buttonId.split(':');
     if (action === 'CONFIRM_DELIVERY' && param) {
-      await this.onlineOrders.confirmDelivery(param).catch(err =>
+      await this.onlineOrders.confirmDelivery(param, senderPhone).catch(err =>
         this.logger.error(`confirmDelivery via WA button failed for ${param}: ${err}`),
       );
     } else if (action === 'FEEDBACK_POS' && param) {

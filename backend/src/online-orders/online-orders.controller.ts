@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards, Request, BadRequestException } from '@nestjs/common';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { OnlineOrdersService } from './online-orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { WhatsAppCheckoutDto } from './dto/whatsapp-checkout.dto';
@@ -13,21 +14,29 @@ const ADMIN_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'ACCOU
 export class OnlineOrdersController {
   constructor(private readonly service: OnlineOrdersService) {}
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post()
   createOrder(@Body() dto: CreateOrderDto) {
     return this.service.createOrder(dto);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('whatsapp-checkout')
   whatsappCheckout(@Body() dto: WhatsAppCheckoutDto) {
     return this.service.whatsappCheckout(dto);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('verify-payment')
   verifyPayment(@Body() dto: VerifyPaymentDto) {
     return this.service.verifyPayment(dto);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Get()
   listOrders(
     @Query('phone') phone?: string,
@@ -49,27 +58,49 @@ export class OnlineOrdersController {
     return this.service.listAllOrders(status, date, search, dateFrom, dateTo);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post(':orderNumber/retry-payment')
-  retryPayment(@Param('orderNumber') orderNumber: string) {
-    return this.service.retryPayment(orderNumber);
+  retryPayment(
+    @Param('orderNumber') orderNumber: string,
+    @Body('customerPhone') customerPhone: string,
+  ) {
+    if (!customerPhone) throw new BadRequestException('customerPhone is required');
+    return this.service.retryPayment(orderNumber, customerPhone);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post(':orderNumber/confirm-delivery')
-  confirmDelivery(@Param('orderNumber') orderNumber: string) {
-    return this.service.confirmDelivery(orderNumber);
+  confirmDelivery(
+    @Param('orderNumber') orderNumber: string,
+    @Body('customerPhone') customerPhone: string,
+  ) {
+    if (!customerPhone) throw new BadRequestException('customerPhone is required');
+    return this.service.confirmDelivery(orderNumber, customerPhone);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post(':orderNumber/cancel')
   cancelOrder(
     @Param('orderNumber') orderNumber: string,
+    @Body('customerPhone') customerPhone: string,
     @Body('reason') reason?: string,
   ) {
-    return this.service.cancelOrder(orderNumber, reason);
+    if (!customerPhone) throw new BadRequestException('customerPhone is required');
+    return this.service.cancelOrder(orderNumber, customerPhone, reason);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Get(':orderNumber')
-  getOrder(@Param('orderNumber') orderNumber: string) {
-    return this.service.getOrder(orderNumber);
+  getOrder(
+    @Param('orderNumber') orderNumber: string,
+    @Query('phone') phone: string,
+  ) {
+    if (!phone) throw new BadRequestException('phone is required');
+    return this.service.getOrder(orderNumber, phone);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

@@ -10,12 +10,15 @@ export const metadata: Metadata = {
 
 export default async function ReviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orderNumber: string }>;
+  searchParams: Promise<{ phone?: string }>;
 }) {
   const { orderNumber } = await params;
+  const { phone } = await searchParams;
   const [order, reviewStatus] = await Promise.all([
-    fetchOrder(orderNumber),
+    phone ? fetchOrder(orderNumber, phone) : Promise.resolve(null),
     getOrderReviewStatus(orderNumber),
   ]);
   return (

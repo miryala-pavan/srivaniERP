@@ -1,9 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { wildcardFilter, hasWildcard } from '../common/helpers/search.helper';
 import { ShopCacheService } from './shop-cache.service';
 import { ServiceablePincodesService } from '../serviceable-pincodes/serviceable-pincodes.service';
 import { SettingsService } from '../settings/settings.service';
+
+// Must match the static-serve mount in main.ts (imagesDir <-> /uploads/products).
+const PRODUCT_IMAGES_DIR = process.env.PRODUCT_IMAGES_DIR
+  ?? path.join(process.cwd(), '..', 'storage', 'product-images');
+function productImageExists(imageUrl: string): boolean {
+  if (!imageUrl.startsWith('/uploads/products/')) return false;
+  const relative = imageUrl.slice('/uploads/products/'.length);
+  try {
+    return fs.existsSync(path.join(PRODUCT_IMAGES_DIR, relative));
+  } catch {
+    return false;
+  }
+}
 
 // ─── Whitelisted output types ─────────────────────────────────────────────────
 
@@ -13,12 +28,14 @@ export interface ShopCategoryItem {
   name: string;
   label: string;
   productCount: number;
+  sampleImages: string[];
   subcategories: {
     id: string;
     code: string;
     name: string;
     label: string;
     productCount: number;
+    sampleImages: string[];
   }[];
 }
 
@@ -254,6 +271,30 @@ export class ShopService {
       onlineCounts.map(r => [r.categoryId as string, r._count.id]),
     );
 
+    // Sample a few product photos per category to build a "basket" mosaic
+    // tile on the storefront — no dedicated category image exists yet.
+    const imageProducts = await this.prisma.product.findMany({
+      where: {
+        businessId,
+        isActive: true,
+        isManuallyDisabled: false,
+        imageUrl: { not: null },
+        plusList: { some: ONLINE_PLU_FILTER },
+      },
+      select: { categoryId: true, imageUrl: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const SAMPLE_IMAGES_PER_CATEGORY = 4;
+    const imagesMap = new Map<string, string[]>();
+    for (const p of imageProducts) {
+      if (!p.categoryId || !p.imageUrl) continue;
+      const arr = imagesMap.get(p.categoryId) ?? [];
+      if (arr.length < SAMPLE_IMAGES_PER_CATEGORY && productImageExists(p.imageUrl)) {
+        arr.push(p.imageUrl);
+        imagesMap.set(p.categoryId, arr);
+      }
+    }
+
     const subCatMap = new Map<string, typeof subCats[number][]>();
     for (const sc of subCats) {
       if (!sc.parentId) continue;
@@ -271,18 +312,29 @@ export class ShopService {
         name: sc.name,
         label: sc.label,
         productCount: countMap.get(sc.id) ?? 0,
+        sampleImages: imagesMap.get(sc.id) ?? [],
       }));
       const totalCount = subs.reduce((s, sc) => s + sc.productCount, 0);
       if (totalCount === 0) continue;
+      // Products are assigned to subcategories, not the parent — pull the
+      // tile mosaic from across its children, same source as the count sum.
+      const mainSampleImages = [
+        ...(imagesMap.get(mc.id) ?? []),
+        ...subs.flatMap(sc => sc.sampleImages),
+      ].slice(0, SAMPLE_IMAGES_PER_CATEGORY);
       result.push({
         id: mc.id,
         code: mc.code,
         name: mc.name,
         label: mc.label,
         productCount: totalCount,
-        subcategories: subs.filter(s => s.productCount > 0),
+        sampleImages: mainSampleImages,
+        subcategories: subs.filter(s => s.productCount > 0).sort((a, b) => b.productCount - a.productCount),
       });
     }
+    // Highest-stock categories first — matches how customers actually shop
+    // (Blinkit/BigBasket-style), rather than the manually-curated sortOrder.
+    result.sort((a, b) => b.productCount - a.productCount);
     await this.cache.set('shop:categories', result, CACHE_TTL.categories);
     return result;
   }
@@ -682,6 +734,7 @@ export class ShopService {
     products: { code: string; name: string; sellingPrice: number; iconUrl: string | null; subcategory: string | null }[];
     categories: { code: string; name: string; department: string | null }[];
   }> {
+    limit = Math.min(20, Math.max(1, limit || 6)); // autocomplete dropdown, not a full listing
     const businessId = await this.getBusinessId();
     const term = q.trim();
 

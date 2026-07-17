@@ -2,14 +2,16 @@
 Srivani ERP - Safe Deploy to Hetzner VPS
 
 What this does, in order:
-  1. Builds backend + frontend locally.
+  1. Builds backend + frontend + storefront locally (storefront requires
+     storefront\.env.production to exist, or the build is refused - without
+     it, NEXT_PUBLIC_* vars from local dev would get baked into the prod bundle).
   2. Diffs prod's live DB schema against local schema.prisma (read-only).
   3. Refuses to auto-apply anything destructive (DROP/data-type narrowing/SET NOT NULL) -
      stops and shows you the exact lines so you can review by hand.
   4. If the diff is safe, asks for one confirmation, then:
        - takes a timestamped pg_dump backup of prod first
        - applies the diff inside a single transaction (all-or-nothing)
-  5. Ships the built backend/frontend to the server and restarts the app.
+  5. Ships the built backend/frontend/storefront to the server and restarts all three.
 
 The actual remote commands live in deploy-scripts/*.sh (plain bash, no PowerShell
 string-escaping involved) - this script just uploads and runs them via ssh/scp.
@@ -58,14 +60,25 @@ npm run build
 if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "frontend build failed" }
 Pop-Location
 
+Say "Building storefront"
+Push-Location "$RepoRoot\storefront"
+if (-not (Test-Path ".env.production")) { Pop-Location; Fail "storefront\.env.production is missing - a local build without it would bake localhost URLs into the production bundle" }
+npm run build
+if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "storefront build failed" }
+Pop-Location
+
 if ($SkipSchema) {
   Say "Skipping schema diff (-SkipSchema passed)" 'Yellow'
 } else {
-  #  2. Schema diff (read-only) 
+  #  2. Schema diff (read-only)
   Say "Checking schema diff against prod"
   scp "$RepoRoot\backend\prisma\schema.prisma" "${Server}:/tmp/schema_deploy_check.prisma" | Out-Null
+  if ($LASTEXITCODE -ne 0) { Fail "upload of schema.prisma for diff check failed" }
 
   $diffResult = Invoke-RemoteScript 'diff_check.sh'
+  # A dropped SSH connection here would otherwise look identical to "no diff" -
+  # a false "already matches" would ship code without its required migration.
+  if ($diffResult.ExitCode -ne 0) { Fail "schema diff check failed (SSH/command error, exit $($diffResult.ExitCode)) - not safe to assume schema matches, re-run" }
   $diffText = ($diffResult.Output -join "`n").Trim()
 
   if ($diffText -eq '-- This is an empty migration.' -or [string]::IsNullOrWhiteSpace($diffText)) {
@@ -125,7 +138,7 @@ if ($DryRun) {
   exit 0
 }
 
-#  3. Package + ship code 
+#  3. Package + ship code
 Say "Packaging builds"
 tar -czf "$Scratch\backend-dist.tgz" -C "$RepoRoot\backend" dist
 New-Item -ItemType Directory -Force "$Scratch\.next" | Out-Null
@@ -134,9 +147,17 @@ Get-ChildItem "$RepoRoot\frontend\.next" | Where-Object Name -ne 'cache' | ForEa
 }
 tar -czf "$Scratch\next.tgz" -C $Scratch .next
 tar -czf "$Scratch\public.tgz" -C "$RepoRoot\frontend" public
+Remove-Item -Recurse -Force "$Scratch\.next"
+
+New-Item -ItemType Directory -Force "$Scratch\.next" | Out-Null
+Get-ChildItem "$RepoRoot\storefront\.next" | Where-Object Name -ne 'cache' | ForEach-Object {
+  Copy-Item $_.FullName "$Scratch\.next\$($_.Name)" -Recurse
+}
+tar -czf "$Scratch\storefront-next.tgz" -C $Scratch .next
+tar -czf "$Scratch\storefront-public.tgz" -C "$RepoRoot\storefront" public
 
 Say "Uploading to server"
-scp "$Scratch\backend-dist.tgz" "$Scratch\next.tgz" "$Scratch\public.tgz" "$RepoRoot\backend\prisma\schema.prisma" "${Server}:/tmp/"
+scp "$Scratch\backend-dist.tgz" "$Scratch\next.tgz" "$Scratch\public.tgz" "$Scratch\storefront-next.tgz" "$Scratch\storefront-public.tgz" "$RepoRoot\backend\prisma\schema.prisma" "${Server}:/tmp/"
 if ($LASTEXITCODE -ne 0) { Fail "upload failed" }
 
 Say "Swapping in new build on server"
@@ -148,11 +169,11 @@ if ($swapResult.ExitCode -ne 0) { Fail "code swap/restart failed on server" }
 Say "Health check"
 Start-Sleep -Seconds 4
 $healthResult = Invoke-RemoteScript 'health_check.sh'
-$health = ($healthResult.Output -join '').Trim()
-if ($health -eq '200') {
-  Write-Host "Backend healthy (200)" -ForegroundColor Green
+$health = ($healthResult.Output -join "`n").Trim()
+if ($health -match 'backend=200' -and $health -match 'storefront=200') {
+  Write-Host "Backend and storefront both healthy: $health" -ForegroundColor Green
 } else {
-  Write-Host "Backend returned $health - check pm2 logs on the server" -ForegroundColor Red
+  Write-Host "Health check returned: $health - check pm2 logs on the server" -ForegroundColor Red
 }
 
 Remove-Item -Recurse -Force $Scratch -ErrorAction SilentlyContinue

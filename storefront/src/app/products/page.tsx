@@ -12,7 +12,7 @@ import EmptyState from '@/components/EmptyState';
 
 export const metadata: Metadata = {
   title: 'Browse All Products — Srivani Stores',
-  description: 'Shop the full range at Srivani Stores, Sangareddy — groceries, personal care, homecare and more. Pure, Trust & Quality since 1983.',
+  description: 'Shop the full range at Srivani Stores, Sangareddy — groceries, personal care, homecare and more. Pure, Trust & Quality since 1980.',
   openGraph: {
     title: 'Browse All Products — Srivani Stores',
     description: 'Shop groceries, personal care, homecare and more at Srivani Stores, Sangareddy.',

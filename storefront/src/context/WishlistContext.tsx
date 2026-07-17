@@ -31,9 +31,16 @@ function load(): WishlistItem[] {
 
 export function WishlistProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<WishlistItem[]>([]);
+  const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => { setItems(load()); }, []);
-  useEffect(() => { localStorage.setItem(LS_KEY, JSON.stringify(items)); }, [items]);
+  useEffect(() => { setItems(load()); setHydrated(true); }, []);
+  useEffect(() => {
+    // Don't persist until the initial load-from-storage above has run —
+    // otherwise this effect can fire first (with the empty initial state)
+    // and clobber the real wishlist before it's ever read back.
+    if (!hydrated) return;
+    localStorage.setItem(LS_KEY, JSON.stringify(items));
+  }, [items, hydrated]);
 
   const toggle = useCallback((item: WishlistItem) => {
     setItems(prev =>

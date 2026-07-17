@@ -1493,12 +1493,13 @@ model ProductPlu {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  product      Product            @relation(fields: [productId], references: [id])
-  business     Business           @relation(fields: [businessId], references: [id])
-  barcodes     ProductBarcode[]
-  asBulk       PluBundle[]        @relation("BulkPlu")
-  asSingle     PluBundle[]        @relation("SinglePlu")
-  priceHistory PluPriceHistory[]
+  product         Product            @relation(fields: [productId], references: [id])
+  business        Business           @relation(fields: [businessId], references: [id])
+  barcodes        ProductBarcode[]
+  asBulk          PluBundle[]        @relation("BulkPlu")
+  asSingle        PluBundle[]        @relation("SinglePlu")
+  priceHistory    PluPriceHistory[]
+  onlineOrderItems OnlineOrderItem[]
 
   @@unique([businessId, pluCode])
   @@index([productId])
@@ -2039,6 +2040,7 @@ model OnlineOrder {
 model OnlineOrderItem {
   id          String   @id @default(cuid())
   orderId     String
+  pluId       String?
   pluBarcode  String
   productCode String
   productName String
@@ -2049,8 +2051,10 @@ model OnlineOrderItem {
   mrp         Decimal? @db.Decimal(10, 2)
 
   order OnlineOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  plu   ProductPlu?  @relation(fields: [pluId], references: [id])
 
   @@index([orderId])
+  @@index([pluId])
   @@map("online_order_item")
 }
 

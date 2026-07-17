@@ -9,10 +9,13 @@ export const metadata: Metadata = {
 
 export default async function ConfirmDeliveryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orderNumber: string }>;
+  searchParams: Promise<{ phone?: string }>;
 }) {
   const { orderNumber } = await params;
-  const order = await fetchOrder(orderNumber);
+  const { phone } = await searchParams;
+  const order = phone ? await fetchOrder(orderNumber, phone) : null;
   return <ConfirmDeliveryClient order={order} orderNumber={orderNumber} />;
 }

@@ -8,25 +8,10 @@ import { useCart, effectiveUnitPrice } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useVerifiedPhone } from '@/hooks/useVerifiedPhone';
 import { whatsappCheckout } from '@/lib/orders';
-
-const WA_NUMBER = '919382828484';
+import { STORE_WA_NUMBER as WA_NUMBER } from '@/lib/constants';
 
 function fmtPrice(n: number) {
   return n % 1 === 0 ? String(n) : n.toFixed(2);
-}
-
-function buildWaUrl(items: ReturnType<typeof useCart>['items']) {
-  const lines = items.map(
-    (it, i) => `${i + 1}. ${it.name} — ${it.packLabel} x${it.qty} — ₹${fmtPrice(it.sellingPrice * it.qty)}`,
-  );
-  const total = items.reduce((s, it) => s + it.sellingPrice * it.qty, 0);
-  const text = [
-    'Hello Srivani Stores, I would like to order:',
-    ...lines,
-    `Total (est.): ₹${fmtPrice(total)}`,
-    'Please confirm and deliver. Thank you.',
-  ].join('\n');
-  return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`;
 }
 
 export default function CartPageClient() {
@@ -41,8 +26,14 @@ export default function CartPageClient() {
   async function handleWhatsAppOrder() {
     const phone = verifiedPhone;
     if (!isLoggedIn || !phone || !user) {
-      // Fallback: open WhatsApp directly (untracked, guest flow)
-      window.open(buildWaUrl(items), '_blank', 'noopener,noreferrer');
+      // Previously fell back to an untracked wa.me deep-link here — that
+      // path never touched the backend or cleared the cart, so a guest
+      // could send that WhatsApp message AND still complete a separate
+      // real checkout for the same items, creating two orders (one
+      // informal, one real). Requiring sign-in matches the already-safe
+      // logged-in path below, which clears the cart the moment the real
+      // order is created.
+      router.push('/login?redirect=/cart');
       return;
     }
     setWaLoading(true);
@@ -67,7 +58,7 @@ export default function CartPageClient() {
       ).join('\n');
       const text = `Hi Srivani Stores! I've placed order *#${orderNumber}* online.\n\n${summary}\n\nTotal: ₹${fmtPrice(subtotal)}\n\nPlease confirm delivery details. Thank you!`;
       window.open(`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
-      router.push(`/order/${orderNumber}`);
+      router.push(`/order/${orderNumber}?phone=${encodeURIComponent(phone)}`);
     } catch (e) {
       setWaError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
       setWaLoading(false);

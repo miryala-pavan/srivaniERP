@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import type { Metadata } from 'next';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { STORE_CALL_NUMBER, STORE_CALL_DISPLAY } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Refund & Cancellation Policy — Srivani Stores',
@@ -49,14 +50,14 @@ export default function RefundPage() {
         <p>
           To request a cancellation or refund, contact us at{' '}
           <a href="mailto:srivanistore.srd@gmail.com">srivanistore.srd@gmail.com</a> or{' '}
-          <a href="tel:+919382828484">+91 93828 28484</a> with your order details.
+          <a href={`tel:+${STORE_CALL_NUMBER}`}>{STORE_CALL_DISPLAY}</a> with your order details.
         </p>
 
         <h2>Contact</h2>
         <p>
           For any questions about this policy, contact us at{' '}
           <a href="mailto:srivanistore.srd@gmail.com">srivanistore.srd@gmail.com</a> or{' '}
-          <a href="tel:+919382828484">+91 93828 28484</a>.
+          <a href={`tel:+${STORE_CALL_NUMBER}`}>{STORE_CALL_DISPLAY}</a>.
         </p>
       </div>
     </div>

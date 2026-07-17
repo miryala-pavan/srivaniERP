@@ -9,6 +9,7 @@ import WishlistButton from '@/components/WishlistButton';
 import NotifyMeButton from '@/components/NotifyMeButton';
 import RecentlyViewedTracker from '@/components/RecentlyViewedTracker';
 import FrequentlyBoughtWith from '@/components/FrequentlyBoughtWith';
+import { STORE_WA_NUMBER } from '@/lib/constants';
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:4002').replace(/\/$/, '');
 
@@ -92,7 +93,7 @@ function formatPrice(price: number) {
 
 function buildWhatsAppUrl(productName: string, packLabel: string, price: number) {
   const text = `Hi Srivani Stores, I'd like to order: ${productName} - ${packLabel} (Rs.${formatPrice(price)}).`;
-  return `https://wa.me/919382828484?text=${encodeURIComponent(text)}`;
+  return `https://wa.me/${STORE_WA_NUMBER}?text=${encodeURIComponent(text)}`;
 }
 
 export default async function ProductPage({ params }: Props) {

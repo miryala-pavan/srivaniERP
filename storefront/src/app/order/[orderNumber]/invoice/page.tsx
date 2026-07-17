@@ -9,10 +9,13 @@ export const metadata: Metadata = {
 
 export default async function InvoicePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orderNumber: string }>;
+  searchParams: Promise<{ phone?: string }>;
 }) {
   const { orderNumber } = await params;
-  const order = await fetchOrder(orderNumber);
+  const { phone } = await searchParams;
+  const order = phone ? await fetchOrder(orderNumber, phone) : null;
   return <InvoiceClient order={order} orderNumber={orderNumber} />;
 }

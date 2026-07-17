@@ -7,24 +7,8 @@ import { useRouter } from 'next/navigation';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 
-const WA_NUMBER = '919382828484';
-
 function fmtPrice(n: number) {
   return n % 1 === 0 ? String(n) : n.toFixed(2);
-}
-
-function buildWaUrl(items: ReturnType<typeof useCart>['items']) {
-  const lines = items.map(
-    (it, i) => `${i + 1}. ${it.name} — ${it.packLabel} x${it.qty} — ₹${fmtPrice(it.sellingPrice * it.qty)}`,
-  );
-  const total = items.reduce((s, it) => s + it.sellingPrice * it.qty, 0);
-  const text = [
-    'Hello Srivani Stores, I would like to order:',
-    ...lines,
-    `Total (est.): ₹${fmtPrice(total)}`,
-    'Please confirm and deliver. Thank you.',
-  ].join('\n');
-  return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`;
 }
 
 export default function CartPanel() {
@@ -264,24 +248,13 @@ export default function CartPanel() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
               </button>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <Link
-                  href="/cart"
-                  onClick={() => setOpen(false)}
-                  style={{ flex: 1, padding: '9px 0', borderRadius: '10px', border: '1.5px solid var(--line)', background: 'transparent', color: 'var(--ink-soft)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', textAlign: 'center', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                >
-                  View Cart
-                </Link>
-                <a
-                  href={buildWaUrl(items)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ flex: 1, padding: '9px 0', borderRadius: '10px', border: '1.5px solid #25D366', background: 'transparent', color: '#16a34a', fontSize: '12px', fontWeight: 600, cursor: 'pointer', textAlign: 'center', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="#16a34a" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm5.7 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.7-.6-3-1.3-4.9-4.3-5.1-4.5-.1-.2-1.2-1.5-1.2-2.9s.7-2 1-2.3c.2-.3.5-.4.7-.4h.5c.2 0 .4 0 .6.5l.8 2c.1.1.1.3 0 .5l-.4.5-.3.3c-.1.1-.3.3-.1.6.1.3.7 1.1 1.4 1.8.9.8 1.7 1.1 2 1.2.2.1.4.1.6-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.3.1.5.2.5.4.1.2.1.8-.1 1.4z"/></svg>
-                  Via WhatsApp
-                </a>
-              </div>
+              <Link
+                href="/cart"
+                onClick={() => setOpen(false)}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', padding: '9px 0', borderRadius: '10px', border: '1.5px solid var(--line)', background: 'transparent', color: 'var(--ink-soft)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', textAlign: 'center', textDecoration: 'none' }}
+              >
+                View Cart {'·'} Order via WhatsApp
+              </Link>
             </div>
           </div>
         </div>

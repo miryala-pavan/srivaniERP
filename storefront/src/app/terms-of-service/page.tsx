@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { STORE_CALL_NUMBER, STORE_CALL_DISPLAY } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Terms of Service — Srivani Stores',
@@ -145,7 +146,7 @@ export default function TermsOfServicePage() {
         </p>
         <ul>
           <li>Email: <a href="mailto:srivanistore.srd@gmail.com">srivanistore.srd@gmail.com</a></li>
-          <li>Phone: <a href="tel:+919382828484">+91 93828 28484</a></li>
+          <li>Phone: <a href={`tel:+${STORE_CALL_NUMBER}`}>{STORE_CALL_DISPLAY}</a></li>
           <li>Address: Srivani Kirana &amp; General Stores, Sangareddy, Telangana, India</li>
         </ul>
       </div>

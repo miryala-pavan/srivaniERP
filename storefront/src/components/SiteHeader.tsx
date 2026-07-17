@@ -24,7 +24,7 @@ export default async function SiteHeader() {
               style={{ objectFit: 'contain' }}
             />
             <span className="mark">SRIVANI <b>STORES</b></span>
-            <span className="est">Est. 1983 · Sangareddy</span>
+            <span className="est">Est. 1980 · Sangareddy</span>
           </Link>
           <SearchBar />
           <nav className="bar-nav">

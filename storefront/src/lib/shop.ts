@@ -8,6 +8,7 @@ export interface ShopSubcategory {
   name: string;
   label: string;
   productCount: number;
+  sampleImages: string[];
 }
 
 export interface ShopCategory {
@@ -16,6 +17,7 @@ export interface ShopCategory {
   name: string;
   label: string;
   productCount: number;
+  sampleImages: string[];
   subcategories: ShopSubcategory[];
 }
 

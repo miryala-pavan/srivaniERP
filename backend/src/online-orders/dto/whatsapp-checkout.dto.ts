@@ -1,6 +1,6 @@
 import {
   IsString, IsOptional, IsArray, IsNumber, IsEmail,
-  ValidateNested, Matches, MinLength, Min,
+  ValidateNested, Matches, MinLength, MaxLength, Min, Max, ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -9,7 +9,7 @@ class WaItemDto {
   @IsString() productCode: string;
   @IsString() productName: string;
   @IsString() packLabel: string;
-  @IsNumber() @Min(1) quantity: number;
+  @IsNumber() @Min(1) @Max(999) quantity: number;
   @IsNumber() @Min(0) unitPrice: number;
   @IsOptional() @IsNumber() mrp?: number;
 }
@@ -24,9 +24,10 @@ export class WhatsAppCheckoutDto {
   @IsOptional() @IsEmail() customerEmail?: string;
 
   @IsArray()
+  @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => WaItemDto)
   items: WaItemDto[];
 
-  @IsOptional() @IsString() customerNotes?: string;
+  @IsOptional() @IsString() @MaxLength(500) customerNotes?: string;
 }

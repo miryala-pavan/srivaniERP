@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import type { OnlineOrder } from '@/lib/orders';
+import { STORE_CALL_DISPLAY, STORE_WA_DISPLAY } from '@/lib/constants';
 
 function fmt(n: number | string) {
   const v = Number(n);
@@ -34,8 +35,8 @@ export default function InvoiceClient({
   if (!order) {
     return (
       <div style={{ textAlign: 'center', padding: '80px 24px' }}>
-        <p style={{ fontSize: '18px', color: '#666' }}>Order not found: {orderNumber}</p>
-        <Link href="/" style={{ color: '#D98324', fontWeight: 700 }}>← Back to Shop</Link>
+        <p style={{ fontSize: '18px', color: '#666' }}>Couldn&apos;t verify order: {orderNumber}</p>
+        <Link href={`/order/${orderNumber}`} style={{ color: '#D98324', fontWeight: 700 }}>View Order Status →</Link>
       </div>
     );
   }
@@ -95,7 +96,7 @@ export default function InvoiceClient({
         background: '#1a1a1a', padding: '12px 24px',
         display: 'flex', alignItems: 'center', gap: '16px',
       }}>
-        <Link href={`/order/${order.orderNumber}`} style={{
+        <Link href={`/order/${order.orderNumber}?phone=${encodeURIComponent(order.customerPhone)}`} style={{
           color: '#ccc', textDecoration: 'none', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px',
         }}>
           ← Back to Order
@@ -115,7 +116,7 @@ export default function InvoiceClient({
           <div>
             <div style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.5px' }}>Srivani Stores</div>
             <div style={{ fontSize: '12px', color: '#aaa', marginTop: '4px' }}>Shop No. 12, Main Road, Sangareddy — 502001</div>
-            <div style={{ fontSize: '12px', color: '#aaa' }}>Ph: +91 93828 28484 | srivani.com</div>
+            <div style={{ fontSize: '12px', color: '#aaa' }}>Ph: {STORE_CALL_DISPLAY} | srivani.com</div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '11px', color: '#888', letterSpacing: '.06em', textTransform: 'uppercase' }}>Invoice / Receipt</div>
@@ -213,7 +214,7 @@ export default function InvoiceClient({
 
         <div className="inv-footer">
           <p style={{ margin: '0 0 4px' }}>Thank you for shopping with Srivani Stores — Serving Sangareddy for 45+ years! 🙏</p>
-          <p style={{ margin: 0 }}>For queries: WhatsApp +91 93828 28484 | shop.srivani.com</p>
+          <p style={{ margin: 0 }}>For queries: WhatsApp {STORE_WA_DISPLAY} | shop.srivani.com</p>
         </div>
       </div>
     </>

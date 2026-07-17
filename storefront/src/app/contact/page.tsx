@@ -2,11 +2,12 @@ export const dynamic = 'force-dynamic';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { STORE_CALL_NUMBER, STORE_CALL_DISPLAY, STORE_WA_NUMBER, STORE_WA_DISPLAY } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Contact — Phone, WhatsApp & Store Address in Sangareddy',
   description:
-    'Call or WhatsApp +91 93828 28484 · New Bus Stand Area, Sangareddy, Telangana 502001 · Open Mon–Sun 8AM–9:30PM. Srivani Stores — groceries delivered home.',
+    `Call ${STORE_CALL_DISPLAY} or WhatsApp ${STORE_WA_DISPLAY} · New Bus Stand Area, Sangareddy, Telangana 502001 · Open Mon–Sun 8AM–9:30PM. Srivani Stores — groceries delivered home.`,
   alternates: { canonical: '/contact' },
 };
 
@@ -27,15 +28,15 @@ export default function ContactPage() {
           <div className="cbox">
             <p>
               <b>Call or WhatsApp</b>
-              <a href="tel:+919382828484">+91 93828 28484</a>
+              Call: <a href={`tel:+${STORE_CALL_NUMBER}`}>{STORE_CALL_DISPLAY}</a>
               <br />
               <a
-                href="https://wa.me/919382828484?text=Hello%20Srivani%20Stores%2C%20I%27d%20like%20to%20place%20an%20order."
+                href={`https://wa.me/${STORE_WA_NUMBER}?text=Hello%20Srivani%20Stores%2C%20I%27d%20like%20to%20place%20an%20order.`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ marginTop: '6px', display: 'inline-block' }}
               >
-                Message on WhatsApp
+                WhatsApp: {STORE_WA_DISPLAY}
               </a>
             </p>
           </div>
@@ -79,11 +80,11 @@ export default function ContactPage() {
         <p>
           The easiest way to order is to WhatsApp us at{' '}
           <a
-            href="https://wa.me/919382828484?text=Hello%20Srivani%20Stores%2C%20I%27d%20like%20to%20place%20an%20order."
+            href={`https://wa.me/${STORE_WA_NUMBER}?text=Hello%20Srivani%20Stores%2C%20I%27d%20like%20to%20place%20an%20order.`}
             target="_blank"
             rel="noopener noreferrer"
           >
-            +91 93828 28484
+            {STORE_WA_DISPLAY}
           </a>
           . We&apos;ll confirm your order, delivery slot, and payment &mdash; all on chat.
         </p>

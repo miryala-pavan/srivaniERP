@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Srivani Stores',
     short_name: 'Srivani',
-    description: 'Fresh groceries from Srivani Stores, Sangareddy. Pure, Trust & Quality since 1983.',
+    description: 'Fresh groceries from Srivani Stores, Sangareddy. Pure, Trust & Quality since 1980.',
     start_url: '/',
     display: 'standalone',
     background_color: '#FAF3E4',

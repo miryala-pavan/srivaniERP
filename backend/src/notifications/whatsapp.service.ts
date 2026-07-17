@@ -1413,9 +1413,10 @@ export class WhatsAppService implements OnModuleInit {
       READY:          'Your order is ready for pickup at our store! 🏪', // STORE_PICKUP only — HOME_DELIVERY handled above
       DELIVERED:      'Your order has been delivered. Enjoy! 😊 Thank you for shopping with Srivani Stores.',
       CANCELLED:      'Your order has been cancelled. If you paid online, a refund will be processed in 5–7 working days.',
+      PAYMENT_FAILED: 'We could not verify your payment for this order. No charge was made. Please try again from your order page, or reply here if you need help.',
     };
     const msg = messages[order.status];
-    if (!msg) return; // skip PENDING_PAYMENT, PENDING_COD, PAYMENT_FAILED
+    if (!msg) return; // skip PENDING_PAYMENT, PENDING_COD
 
     await this.sendTemplate(businessId, to, 'svn_order_update', [
       order.customerName,

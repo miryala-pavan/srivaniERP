@@ -337,7 +337,7 @@ export default function CheckoutClient() {
 
       if (paymentMethod === 'COD') {
         clearAll();
-        router.push(`/order/${order.orderNumber}`);
+        router.push(`/order/${order.orderNumber}?phone=${encodeURIComponent(phone.trim())}`);
         return;
       }
 
@@ -372,7 +372,7 @@ export default function CheckoutClient() {
               razorpaySignature: response.razorpay_signature,
             });
             clearAll();
-            router.push(`/order/${result.orderNumber}`);
+            router.push(`/order/${result.orderNumber}?phone=${encodeURIComponent(phone.trim())}`);
           } catch {
             setError('Payment verification failed. Please contact us with your order number.');
             setLoading(false);

@@ -111,9 +111,12 @@ export async function verifyRazorpayPayment(data: {
   return res.json();
 }
 
-export async function fetchOrder(orderNumber: string): Promise<OnlineOrder | null> {
+// `phone` must match the order's own customerPhone — the backend uses it to
+// verify whoever's asking actually owns this order, since orderNumber alone
+// is sequential and guessable.
+export async function fetchOrder(orderNumber: string, phone: string): Promise<OnlineOrder | null> {
   try {
-    const res = await fetch(`${API}/online-orders/${orderNumber}`, {
+    const res = await fetch(`${API}/online-orders/${orderNumber}?phone=${encodeURIComponent(phone)}`, {
       cache: 'no-store',
     });
     if (!res.ok) return null;
@@ -123,11 +126,11 @@ export async function fetchOrder(orderNumber: string): Promise<OnlineOrder | nul
   }
 }
 
-export async function cancelOrder(orderNumber: string, reason?: string): Promise<{ success: boolean; orderNumber: string }> {
+export async function cancelOrder(orderNumber: string, customerPhone: string, reason?: string): Promise<{ success: boolean; orderNumber: string }> {
   const res = await fetch(`${API}/online-orders/${orderNumber}/cancel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ customerPhone, reason }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -137,9 +140,11 @@ export async function cancelOrder(orderNumber: string, reason?: string): Promise
   return res.json();
 }
 
-export async function confirmDelivery(orderNumber: string): Promise<{ success: boolean; orderNumber: string; alreadyConfirmed?: boolean }> {
+export async function confirmDelivery(orderNumber: string, customerPhone: string): Promise<{ success: boolean; orderNumber: string; alreadyConfirmed?: boolean }> {
   const res = await fetch(`${API}/online-orders/${orderNumber}/confirm-delivery`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ customerPhone }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -149,7 +154,7 @@ export async function confirmDelivery(orderNumber: string): Promise<{ success: b
   return res.json();
 }
 
-export async function retryPayment(orderNumber: string): Promise<{
+export async function retryPayment(orderNumber: string, customerPhone: string): Promise<{
   razorpayOrderId: string;
   razorpayKeyId: string;
   total: number;
@@ -157,6 +162,8 @@ export async function retryPayment(orderNumber: string): Promise<{
 }> {
   const res = await fetch(`${API}/online-orders/${orderNumber}/retry-payment`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ customerPhone }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

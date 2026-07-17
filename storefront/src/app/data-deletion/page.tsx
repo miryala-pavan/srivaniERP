@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import type { Metadata } from 'next';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { STORE_CALL_NUMBER, STORE_CALL_DISPLAY, STORE_WA_NUMBER, STORE_WA_DISPLAY } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Data Deletion Request — Srivani Stores',
@@ -53,8 +54,8 @@ export default function DataDeletionPage() {
         <h3>Option 2 — WhatsApp</h3>
         <p>
           Send a WhatsApp message to{' '}
-          <a href="https://wa.me/919382828484?text=Data%20Deletion%20Request%3A%20Please%20delete%20all%20personal%20data%20associated%20with%20my%20account.">
-            +91 93828 28484
+          <a href={`https://wa.me/${STORE_WA_NUMBER}?text=Data%20Deletion%20Request%3A%20Please%20delete%20all%20personal%20data%20associated%20with%20my%20account.`}>
+            {STORE_WA_DISPLAY}
           </a>{' '}
           with the message <strong>&ldquo;Data Deletion Request&rdquo;</strong> and your
           registered phone number or email.
@@ -62,7 +63,7 @@ export default function DataDeletionPage() {
 
         <h3>Option 3 — Phone</h3>
         <p>
-          Call us at <a href="tel:+919382828484">+91 93828 28484</a> during business hours
+          Call us at <a href={`tel:+${STORE_CALL_NUMBER}`}>{STORE_CALL_DISPLAY}</a> during business hours
           (Mon–Sat, 9 AM – 7 PM IST) and request account and data deletion.
         </p>
 
@@ -104,7 +105,7 @@ export default function DataDeletionPage() {
         </p>
         <ul>
           <li>Email: <a href="mailto:srivanistore.srd@gmail.com">srivanistore.srd@gmail.com</a></li>
-          <li>Phone: <a href="tel:+919382828484">+91 93828 28484</a></li>
+          <li>Phone: <a href={`tel:+${STORE_CALL_NUMBER}`}>{STORE_CALL_DISPLAY}</a></li>
           <li>Address: Srivani Kirana &amp; General Stores, Sangareddy, Telangana, India</li>
         </ul>
       </div>

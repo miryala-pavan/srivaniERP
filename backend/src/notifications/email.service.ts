@@ -234,6 +234,11 @@ export class EmailService {
         heading: 'Order cancelled',
         body: 'Your order has been cancelled. If you paid online, a refund will be processed in 5-7 working days.',
       },
+      PAYMENT_FAILED: {
+        icon: '&#9888;', subject: 'Payment Could Not Be Verified',
+        heading: 'We could not verify your payment',
+        body: 'No charge was made. Please try again from your order page, or contact us if you need help.',
+      },
     };
 
     const info = messages[order.status];

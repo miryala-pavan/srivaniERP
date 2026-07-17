@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useWhatsAppList } from '@/context/WhatsAppListContext';
-
-const WA_NUMBER = '919382828484';
+import { STORE_WA_NUMBER as WA_NUMBER } from '@/lib/constants';
 
 function fmtPrice(n: number) {
   return n % 1 === 0 ? String(n) : n.toFixed(2);

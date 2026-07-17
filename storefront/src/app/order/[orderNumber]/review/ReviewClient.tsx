@@ -50,8 +50,8 @@ export default function ReviewClient({ order, orderNumber, reviewedProductCodes 
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow p-8 max-w-sm w-full text-center">
-          <p className="text-gray-500 mb-4">Order not found.</p>
-          <Link href="/" className="text-green-700 font-semibold">Back to shop</Link>
+          <p className="text-gray-500 mb-4">Couldn&apos;t verify this order.</p>
+          <Link href={`/order/${orderNumber}`} className="text-green-700 font-semibold">View Order Status →</Link>
         </div>
       </div>
     );
@@ -64,7 +64,7 @@ export default function ReviewClient({ order, orderNumber, reviewedProductCodes 
           <div className="text-4xl mb-3">⏳</div>
           <h1 className="text-lg font-bold text-gray-800 mb-2">Not delivered yet</h1>
           <p className="text-gray-500 text-sm mb-6">You can rate your items once the order is delivered.</p>
-          <Link href={`/order/${orderNumber}`} className="inline-block bg-green-700 text-white font-semibold px-6 py-3 rounded-xl text-sm">
+          <Link href={`/order/${orderNumber}?phone=${encodeURIComponent(order.customerPhone)}`} className="inline-block bg-green-700 text-white font-semibold px-6 py-3 rounded-xl text-sm">
             Track Order
           </Link>
         </div>

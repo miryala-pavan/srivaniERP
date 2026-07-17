@@ -6,9 +6,12 @@ import {
   IsNumber,
   ValidateNested,
   MinLength,
+  MaxLength,
   Matches,
   IsEmail,
   Min,
+  Max,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -25,13 +28,16 @@ export enum PaymentMethod {
 class DeliveryAddressDto {
   @IsString()
   @MinLength(5)
+  @MaxLength(200)
   line1: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   line2?: string;
 
   @IsString()
+  @MaxLength(100)
   city: string;
 
   @IsString()
@@ -40,6 +46,7 @@ class DeliveryAddressDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   state?: string;
 }
 
@@ -58,6 +65,7 @@ class OrderItemDto {
 
   @IsNumber()
   @Min(1)
+  @Max(999)
   quantity: number;
 
   @IsNumber()
@@ -99,11 +107,13 @@ export class CreateOrderDto {
   paymentMethod: PaymentMethod;
 
   @IsArray()
+  @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => OrderItemDto)
   items: OrderItemDto[];
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   customerNotes?: string;
 }

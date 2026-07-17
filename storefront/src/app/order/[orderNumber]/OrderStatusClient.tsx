@@ -4,8 +4,9 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { OnlineOrder } from '@/lib/orders';
-import { cancelOrder, retryPayment, verifyRazorpayPayment } from '@/lib/orders';
+import { cancelOrder, retryPayment, verifyRazorpayPayment, fetchOrder } from '@/lib/orders';
 import { useCart } from '@/context/CartContext';
+import { STORE_WA_NUMBER as WA } from '@/lib/constants';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare global { interface Window { Razorpay: new (options: any) => { open(): void }; } }
@@ -27,7 +28,6 @@ function loadRazorpayScript(): Promise<void> {
   });
 }
 
-const WA = '919382828484';
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CXZY6ACcJig_EAE/review';
 
 const CANCEL_REASONS = [
@@ -67,7 +67,7 @@ function formatDate(iso: string) {
 }
 
 export default function OrderStatusClient({
-  order,
+  order: initialOrder,
   orderNumber,
 }: {
   order: OnlineOrder | null;
@@ -82,6 +82,34 @@ export default function OrderStatusClient({
   const [cancelling, setCancelling] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState('');
+
+  // The server only fetches this order if the URL already carries a
+  // matching ?phone= — arriving without one (old bookmark, manually typed
+  // URL, etc.) means `order` comes in null even for a real order. Let the
+  // customer prove ownership by entering their phone, then re-fetch client-side.
+  const [order, setOrder] = useState(initialOrder);
+  const [gatePhone, setGatePhone] = useState('');
+  const [gateError, setGateError] = useState('');
+  const [gateLoading, setGateLoading] = useState(false);
+
+  async function handlePhoneGate(e: React.FormEvent) {
+    e.preventDefault();
+    setGateLoading(true);
+    setGateError('');
+    try {
+      const found = await fetchOrder(orderNumber, gatePhone.trim());
+      if (!found) {
+        setGateError("We couldn't find this order with that phone number. Please check and try again.");
+        return;
+      }
+      setOrder(found);
+      router.replace(`/order/${orderNumber}?phone=${encodeURIComponent(gatePhone.trim())}`);
+    } catch {
+      setGateError('Something went wrong. Please try again.');
+    } finally {
+      setGateLoading(false);
+    }
+  }
 
   function handleReorder() {
     if (!order) return;
@@ -101,7 +129,7 @@ export default function OrderStatusClient({
     setRetrying(true);
     setRetryError('');
     try {
-      const data = await retryPayment(order.orderNumber);
+      const data = await retryPayment(order.orderNumber, order.customerPhone);
       await loadRazorpayScript();
       const rzp = new window.Razorpay({
         key: data.razorpayKeyId,
@@ -142,9 +170,44 @@ export default function OrderStatusClient({
         <section className="sec" style={{ textAlign: 'center', paddingTop: '80px', paddingBottom: '80px' }}>
           <div style={{ fontSize: '56px', marginBottom: '16px' }}>🔍</div>
           <h1 style={{ fontSize: '22px', marginBottom: '10px' }}>Order Not Found</h1>
-          <p style={{ color: 'var(--ink-soft)', fontSize: '14px', marginBottom: '28px' }}>
-            We couldn&apos;t find order <strong>{orderNumber}</strong>.
-            Please check the number or contact us.
+          <p style={{ color: 'var(--ink-soft)', fontSize: '14px', marginBottom: '20px' }}>
+            We couldn&apos;t find order <strong>{orderNumber}</strong> with that link.
+            Enter the phone number used to place it to view your order.
+          </p>
+          <form
+            onSubmit={handlePhoneGate}
+            style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '20px', flexWrap: 'wrap' }}
+          >
+            <input
+              type="tel"
+              inputMode="numeric"
+              placeholder="10-digit phone number"
+              value={gatePhone}
+              onChange={e => setGatePhone(e.target.value)}
+              style={{
+                padding: '10px 14px', borderRadius: '10px',
+                border: '1.5px solid var(--line)', fontSize: '14px', width: '200px',
+              }}
+              required
+            />
+            <button
+              type="submit"
+              disabled={gateLoading || gatePhone.trim().length < 10}
+              style={{
+                padding: '10px 20px', borderRadius: '10px', border: 'none',
+                background: 'var(--saffron)', color: '#fff', fontWeight: 700,
+                fontSize: '14px', cursor: gateLoading ? 'not-allowed' : 'pointer',
+                opacity: gateLoading ? 0.7 : 1,
+              }}
+            >
+              {gateLoading ? 'Checking…' : 'View Order'}
+            </button>
+          </form>
+          {gateError && (
+            <p style={{ fontSize: '13px', color: '#ef4444', marginBottom: '20px' }}>{gateError}</p>
+          )}
+          <p style={{ color: 'var(--ink-soft)', fontSize: '13px', marginBottom: '20px' }}>
+            Still stuck? Contact us with your order number.
           </p>
           <a
             href={`https://wa.me/${WA}?text=${encodeURIComponent(`Hi, I'm looking for my order: ${orderNumber}`)}`}
@@ -183,7 +246,7 @@ export default function OrderStatusClient({
     setCancelling(true);
     setCancelError('');
     try {
-      await cancelOrder(order!.orderNumber, cancelReason);
+      await cancelOrder(order!.orderNumber, order!.customerPhone, cancelReason);
       setShowCancel(false);
       startTransition(() => router.refresh());
     } catch (e: unknown) {
@@ -373,7 +436,7 @@ export default function OrderStatusClient({
 
           {order.status === 'DELIVERED' && (
             <Link
-              href={`/order/${order.orderNumber}/review`}
+              href={`/order/${order.orderNumber}/review?phone=${encodeURIComponent(order.customerPhone)}`}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                 padding: '13px 0', borderRadius: '12px',
@@ -416,7 +479,7 @@ export default function OrderStatusClient({
           {/* Invoice download */}
           {isSuccess && (
             <Link
-              href={`/order/${order.orderNumber}/invoice`}
+              href={`/order/${order.orderNumber}/invoice?phone=${encodeURIComponent(order.customerPhone)}`}
               target="_blank"
               rel="noopener noreferrer"
               style={{
