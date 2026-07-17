@@ -369,8 +369,8 @@ body::before {
 .mini-hero {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 28px 0 8px;
+  gap: 12px;
+  padding: 14px 0 4px;
   flex-wrap: wrap;
 }
 .mini-hero .seal-wrap { flex-shrink: 0; }
@@ -385,11 +385,11 @@ body::before {
   max-width: 42em;
 }
 @media (max-width: 640px) {
-  .mini-hero { flex-direction: column; align-items: flex-start; text-align: left; gap: 14px; }
-  .mini-hero .seal { width: 120px; height: 120px; }
-  .mini-hero .seal .core .yr { font-size: 26px; }
-  .mini-hero .seal .core .sub { font-size: 7px; }
-  .mini-hero .seal text { font-size: 9px; }
+  .mini-hero { flex-direction: column; align-items: flex-start; text-align: left; gap: 7px; }
+  .mini-hero .seal { width: 60px; height: 60px; }
+  .mini-hero .seal .core .yr { font-size: 13px; }
+  .mini-hero .seal .core .sub { font-size: 3.5px; }
+  .mini-hero .seal text { font-size: 4.5px; }
 }
 
 /* ─── Hero (About page) ─────────────────────────────────────────────────── */
@@ -479,8 +479,8 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
 }
 .seal {
   position: relative;
-  width: 230px;
-  height: 230px;
+  width: 115px;
+  height: 115px;
   flex-shrink: 0;
   outline: none !important;
   border: none !important;
@@ -505,7 +505,7 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .seal text {
   font-family: var(--font-hanken), 'Hanken Grotesk', sans-serif;
-  font-size: 12.2px;
+  font-size: 6.1px;
   letter-spacing: 3.5px;
   text-transform: uppercase;
   fill: var(--ink-soft);
@@ -526,22 +526,22 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
 .seal .core .yr {
   font-family: var(--font-fraunces), 'Fraunces', serif;
   font-weight: 900;
-  font-size: 46px;
+  font-size: 23px;
   color: var(--saffron-deep);
   line-height: 1;
 }
 .seal .core .sub {
-  font-size: 10.5px;
-  letter-spacing: 3px;
+  font-size: 5.25px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--ink-soft);
-  margin-top: 8px;
+  margin-top: 4px;
 }
 .seal .core .leaf {
-  width: 26px;
-  height: 2px;
+  width: 13px;
+  height: 1px;
   background: var(--leaf);
-  margin: 10px 0;
+  margin: 5px 0;
 }
 
 /* ─── Divider & marquee ──────────────────────────────────────────────────── */
@@ -1373,9 +1373,9 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
 }
 @media (max-width: 480px) {
   .products-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
-  .seal { width: 190px; height: 190px; }
+  .seal { width: 95px; height: 95px; }
 }
 @media (max-width: 375px) {
-  .seal { width: 155px; height: 155px; }
+  .seal { width: 78px; height: 78px; }
   .mega-panel { display: none; }
 }
