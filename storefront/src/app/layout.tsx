@@ -122,6 +122,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en-IN" className={`${fraunces.variable} ${hanken.variable}`}>
       <head>
+        {/* Option 3: preconnect — establish TCP/TLS to image server before first request */}
+        <link rel="preconnect" href="https://api.srivani.com" />
+        <link rel="dns-prefetch" href="https://api.srivani.com" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(LOCAL_BUSINESS_LD) }}
