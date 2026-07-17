@@ -32,7 +32,7 @@ export default async function HomePage() {
       <section className="mini-hero">
         <div className="seal-wrap">
           <div className="seal">
-            <svg className="ring" viewBox="0 0 230 230" aria-hidden="true" focusable="false" tabIndex={-1}>
+            <svg className="ring" viewBox="0 0 230 230" aria-hidden="true" focusable="false">
               <defs>
                 <path
                   id="home-circle"
@@ -41,7 +41,7 @@ export default async function HomePage() {
                 />
               </defs>
               <text>
-                <textPath href="#home-circle" startOffset="0" tabIndex={-1}>
+                <textPath href="#home-circle" startOffset="0">
                   PURE · TRUST · QUALITY · SINCE 1980 · PURE · TRUST · QUALITY · SINCE 1980 ·{' '}
                 </textPath>
               </text>

@@ -493,6 +493,8 @@ h1 em { font-style: italic; color: var(--saffron-deep); }
   outline: none;
   border: none;
   overflow: visible;
+  pointer-events: none;
+  user-select: none;
 }
 /* Prevent browser from drawing focus ring on SVG paths */
 .seal svg, .seal svg *, .seal path, .seal text, .seal textPath {
