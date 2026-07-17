@@ -23,12 +23,17 @@ Usage:
   powershell -File deploy-git.ps1                                  # full run, asks for confirmation before any schema change
   powershell -File deploy-git.ps1 -DryRun                          # push + pull + show schema diff only, no schema/build/restart changes
   powershell -File deploy-git.ps1 -SkipSchema                      # skip schema diff/apply, code deploy only
+  powershell -File deploy-git.ps1 -ConfirmSchema                   # apply the shown schema diff without an interactive prompt -
+                                                                    #   only ever pass this after a real "yes" from whoever asked
+                                                                    #   for the deploy; needed when running non-interactively
+                                                                    #   (Read-Host cannot prompt without an attached console)
   powershell -File deploy-git.ps1 -CommitMessage "Fix X, add Y"    # custom commit message (default: generic)
 #>
 
 param(
   [switch]$DryRun,
   [switch]$SkipSchema,
+  [switch]$ConfirmSchema,
   [string]$CommitMessage = "Deploy: sync local changes to prod"
 )
 
@@ -118,8 +123,18 @@ if ($SkipSchema) {
     if ($DryRun) {
       Say "Dry run - schema change shown above, nothing applied" 'Yellow'
     } else {
-      $confirm = Read-Host "Apply this schema change to PROD? (yes/no)"
-      if ($confirm -ne 'yes') { Fail "cancelled by user" }
+      # Read-Host cannot work when this script is launched via a
+      # -NonInteractive wrapper (no console attached to prompt against) - the
+      # -ConfirmSchema switch is the same confirmation, supplied explicitly
+      # by whoever launches the script instead of typed at a prompt. It must
+      # only ever be passed after a real "yes" from the person requesting
+      # the deploy, never assumed or defaulted on.
+      if ($ConfirmSchema) {
+        Write-Host "Schema change confirmed via -ConfirmSchema" -ForegroundColor Yellow
+      } else {
+        $confirm = Read-Host "Apply this schema change to PROD? (yes/no)"
+        if ($confirm -ne 'yes') { Fail "cancelled by user" }
+      }
 
       Say "Backing up prod database before schema change"
       $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
