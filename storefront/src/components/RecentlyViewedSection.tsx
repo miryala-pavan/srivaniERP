@@ -2,8 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { loadRecentlyViewed, type RecentProduct } from './RecentlyViewedTracker';
+
+const IMG_BASE = process.env.NEXT_PUBLIC_IMG_BASE ?? 'http://localhost:4001';
+
+function resolveImg(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;   // already absolute
+  return `${IMG_BASE}${url}`;               // relative path → prepend API base
+}
 
 function fmtPrice(n: number) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
@@ -40,12 +47,14 @@ export default function RecentlyViewedSection() {
             }}
           >
             <div style={{ aspectRatio: '1', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {p.imageUrl ? (
-                <Image
-                  src={p.imageUrl} alt={p.name}
-                  width={100} height={100}
-                  style={{ objectFit: 'contain', padding: '6px' }}
-                  unoptimized
+              {resolveImg(p.imageUrl) ? (
+                <img
+                  src={resolveImg(p.imageUrl)!}
+                  alt={p.name}
+                  loading="lazy"
+                  decoding="async"
+                  style={{ width: 100, height: 100, objectFit: 'contain', padding: '6px' }}
+                  onError={e => { (e.currentTarget as HTMLImageElement).src = '/noimage.png'; }}
                 />
               ) : (
                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" aria-hidden="true">
