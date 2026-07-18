@@ -355,6 +355,10 @@ export class OnlineOrdersService {
       }
     }
 
+    // Universal customer record — fire-and-forget so checkout is never blocked
+    this.upsertCustomer(businessId, dto.customerPhone, dto.customerName, dto.customerEmail)
+      .catch(err => this.logger.warn(`Customer upsert failed for order ${orderNumber}: ${err instanceof Error ? err.message : err}`));
+
     // Audit
     this.auditLog.log(
       { userName: dto.customerName, userRole: 'CUSTOMER', businessId },
@@ -654,6 +658,9 @@ export class OnlineOrdersService {
         throw err;
       }
     }
+
+    this.upsertCustomer(businessId, dto.customerPhone, dto.customerName, dto.customerEmail)
+      .catch(err => this.logger.warn(`Customer upsert failed for WA order ${orderNumber}: ${err instanceof Error ? err.message : err}`));
 
     this.auditLog.log(
       { userName: dto.customerName, userRole: 'CUSTOMER', businessId },
@@ -962,5 +969,50 @@ export class OnlineOrdersService {
     }
 
     return updated;
+  }
+
+  // ─── Universal customer upsert ────────────────────────────────────────────
+
+  private normalizePhone(raw: string): string | null {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
+    if (digits.length === 10 && /^[6-9]/.test(digits)) return digits;
+    return null;
+  }
+
+  async upsertCustomer(businessId: string, rawPhone: string, name: string, email?: string | null): Promise<string | null> {
+    const phone = this.normalizePhone(rawPhone);
+    if (!phone) return null;
+
+    const existing = await this.prisma.customer.findFirst({
+      where: { businessId, phone },
+      select: { id: true, channel: true, email: true },
+    });
+
+    if (existing) {
+      const updates: Record<string, unknown> = {};
+      if (existing.channel === 'POS') updates.channel = 'BOTH';
+      if (!existing.email && email) updates.email = email;
+      if (Object.keys(updates).length > 0) {
+        await this.prisma.customer.update({ where: { id: existing.id }, data: updates });
+      }
+      return existing.id;
+    }
+
+    const cleanedName = name.trim().replace(/\s+/g, ' ') || `Customer ${phone}`;
+    const customer = await this.prisma.customer.create({
+      data: {
+        businessId,
+        name: cleanedName,
+        phone,
+        email: email || undefined,
+        channel: 'ONLINE',
+        status: 'ACTIVE',
+        isActive: true,
+        whatsappOptIn: false,
+      },
+      select: { id: true },
+    });
+    return customer.id;
   }
 }
