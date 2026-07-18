@@ -106,6 +106,17 @@ async function main() {
   // Per-phone customer cache (avoid repeated DB lookups)
   const phoneCache = new Map(); // phone → Customer | null
 
+  // Load all existing entries upfront to avoid per-row DB checks
+  console.log('Loading existing entries...');
+  const existing = await prisma.customerListEntry.findMany({
+    where: { businessId }, select: { customerId: true, entryDate: true },
+  });
+  const existingSet = new Set(existing.map(e => `${e.customerId}|${e.entryDate.getTime()}`));
+  console.log(`Existing entries: ${existingSet.size}\n`);
+
+  const entriesToCreate = [];
+  const tokensToStamp  = []; // { id, token }
+
   // Determine which top-level dirs to scan
   const topDirs = fs.readdirSync(SHOP_LIST_DIR, { withFileTypes: true })
     .filter(e => e.isDirectory() && (!ONLY_YEAR || e.name === ONLY_YEAR))
@@ -144,42 +155,50 @@ async function main() {
         if (!customer) { stats.noCustomer++; continue; }
         stats.customersMatched++;
 
-        // Skip if entry already exists for this customer+date
-        const already = await prisma.customerListEntry.findFirst({
-          where: { customerId: customer.id, businessId, entryDate: date },
-          select: { id: true },
-        });
-        if (already) { stats.entriesSkipped++; continue; }
+        // Skip if entry already exists (in-memory check — no extra DB round-trip)
+        const key = `${customer.id}|${date.getTime()}`;
+        if (existingSet.has(key)) { stats.entriesSkipped++; continue; }
+        existingSet.add(key);
 
         const tag = `${dirName}  👤 ${customer.name} (${phone})  📄 ${imageUrls.length}p`;
         console.log(`  ${DRY_RUN ? '[dry]' : '✅'} ${tag}`);
         stats.entriesCreated++;
 
         if (!DRY_RUN) {
-          await prisma.customerListEntry.create({
-            data: {
-              businessId,
-              customerId:  customer.id,
-              entryDate:   date,
-              imageUrls,
-              pageCount:   imageUrls.length,
-              source:      'MANUAL',
-            },
+          entriesToCreate.push({
+            id:         crypto.randomBytes(12).toString('hex'),
+            businessId,
+            customerId: customer.id,
+            entryDate:  date,
+            imageUrls,
+            pageCount:  imageUrls.length,
+            source:     'MANUAL',
           });
 
-          // Stamp a historyToken if the customer doesn't have one yet
           if (!customer.historyToken) {
             const token = crypto.randomBytes(16).toString('hex');
-            await prisma.customer.update({
-              where: { id: customer.id },
-              data:  { historyToken: token },
-            });
             customer.historyToken = token;
             phoneCache.set(phone, customer);
+            tokensToStamp.push({ id: customer.id, token });
           }
         }
       }
     }
+  }
+
+  // Single batch insert instead of one-by-one writes
+  if (!DRY_RUN && entriesToCreate.length > 0) {
+    console.log(`\nBatch inserting ${entriesToCreate.length} entries...`);
+    const CHUNK = 500;
+    for (let i = 0; i < entriesToCreate.length; i += CHUNK) {
+      await prisma.customerListEntry.createMany({ data: entriesToCreate.slice(i, i + CHUNK) });
+    }
+  }
+  if (!DRY_RUN && tokensToStamp.length > 0) {
+    console.log(`Stamping tokens on ${tokensToStamp.length} customers...`);
+    await Promise.all(tokensToStamp.map(({ id, token }) =>
+      prisma.customer.update({ where: { id }, data: { historyToken: token } })
+    ));
   }
 
   console.log('\n──────────────────────────────────────────────');
