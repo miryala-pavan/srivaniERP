@@ -52,6 +52,32 @@ export class HistoryService {
     };
   }
 
+  async getBlastList(businessId: string, letter?: string, page = 1, limit = 50) {
+    const where = {
+      businessId,
+      listEntries: { some: {} },
+      ...(letter ? { name: { startsWith: letter, mode: 'insensitive' as const } } : {}),
+    };
+    const [customers, total] = await Promise.all([
+      this.prisma.customer.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          historyToken: true,
+          historySentAt: true,
+          _count: { select: { listEntries: true } },
+        },
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.customer.count({ where }),
+    ]);
+    return { customers, total, page, limit };
+  }
+
   async sendHistoryLink(customerId: string, businessId: string) {
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, businessId },
@@ -105,16 +131,28 @@ function cleanName(raw: string): string {
 }
 
 function buildMessage(name: string, url: string): string {
-  const firstName = cleanName(name).split(/\s+/)[0];
-  return `🙏 Namaste ${firstName}!
+  const display = cleanName(name);
+  return `🌿 *${display} గారు,*
 
-Over the years, your trust and support have meant everything to us at Srivani Stores. It has been our honour to serve you and your family. 🌿
+మీరు మాకు కేవలం ఒక customer కాదు —
+మీరు మా కుటుంబంలో ఒక భాగం. 🙏
 
-We've put together your personal shopping history — a small keepsake of the bond we've built together over these years.
+*You are not just our customer — you are family.*
 
-📜 View your personal history here:
-${url}
+ఇన్ని సంవత్సరాలు మీరు మా మీద పెట్టిన నమ్మకం, పంపించిన ప్రతి list, చేసిన ప్రతి order — అవన్నీ మాకు చాలా విలువైనవి. ఆ క్షణాలు మేము ఎప్పటికీ మర్చిపోలేము.
 
-With warmth and gratitude,
-Team Srivani Stores ❤️`;
+*All these years — every list you sent, every order you trusted us with — they mean the world to us. We have never forgotten a single one.*
+
+✨ *మీ Personal Order History:*
+👉 ${url}
+
+మీరు పంపిన ప్రతి page అక్కడ భద్రంగా ఉంది. తెరిచి చూడండి — అది మీరు మాకు ఇచ్చిన నమ్మకానికి మా చిన్న నివాళి.
+
+*Open it — it's our small tribute to the trust you placed in us.*
+
+మీరు ఎప్పుడూ మాతోనే ఉండాలని కోరుకుంటున్నాము. 🙏❤️
+*May we always be there for your home — for many more years to come.*
+
+మీ Srivani Stores కుటుంబం,
+📍 Sangareddy · Est. 1980`;
 }

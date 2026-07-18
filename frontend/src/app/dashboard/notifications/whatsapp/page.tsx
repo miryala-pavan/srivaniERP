@@ -14,6 +14,7 @@ import api from '@/lib/api';
 import { getUser } from '@/lib/auth';
 import WhatsAppChat from './WhatsAppChat';
 import ContactsTab from './ContactsTab';
+import HistoryBlastTab from './HistoryBlastTab';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -119,7 +120,7 @@ export default function WhatsAppTemplatesPage() {
   const isSuperAdmin = getUser<{ role: string }>()?.role === 'SUPER_ADMIN';
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<'chat' | 'contacts' | 'templates' | 'campaigns' | 'settings'>('chat');
+  const [tab, setTab] = useState<'chat' | 'contacts' | 'history-blast' | 'templates' | 'campaigns' | 'settings'>('chat');
 
   // Landing back here after the Google OAuth consent screen — oauth/callback
   // redirects to this page with one of these two params set.
@@ -807,9 +808,10 @@ export default function WhatsAppTemplatesPage() {
           { key: 'chat' as const,      label: 'Chat',      icon: <MessagesSquare size={14} /> },
           { key: 'contacts' as const,  label: 'Contacts',  icon: <ContactIcon size={14} /> },
           ...(isSuperAdmin ? [
-            { key: 'templates' as const, label: 'Templates', icon: <FileText size={14} /> },
-            { key: 'campaigns' as const, label: 'Campaigns', icon: <Cake size={14} /> },
-            { key: 'settings' as const,  label: 'Settings',  icon: <SettingsIcon size={14} /> },
+            { key: 'history-blast' as const, label: 'History Blast', icon: <Award size={14} /> },
+            { key: 'templates' as const,     label: 'Templates',     icon: <FileText size={14} /> },
+            { key: 'campaigns' as const,     label: 'Campaigns',     icon: <Cake size={14} /> },
+            { key: 'settings' as const,      label: 'Settings',      icon: <SettingsIcon size={14} /> },
           ] : []),
         ]).map(t => (
           <button
@@ -828,6 +830,9 @@ export default function WhatsAppTemplatesPage() {
 
       {/* ── Contacts tab ── */}
       {tab === 'contacts' && <ContactsTab onOpenContact={openContact} onBulkSend={openBulkSendModal} />}
+
+      {/* ── History Blast tab ── */}
+      {isSuperAdmin && tab === 'history-blast' && <HistoryBlastTab />}
 
       {/* ── Settings tab ── */}
       {isSuperAdmin && tab === 'settings' && phoneNumbersLoaded && (

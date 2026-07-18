@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { HistoryService } from './history.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -12,6 +12,18 @@ const STAFF_ROLES = [
 @Controller('history')
 export class HistoryController {
   constructor(private historyService: HistoryService) {}
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF_ROLES)
+  @Get('customers/blast-list')
+  getBlastList(@Query() q: any, @Request() req: any) {
+    return this.historyService.getBlastList(
+      req.user.businessId,
+      q.letter || undefined,
+      q.page ? parseInt(q.page, 10) : 1,
+      q.limit ? parseInt(q.limit, 10) : 50,
+    );
+  }
 
   // Public — no auth — the unguessable token IS the access control
   @Get(':token')
