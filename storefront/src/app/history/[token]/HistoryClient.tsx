@@ -434,24 +434,14 @@ export default function HistoryClient({ data }: { data: HistoryData }) {
           </div>
         </section>
 
-        {/* Stats row */}
-        <div className="hp-stats-row">
-          <div className="hp-stat-card">
-            <div className="hp-stat-label">Customer since</div>
-            <div className="hp-stat-val hp-stat-sm">{firstYear}</div>
-          </div>
-          <div className="hp-stat-card">
-            <div className="hp-stat-label">Total orders</div>
-            <div className="hp-stat-val">{ordered.length}</div>
-          </div>
-          <div className="hp-stat-card">
-            <div className="hp-stat-label">Last order</div>
-            <div className="hp-stat-val hp-stat-sm">{lastStr}</div>
-          </div>
-          <div className="hp-stat-card">
-            <div className="hp-stat-label">Years with us</div>
-            <div className="hp-stat-val">{yearsWithUs > 0 ? `${yearsWithUs}+` : '1'}</div>
-          </div>
+        {/* Trust banner */}
+        <div className="hp-trust-banner">
+          <div className="hp-trust-icon">🌿</div>
+          <p className="hp-trust-msg">
+            Every page in this history is a memory we cherish. Your trust has been
+            the foundation of everything we do — and we hope to keep earning it,
+            one order at a time, for many more years to come.
+          </p>
         </div>
 
         {/* Personal letter */}
@@ -661,30 +651,23 @@ body::before {
 }
 .hp-hero-name em { font-style: italic; color: #AE5E16; }
 .hp-hero-sub { font-size: 15px; color: #6A5340; margin: 0; }
-/* ── Stats ── */
-.hp-stats-row {
-  display: flex; gap: 12px; flex-wrap: wrap;
-  padding: 22px 0 28px;
-  border-bottom: 1px solid rgba(44,27,16,.14);
+/* ── Trust banner ── */
+.hp-trust-banner {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 20px 24px;
   margin-bottom: 32px;
-}
-.hp-stat-card {
   background: rgba(255,255,255,.55);
-  border: 1px solid rgba(44,27,16,.14);
-  border-radius: 14px; padding: 16px 22px;
-  flex: 1; min-width: 110px;
-  transition: border-color .2s, transform .2s;
+  border: 1px solid rgba(44,27,16,.12);
+  border-left: 4px solid #AE5E16;
+  border-radius: 14px;
 }
-.hp-stat-card:hover { border-color: rgba(217,131,36,.4); transform: translateY(-2px); }
-.hp-stat-label {
-  font-size: 10.5px; font-weight: 600; letter-spacing: 2px;
-  text-transform: uppercase; color: #6A5340; margin-bottom: 6px;
+.hp-trust-icon { font-size: 22px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+.hp-trust-msg {
+  margin: 0;
+  font-size: 14.5px; line-height: 1.7;
+  color: #4A3728;
+  font-style: italic;
 }
-.hp-stat-val {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 26px; font-weight: 900; color: #AE5E16; line-height: 1;
-}
-.hp-stat-sm { font-size: 16px; line-height: 1.25; }
 /* ── Letter ── */
 .hp-letter-card {
   background: rgba(255,255,255,.55);
@@ -952,9 +935,7 @@ body::before {
 /* ── Responsive ── */
 @media (max-width: 600px) {
   .hp-hero-name { font-size: 36px; }
-  .hp-stats-row { gap: 8px; }
-  .hp-stat-card { padding: 12px 14px; }
-  .hp-stat-val { font-size: 22px; }
+  .hp-trust-banner { padding: 16px 18px; }
   .hp-letter-card { padding: 22px 18px 20px; }
 }
 @media (max-width: 400px) {
