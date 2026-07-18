@@ -52,30 +52,101 @@ export class HistoryService {
     };
   }
 
-  async getBlastList(businessId: string, letter?: string, page = 1, limit = 50) {
-    const where = {
-      businessId,
-      listEntries: { some: {} },
-      ...(letter ? { name: { startsWith: letter, mode: 'insensitive' as const } } : {}),
-    };
+  async getBlastList(
+    businessId: string,
+    opts: { letter?: string; search?: string; status?: string; sort?: string; page?: number; limit?: number },
+  ) {
+    const { letter, search, status = 'all', sort = 'name_asc', page = 1, limit = 50 } = opts;
+
+    const where: any = { businessId };
+
+    if (status === 'ready') {
+      where.listEntries = { some: {} };
+      where.historySentAt = null;
+    } else if (status === 'sent') {
+      where.listEntries = { some: {} };
+      where.historySentAt = { not: null };
+    } else {
+      where.listEntries = { some: {} };
+    }
+
+    if (search?.trim()) {
+      where.OR = [
+        { name:  { contains: search.trim(), mode: 'insensitive' } },
+        { phone: { contains: search.trim() } },
+      ];
+    } else if (letter) {
+      where.name = { startsWith: letter, mode: 'insensitive' as const };
+    }
+
+    let orderBy: any = { name: 'asc' };
+    if (sort === 'name_desc')    orderBy = { name: 'desc' };
+    if (sort === 'phone_asc')    orderBy = { phone: 'asc' };
+    if (sort === 'phone_desc')   orderBy = { phone: 'desc' };
+    if (sort === 'entries_asc')  orderBy = { listEntries: { _count: 'asc' } };
+    if (sort === 'entries_desc') orderBy = { listEntries: { _count: 'desc' } };
+    if (sort === 'sent_asc')     orderBy = { historySentAt: { sort: 'asc',  nulls: 'last' } };
+    if (sort === 'sent_desc')    orderBy = { historySentAt: { sort: 'desc', nulls: 'last' } };
+
     const [customers, total] = await Promise.all([
       this.prisma.customer.findMany({
         where,
         select: {
-          id: true,
-          name: true,
-          phone: true,
-          historyToken: true,
-          historySentAt: true,
+          id: true, name: true, phone: true,
+          historyToken: true, historySentAt: true,
           _count: { select: { listEntries: true } },
         },
-        orderBy: { name: 'asc' },
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.customer.count({ where }),
     ]);
-    return { customers, total, page, limit };
+
+    // Fetch the latest outbound WA message status per customer (for sent ones only)
+    const sentPhones = customers
+      .filter(c => c.historySentAt && c.phone)
+      .map(c => `91${c.phone!}`);
+
+    const waStatusMap = new Map<string, string>();
+    if (sentPhones.length > 0) {
+      const msgs = await this.prisma.waMessage.findMany({
+        where: { businessId, phone: { in: sentPhones }, direction: 'OUTBOUND' },
+        orderBy: { createdAt: 'desc' },
+        select: { phone: true, status: true },
+      });
+      msgs.forEach(m => { if (!waStatusMap.has(m.phone)) waStatusMap.set(m.phone, m.status); });
+    }
+
+    const shopUrl = (process.env.SHOP_URL ?? 'https://shop.srivani.com').replace(/\/$/, '');
+    return {
+      customers: customers.map(c => ({
+        ...c,
+        historyUrl: c.historyToken ? `${shopUrl}/history/${c.historyToken}` : null,
+        waStatus: c.phone ? (waStatusMap.get(`91${c.phone}`) ?? null) : null,
+      })),
+      total, page, limit,
+    };
+  }
+
+  async ensurePreviewToken(customerId: string, businessId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, businessId },
+      select: { id: true, historyToken: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    let token = customer.historyToken;
+    if (!token) {
+      token = randomBytes(16).toString('hex');
+      await this.prisma.customer.update({
+        where: { id: customerId },
+        data: { historyToken: token },
+      });
+    }
+
+    const shopUrl = (process.env.SHOP_URL ?? 'https://shop.srivani.com').replace(/\/$/, '');
+    return { token, url: `${shopUrl}/history/${token}` };
   }
 
   async sendHistoryLink(customerId: string, businessId: string) {

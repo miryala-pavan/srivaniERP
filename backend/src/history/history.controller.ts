@@ -17,18 +17,27 @@ export class HistoryController {
   @Roles(...STAFF_ROLES)
   @Get('customers/blast-list')
   getBlastList(@Query() q: any, @Request() req: any) {
-    return this.historyService.getBlastList(
-      req.user.businessId,
-      q.letter || undefined,
-      q.page ? parseInt(q.page, 10) : 1,
-      q.limit ? parseInt(q.limit, 10) : 50,
-    );
+    return this.historyService.getBlastList(req.user.businessId, {
+      letter:  q.letter  || undefined,
+      search:  q.search  || undefined,
+      status:  q.status  || 'all',
+      sort:    q.sort    || 'name_asc',
+      page:    q.page    ? parseInt(q.page,  10) : 1,
+      limit:   q.limit   ? parseInt(q.limit, 10) : 50,
+    });
   }
 
   // Public — no auth — the unguessable token IS the access control
   @Get(':token')
   getByToken(@Param('token') token: string) {
     return this.historyService.getByToken(token);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF_ROLES)
+  @Post('customers/:id/preview')
+  ensurePreviewToken(@Param('id') id: string, @Request() req: any) {
+    return this.historyService.ensurePreviewToken(id, req.user.businessId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

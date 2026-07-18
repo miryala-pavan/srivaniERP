@@ -19,11 +19,15 @@ interface Slide { url: string | null; date: string; seed: number; pg: number; }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-// Words that appear in stored customer names but are not part of the actual name
 const JUNK_RE = /^(delivery|deliveries|deliv|customer|customers|cust|apna|chotu|aab|shop|stores?|home|house|order)$/i;
+const PHONE_RE = /^[+\d\s\-()]{7,}$/;
 
 function cleanName(raw: string): string {
-  const words = raw.trim().split(/\s+/);
+  const t = raw.trim();
+  if (!t) return '';
+  // If the "name" is actually a phone number, treat it as missing
+  if (PHONE_RE.test(t) && t.replace(/\D/g, '').length >= 7) return '';
+  const words = t.split(/\s+/);
   const filtered = words.filter(w => !JUNK_RE.test(w));
   return (filtered.length ? filtered : words).join(' ');
 }
@@ -107,7 +111,8 @@ export default function HistoryClient({ data }: { data: HistoryData }) {
   const lastE = data.entries[0];
   const lastD = lastE ? new Date(lastE.entryDate) : null;
   const lastStr = lastD ? `${lastD.getUTCDate()} ${MONTHS[lastD.getUTCMonth()]} ${lastD.getUTCFullYear()}` : '—';
-  const nameParts = cleanName(data.customer.name).split(/\s+/);
+  const displayName = cleanName(data.customer.name) || 'Valued Customer';
+  const nameParts = displayName.split(/\s+/);
   const firstName = nameParts[0];
   const restName = nameParts.slice(1).join(' ');
 

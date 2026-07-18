@@ -3,8 +3,13 @@ import type { Metadata } from 'next';
 import HistoryClient from './HistoryClient';
 
 const JUNK_RE = /^(delivery|deliveries|deliv|customer|customers|cust|apna|chotu|aab|shop|stores?|home|house|order)$/i;
+const PHONE_RE = /^[+\d\s\-()]{7,}$/;
+
 function cleanName(raw: string): string {
-  const words = raw.trim().split(/\s+/);
+  const t = raw.trim();
+  if (!t) return '';
+  if (PHONE_RE.test(t) && t.replace(/\D/g, '').length >= 7) return '';
+  const words = t.split(/\s+/);
   const filtered = words.filter(w => !JUNK_RE.test(w));
   return (filtered.length ? filtered : words).join(' ');
 }
@@ -39,7 +44,7 @@ export async function generateMetadata({ params }: { params: Promise<{ token: st
   const data = await fetchHistory(token);
   if (!data) return { title: 'History — Srivani Stores' };
   return {
-    title: `${cleanName(data.customer.name)}'s History — Srivani Stores`,
+    title: `${cleanName(data.customer.name) || 'Your'} History — Srivani Stores`,
     description: `Personal shopping history at Srivani Stores`,
     robots: { index: false, follow: false },
   };
