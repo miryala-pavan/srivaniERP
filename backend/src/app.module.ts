@@ -54,6 +54,7 @@ import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
 import { GstModule } from './gst/gst.module';
 import { TdsModule } from './tds/tds.module';
 import { LedgerApiModule } from './ledger/ledger-api.module';
+import { HistoryModule } from './history/history.module';
 
 @Module({
   controllers: [AppController],
@@ -98,6 +99,7 @@ import { LedgerApiModule } from './ledger/ledger-api.module';
     GstModule,
     TdsModule,
     LedgerApiModule,
+    HistoryModule,
 
     // Platform Core (Phase 0)
     HelpModule,

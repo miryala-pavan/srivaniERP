@@ -7,7 +7,7 @@ import {
   Phone, Mail, Edit2, AlertTriangle, ChevronLeft, ChevronRight,
   RefreshCw, X, Check, Plus, Trash2, Star, Printer, UserX, UserCheck,
   Wallet, CreditCard, ShoppingBag, TrendingUp, Calendar, Receipt, Award,
-  Building2, MessageCircle, Users,
+  Building2, MessageCircle, Users, History, ExternalLink, Copy,
 } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -189,6 +189,10 @@ export default function CustomerDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
 
+  const [showHistoryResult, setShowHistoryResult] = useState(false);
+  const [historyResult, setHistoryResult] = useState<{ url: string; waSent: boolean; waError?: string; previouslySentAt?: string | null } | null>(null);
+
+  useEscapeKey(() => setShowHistoryResult(false), showHistoryResult && !showEdit && !showAddr && !showPay);
   useEscapeKey(() => setShowEdit(false), showEdit);
   useEscapeKey(() => setShowAddr(false), showAddr && !showEdit);
   useEscapeKey(() => setShowPay(false), showPay && !showAddr && !showEdit);
@@ -289,6 +293,18 @@ export default function CustomerDetailPage() {
     mutationFn: (data: any) => api.put(`/customers/${id}`, data),
     onSuccess:  () => { toast.success('Customer updated'); setShowEdit(false); invalidate(); },
     onError:    (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update customer'),
+  });
+
+  const sendHistory = useMutation({
+    mutationFn: () => api.post(`/history/customers/${id}/send`),
+    onSuccess: (r: any) => {
+      const { url, waSent, waError, previouslySentAt } = r.data;
+      setHistoryResult({ url, waSent, waError, previouslySentAt });
+      setShowHistoryResult(true);
+      toast.success(waSent ? 'History link sent via WhatsApp!' : 'History link generated (WhatsApp session not open)');
+      invalidate();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to generate history link'),
   });
 
   const toggleActive = useMutation({
@@ -436,6 +452,17 @@ export default function CustomerDetailPage() {
                     <span className="text-[10px] font-normal text-green-600/70">(not opted in)</span>
                   )}
                 </a>
+              )}
+              {customer.phone && (
+                <button
+                  onClick={() => sendHistory.mutate()}
+                  disabled={sendHistory.isPending}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm border border-amber-200 text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 font-medium transition-colors disabled:opacity-60"
+                  title="Generate a personal shopping history link and send via WhatsApp"
+                >
+                  <History className="w-4 h-4" />
+                  {sendHistory.isPending ? 'Sending…' : 'Send History'}
+                </button>
               )}
               <button
                 onClick={() => { setPayForm({ ...EMPTY_PAY }); setShowPay(true); }}
@@ -1435,6 +1462,70 @@ export default function CustomerDetailPage() {
                 {editCustomer.isPending ? 'Saving...' : 'Update Customer'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* History result modal */}
+      {showHistoryResult && historyResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <History className="w-5 h-5 text-amber-600" />
+                <h2 className="text-base font-semibold text-gray-900">Shopping History Link</h2>
+              </div>
+              <button onClick={() => setShowHistoryResult(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className={`flex items-center gap-2 text-sm px-3.5 py-2.5 rounded-xl ${
+              historyResult.waSent
+                ? 'bg-green-50 text-green-700'
+                : 'bg-amber-50 text-amber-700'
+            }`}>
+              {historyResult.waSent
+                ? <><Check className="w-4 h-4 shrink-0" /> Sent via WhatsApp to {customer.name}</>
+                : <><AlertTriangle className="w-4 h-4 shrink-0" /> WhatsApp not sent (no open session window). Share the link manually.</>
+              }
+            </div>
+
+            <div className="space-y-1.5">
+              <p className="text-xs text-gray-500 font-medium">Unique history link (share with customer):</p>
+              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-2.5">
+                <span className="flex-1 text-xs font-mono text-gray-700 truncate">{historyResult.url}</span>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(historyResult.url); toast.success('Copied!'); }}
+                  className="p-1 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 shrink-0"
+                  title="Copy link"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+                <a
+                  href={historyResult.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 shrink-0"
+                  title="Open in new tab"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+
+            {historyResult.previouslySentAt && (
+              <p className="text-xs text-gray-400">
+                Previously sent: {new Date(historyResult.previouslySentAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
+
+            <button
+              onClick={() => setShowHistoryResult(false)}
+              className="w-full py-2.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"
+            >
+              Done
+            </button>
           </div>
         </div>
       )}

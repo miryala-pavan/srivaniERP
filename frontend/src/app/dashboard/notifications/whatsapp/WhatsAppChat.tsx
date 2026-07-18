@@ -216,6 +216,10 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const [showAssignPopover, setShowAssignPopover] = useState(false);
   const [showNewChat, setShowNewChat]     = useState(false);
   const [newChatPhone, setNewChatPhone]   = useState('');
+  const [newChatMatches, setNewChatMatches] = useState<{ id: string; name: string; phone: string; hasConversation: boolean }[]>([]);
+  const [newChatActiveIndex, setNewChatActiveIndex] = useState(-1);
+  const [newChatOpen, setNewChatOpen]     = useState(false);
+  const newChatDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Below the `lg` breakpoint, only one of these three panes is visible at a
   // time (WhatsApp-app style) — at `lg`+ this is ignored, all three panes
   // show side-by-side as before. Selecting a conversation never clears
@@ -257,6 +261,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const selectedPhoneRef = useRef<string | null>(null);
   selectedPhoneRef.current = selectedPhone;
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const newChatContainerRef = useRef<HTMLDivElement>(null);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -337,6 +342,81 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     }, 300);
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [search, conversations]);
+
+  // Debounced contact search for the "New Chat" box — same 300ms/2-char
+  // threshold as the conversation search above, kept independent since this
+  // is a different input entirely.
+  useEffect(() => {
+    if (newChatDebounceRef.current) clearTimeout(newChatDebounceRef.current);
+    const q = newChatPhone.trim();
+    if (q.length < 2) { setNewChatMatches([]); return; }
+    newChatDebounceRef.current = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/customers', { params: { search: q, limit: 8 } });
+        const rows = Array.isArray(data?.data) ? data.data : [];
+        const existingPhones = new Set(conversations.map((c) => c.phone));
+        setNewChatMatches(
+          rows
+            .filter((c: any) => c.phone)
+            .map((c: any) => ({ id: c.id, name: c.name, phone: c.phone, hasConversation: existingPhones.has(`91${c.phone}`) })),
+        );
+      } catch {
+        setNewChatMatches([]);
+      }
+    }, 300);
+    return () => { if (newChatDebounceRef.current) clearTimeout(newChatDebounceRef.current); };
+  }, [newChatPhone, conversations]);
+
+  // The "start new chat with +91 XXXXX XXXXX" row — only offered once the
+  // typed text is unambiguously a valid Indian mobile number, and only when
+  // it isn't already one of the matched contacts above (avoids offering a
+  // redundant "start new" action for someone who's right there in the list).
+  const newChatValidNumber = (() => {
+    const digits = newChatPhone.replace(/\D/g, '');
+    const local = digits.length >= 10 ? digits.slice(-10) : digits;
+    if (!/^[6-9]\d{9}$/.test(local)) return null;
+    if (newChatMatches.some(m => m.phone === local)) return null;
+    return local;
+  })();
+
+  const newChatRows: Array<{ kind: 'contact'; contact: typeof newChatMatches[number] } | { kind: 'new'; phone: string }> = [
+    ...newChatMatches.map(contact => ({ kind: 'contact' as const, contact })),
+    ...(newChatValidNumber ? [{ kind: 'new' as const, phone: newChatValidNumber }] : []),
+  ];
+
+  function selectNewChatRow(row: typeof newChatRows[number]) {
+    if (row.kind === 'new') {
+      startNewChat(row.phone);
+    } else if (row.contact.hasConversation) {
+      setShowNewChat(false);
+      setNewChatPhone('');
+      setNewChatOpen(false);
+      setSelectedPhone(`91${row.contact.phone}`);
+      setMobileView('thread');
+    } else {
+      startNewChat(row.contact.phone);
+    }
+    setNewChatOpen(false);
+  }
+
+  // Close the New Chat dropdown on outside click — same approach as
+  // FieldHelp's popover (components/ui/FieldHelp.tsx).
+  useEffect(() => {
+    if (!newChatOpen) return;
+    function onMouseDown(e: MouseEvent) {
+      if (newChatContainerRef.current && !newChatContainerRef.current.contains(e.target as Node)) {
+        setNewChatOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [newChatOpen]);
+
+  // Reset the search box's own state whenever the New Chat panel is toggled
+  // shut, so reopening it doesn't show stale matches from the last search.
+  useEffect(() => {
+    if (!showNewChat) { setNewChatPhone(''); setNewChatMatches([]); setNewChatActiveIndex(-1); setNewChatOpen(false); }
+  }, [showNewChat]);
 
   const loadThread = useCallback(async (phone: string) => {
     setThreadLoading(true);
@@ -690,18 +770,59 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
             <SavedViews />
           </div>
           {showNewChat && (
-            <div className="flex items-center gap-1.5">
-              <input
-                autoFocus
-                className="input text-sm h-8 py-1 flex-1"
-                placeholder="10-digit mobile number"
-                value={newChatPhone}
-                onChange={e => setNewChatPhone(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') startNewChat(); if (e.key === 'Escape') setShowNewChat(false); }}
-              />
-              <button onClick={() => startNewChat()} disabled={!newChatPhone.trim()} className="btn-primary text-xs px-2.5 py-1.5 disabled:opacity-50">
-                Start
-              </button>
+            <div className="relative" ref={newChatContainerRef}>
+              <div className="flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  className="input text-sm h-8 py-1 flex-1"
+                  placeholder="Search contacts or type a number"
+                  value={newChatPhone}
+                  onChange={e => { setNewChatPhone(e.target.value); setNewChatOpen(true); setNewChatActiveIndex(-1); }}
+                  onFocus={() => setNewChatOpen(true)}
+                  onKeyDown={e => {
+                    if (e.key === 'ArrowDown') { e.preventDefault(); setNewChatActiveIndex(i => (i < newChatRows.length - 1 ? i + 1 : 0)); }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); setNewChatActiveIndex(i => (i > 0 ? i - 1 : newChatRows.length - 1)); }
+                    else if (e.key === 'Enter') {
+                      const row = newChatActiveIndex >= 0 ? newChatRows[newChatActiveIndex] : null;
+                      if (row) selectNewChatRow(row); else startNewChat();
+                    } else if (e.key === 'Escape') { setShowNewChat(false); setNewChatOpen(false); }
+                  }}
+                />
+                <button onClick={() => startNewChat()} disabled={!newChatPhone.trim()} className="btn-primary text-xs px-2.5 py-1.5 disabled:opacity-50">
+                  Start
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">Search contacts, or type a full number to start a new chat</p>
+              {newChatOpen && newChatRows.length > 0 && (
+                <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-64 overflow-y-auto">
+                  {newChatRows.map((row, idx) => (
+                    <button
+                      key={row.kind === 'new' ? `new-${row.phone}` : row.contact.id}
+                      onClick={() => selectNewChatRow(row)}
+                      className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 ${idx === newChatActiveIndex ? 'bg-gray-50' : ''} ${idx !== newChatRows.length - 1 ? 'border-b border-gray-100' : ''}`}
+                    >
+                      {row.kind === 'contact' ? (
+                        <>
+                          <span className="min-w-0">
+                            <span className="block font-medium text-gray-800 truncate">{row.contact.name}</span>
+                            <span className="block text-xs text-gray-500">+91 {row.contact.phone}</span>
+                          </span>
+                          {row.contact.hasConversation && (
+                            <span className="shrink-0 text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                              Already chatting
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-green-700">
+                          <MessageSquarePlus size={13} />
+                          Start new chat with +91 {row.phone}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1025,6 +1146,20 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
               <div ref={threadEndRef} />
             </div>
 
+            {sessionOpen === false && messages.length > 0 ? (
+              <div className="p-3 border-t border-gray-100 flex items-center justify-between gap-3 shrink-0 bg-amber-50">
+                <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                  <Clock size={12} className="shrink-0" />
+                  Session closed — the customer hasn't messaged in 24h. Send an approved template to reopen the conversation.
+                </p>
+                <button
+                  onClick={() => onStartNewChat?.(selectedPhone!)}
+                  className="btn-primary text-xs px-3 py-1.5 inline-flex items-center gap-1.5 shrink-0"
+                >
+                  <MessageSquarePlus size={13} /> Send a Template
+                </button>
+              </div>
+            ) : (
             <div className="relative p-3 border-t border-gray-100 flex gap-2 shrink-0">
               {cannedFilterText !== null && filteredCannedReplies.length > 0 && (
                 <div className="absolute bottom-full left-3 right-3 mb-1 max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-lg z-10">
@@ -1100,6 +1235,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                 <Send size={14} /> Send
               </button>
             </div>
+            )}
           </>
         )}
       </div>

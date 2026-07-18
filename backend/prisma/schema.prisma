@@ -77,6 +77,7 @@ model Business {
   bankTransactions    BankTransaction[]
   onlineOrders        OnlineOrder[]
   waIncomingLists     WaIncomingList[]
+  customerListEntries CustomerListEntry[]
   waMessages          WaMessage[]
   waPhoneNumbers      WaPhoneNumber[]
   waConversations     WaConversation[]
@@ -615,14 +616,18 @@ model Customer {
   customerGroup      String?
   consentGivenAt     DateTime?
   isSystemDefault    Boolean         @default(false)
+  // Customer history page
+  historyToken       String?         @unique
+  historySentAt      DateTime?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
-  business   Business          @relation(fields: [businessId], references: [id])
-  salesBills SalesBill[]
-  addresses  CustomerAddress[]
-  payments   CustomerPayment[]
-  googleSync CustomerGoogleSync?
+  business      Business             @relation(fields: [businessId], references: [id])
+  salesBills    SalesBill[]
+  addresses     CustomerAddress[]
+  payments      CustomerPayment[]
+  googleSync    CustomerGoogleSync?
+  listEntries   CustomerListEntry[]
 
   @@unique([businessId, customerCode])
   @@index([businessId, phone])
@@ -2074,6 +2079,29 @@ model StorefrontProfile {
 }
 
 // ─── WHATSAPP INCOMING LISTS ─────────────────────────────────────────────────
+// ─── CUSTOMER HISTORY ─────────────────────────────────────────────────────────
+// One row per order date per customer. imageUrls stores paths relative to the
+// shop-list static root (e.g. "2021/FEBRUARY/20210203/Bhargavi 89854.jpg").
+model CustomerListEntry {
+  id         String   @id @default(cuid())
+  businessId String
+  customerId String
+  entryDate  DateTime // date the list was received / order date
+  imageUrls  String[] // relative paths under SHOP_LIST_DIR
+  pageCount  Int      @default(1)
+  source     String   @default("MANUAL") // MANUAL | WHATSAPP
+
+  createdAt  DateTime @default(now())
+
+  business   Business @relation(fields: [businessId], references: [id])
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@index([businessId])
+  @@index([customerId, entryDate])
+  @@map("customer_list_entry")
+}
+
 model WaIncomingList {
   id           String   @id @default(cuid())
   businessId   String

@@ -58,6 +58,12 @@ async function bootstrap() {
   fs.mkdirSync(proofsDir, { recursive: true });
   app.useStaticAssets(proofsDir, { prefix: '/uploads/payment-proofs' });
 
+  // Serve customer handwritten order-list photos for the history page
+  const shopListDir = process.env.SHOP_LIST_DIR ?? 'D:/shop/LIST/new';
+  if (fs.existsSync(shopListDir)) {
+    app.useStaticAssets(shopListDir, { prefix: '/shop-list' });
+  }
+
   const port = process.env.PORT || 4001;
   await app.listen(port);
   console.log(`Srivani ERP API running on: http://localhost:${port}/api`);
