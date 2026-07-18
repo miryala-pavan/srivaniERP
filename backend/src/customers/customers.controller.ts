@@ -153,6 +153,24 @@ export class CustomersController {
     return this.customersService.deleteAddress(req.user.businessId, id, addrId);
   }
 
+  @Get(':id/list-entries')
+  getListEntries(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Query() query: { page?: string; limit?: string },
+  ) {
+    return this.customersService.getListEntries(
+      req.user.businessId, id,
+      query.page  ? parseInt(query.page,  10) : 1,
+      query.limit ? parseInt(query.limit, 10) : 12,
+    );
+  }
+
+  @Get(':id/wa-summary')
+  getWaSummary(@Request() req: any, @Param('id') id: string) {
+    return this.customersService.getWaSummary(req.user.businessId, id);
+  }
+
   // ─── SINGLE RESOURCE ──────────────────────────────────
 
   @Get(':id')

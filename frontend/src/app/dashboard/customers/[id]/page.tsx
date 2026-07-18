@@ -8,6 +8,7 @@ import {
   RefreshCw, X, Check, Plus, Trash2, Star, Printer, UserX, UserCheck,
   Wallet, CreditCard, ShoppingBag, TrendingUp, Calendar, Receipt, Award,
   Building2, MessageCircle, Users, History, ExternalLink, Copy,
+  ArrowRight, BookOpen, FileText,
 } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -129,7 +130,7 @@ function printStatement(html: string) {
   win.onload = () => { try { win.print(); } catch { /* ignore */ } };
 }
 
-type Tab = 'bills' | 'online-orders' | 'payments' | 'statement' | 'addresses';
+type Tab = 'bills' | 'online-orders' | 'payments' | 'statement' | 'addresses' | 'offline-history';
 
 const PAYMENT_MODES = ['CASH', 'UPI', 'CARD', 'CHEQUE', 'BANK_TRANSFER', 'NEFT', 'RTGS', 'OTHER'];
 
@@ -146,6 +147,44 @@ const STMT_BADGE: Record<string, string> = {
 
 const EMPTY_PAY  = { amount: '', paymentMode: 'CASH', reference: '', notes: '', billId: '', paymentDate: todayISO() };
 const EMPTY_ADDR = { label: '', line1: '', line2: '', city: '', state: '', pincode: '', isDefault: false };
+
+// ─── Activity grid (dot-grid heatmap) ────────────────────────────────────────
+
+function ActivityGrid({ dates }: { dates: string[] }) {
+  const counts = new Map<string, number>();
+  dates.forEach(d => {
+    const ym = String(d).slice(0, 7);
+    counts.set(ym, (counts.get(ym) ?? 0) + 1);
+  });
+
+  const months: { ym: string; label: string; count: number }[] = [];
+  const now = new Date();
+  for (let i = 17; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('en-IN', { month: 'short', year: '2-digit' });
+    months.push({ ym, label, count: counts.get(ym) ?? 0 });
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {months.map(({ ym, label, count }) => (
+        <div
+          key={ym}
+          title={`${label}: ${count} list${count !== 1 ? 's' : ''}`}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center text-[9px] font-semibold transition-colors cursor-default ${
+            count === 0 ? 'bg-gray-100 text-gray-300'
+              : count === 1 ? 'bg-green-100 text-green-600'
+              : count <= 3  ? 'bg-green-300 text-green-800'
+              :                'bg-green-500 text-white'
+          }`}
+        >
+          {label.slice(0, 3)}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ─── Pager ───────────────────────────────────────────────────────────────────
 
@@ -191,6 +230,7 @@ export default function CustomerDetailPage() {
 
   const [showHistoryResult, setShowHistoryResult] = useState(false);
   const [historyResult, setHistoryResult] = useState<{ url: string; waSent: boolean; waError?: string; previouslySentAt?: string | null } | null>(null);
+  const [listPage, setListPage] = useState(1);
 
   useEscapeKey(() => setShowHistoryResult(false), showHistoryResult && !showEdit && !showAddr && !showPay);
   useEscapeKey(() => setShowEdit(false), showEdit);
@@ -244,6 +284,20 @@ export default function CustomerDetailPage() {
     queryKey: ['customer', id, 'bills-select'],
     queryFn:  () => api.get(`/customers/${id}/bills`, { params: { limit: 50 } }).then(r => r.data.data ?? []),
     enabled:  !!id && showPay,
+    staleTime: 60_000,
+  });
+
+  const { data: listEntriesData, isLoading: listEntriesLoading } = useQuery({
+    queryKey: ['customer', id, 'list-entries', { page: listPage }],
+    queryFn:  () => api.get(`/customers/${id}/list-entries`, { params: { page: listPage, limit: 12 } }).then(r => r.data),
+    enabled:  !!id && activeTab === 'offline-history',
+    placeholderData: (prev: any) => prev,
+  });
+
+  const { data: waSummary } = useQuery({
+    queryKey: ['customer', id, 'wa-summary'],
+    queryFn:  () => api.get(`/customers/${id}/wa-summary`).then(r => r.data),
+    enabled:  !!id && !!customer?.phone,
     staleTime: 60_000,
   });
 
@@ -651,11 +705,12 @@ export default function CustomerDetailPage() {
           <div className="flex-1 min-w-0">
             <Tabs
               tabs={[
-                { key: 'bills',         label: 'Bills' },
-                { key: 'online-orders', label: 'Online Orders' },
-                { key: 'payments',      label: 'Payments' },
-                { key: 'statement',     label: 'Statement' },
-                { key: 'addresses',     label: 'Addresses' },
+                { key: 'bills',            label: 'Bills' },
+                { key: 'online-orders',    label: 'Online Orders' },
+                { key: 'payments',         label: 'Payments' },
+                { key: 'statement',        label: 'Statement' },
+                { key: 'offline-history',  label: 'Offline History' },
+                { key: 'addresses',        label: 'Addresses' },
               ]}
               active={activeTab}
               onChange={(t) => setActiveTab(t as Tab)}
@@ -798,6 +853,103 @@ export default function CustomerDetailPage() {
                         {onlineOrdersData?.length} online order(s) linked by phone {customer.phone}
                       </div>
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Offline History ───────────────────────────────────────── */}
+              {activeTab === 'offline-history' && (
+                <div>
+                  {listEntriesLoading && !listEntriesData ? (
+                    <div className="py-12 text-center text-gray-400 text-sm flex items-center justify-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Loading history…
+                    </div>
+                  ) : !listEntriesData?.total ? (
+                    <div className="py-12 text-center">
+                      <BookOpen className="w-8 h-8 text-gray-200 mx-auto mb-3" />
+                      <p className="text-gray-400 text-sm">No offline shopping lists on record</p>
+                      <p className="text-xs text-gray-300 mt-1">Lists are imported from scanned paper lists or WhatsApp orders</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* ── RFM summary ─────────────────────────────────────── */}
+                      {(() => {
+                        const allDates: string[] = listEntriesData?.allDates ?? [];
+                        const lastDate = allDates[0] ? new Date(allDates[0]) : null;
+                        const daysSinceLast = lastDate ? Math.floor((Date.now() - lastDate.getTime()) / 86400000) : null;
+                        const recencyLabel = daysSinceLast === null ? 'Never' : daysSinceLast === 0 ? 'Today' : daysSinceLast === 1 ? 'Yesterday' : `${daysSinceLast}d ago`;
+                        const recencyColor = daysSinceLast === null ? 'text-gray-400' : daysSinceLast <= 30 ? 'text-green-600 font-semibold' : daysSinceLast <= 90 ? 'text-amber-600 font-semibold' : 'text-red-500 font-semibold';
+                        return (
+                          <div className="px-4 py-4 border-b border-gray-100 space-y-4">
+                            {/* RFM chips */}
+                            <div className="flex flex-wrap gap-3">
+                              <div className="flex-1 min-w-[100px] bg-gray-50 rounded-xl px-4 py-3 space-y-0.5">
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Last Visit</p>
+                                <p className={`text-sm ${recencyColor}`}>{recencyLabel}</p>
+                              </div>
+                              <div className="flex-1 min-w-[100px] bg-gray-50 rounded-xl px-4 py-3 space-y-0.5">
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Total Lists</p>
+                                <p className="text-sm font-semibold text-gray-800">{listEntriesData.total}</p>
+                              </div>
+                              <div className="flex-1 min-w-[100px] bg-gray-50 rounded-xl px-4 py-3 space-y-0.5">
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Pages Scanned</p>
+                                <p className="text-sm font-semibold text-gray-800">{listEntriesData.totalPageCount ?? 0}</p>
+                              </div>
+                              {daysSinceLast !== null && daysSinceLast > 90 && (
+                                <div className="flex-1 min-w-[140px] bg-red-50 border border-red-100 rounded-xl px-4 py-3 flex items-center gap-2">
+                                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                                  <div>
+                                    <p className="text-[10px] text-red-500 font-medium">Gone Quiet</p>
+                                    <p className="text-xs text-red-400">No order in {daysSinceLast}d</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Activity grid */}
+                            <div>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium mb-2">Activity — last 18 months</p>
+                              <ActivityGrid dates={allDates} />
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ── Entries list ─────────────────────────────────────── */}
+                      <div className="divide-y divide-gray-50">
+                        {(listEntriesData?.entries ?? []).map((entry: any) => (
+                          <div key={entry.id} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50">
+                            <div className="shrink-0 mt-0.5">
+                              <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
+                                <FileText className="w-3.5 h-3.5 text-amber-500" />
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium text-gray-800">
+                                  {new Date(entry.entryDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </span>
+                                <span className="text-xs text-gray-400">{entry.pageCount} page{entry.pageCount !== 1 ? 's' : ''}</span>
+                                {entry.source && (
+                                  <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded font-mono">{entry.source}</span>
+                                )}
+                              </div>
+                              {entry.imageUrls?.length > 0 && (
+                                <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1">
+                                  {entry.imageUrls.map((url: string, i: number) => (
+                                    <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                                      className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-gray-100 bg-gray-50 hover:border-gray-300 transition-colors">
+                                      <img src={url} alt={`List page ${i + 1}`} className="w-full h-full object-cover" />
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <Pager page={listPage} totalPages={listEntriesData?.totalPages ?? 1} onPage={setListPage} />
+                    </>
                   )}
                 </div>
               )}
@@ -1134,6 +1286,61 @@ export default function CustomerDetailPage() {
                   <h3 className="text-sm font-semibold text-gray-800">Customer Group</h3>
                 </div>
                 <p className="text-sm text-gray-700">{customer.customerGroup}</p>
+              </div>
+            )}
+
+            {/* PaVa Connect — WA activity */}
+            {customer.phone && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-green-50 flex items-center justify-center shrink-0">
+                      <MessageCircle className="w-3.5 h-3.5 text-green-500" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-gray-800">PaVa Connect</h3>
+                  </div>
+                  <a
+                    href={`/dashboard/notifications/whatsapp?phone=91${customer.phone}`}
+                    className="flex items-center gap-1 text-[11px] text-green-600 hover:text-green-700 font-medium"
+                    title="Open in PaVa Connect"
+                  >
+                    Open <ArrowRight className="w-3 h-3" />
+                  </a>
+                </div>
+
+                {!waSummary || waSummary.totalMessages === 0 ? (
+                  <div className="text-xs text-gray-400 py-2 text-center">No WhatsApp messages yet</div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      {(waSummary.messages ?? []).map((msg: any) => (
+                        <div key={msg.id} className={`text-xs rounded-lg px-3 py-2 ${
+                          msg.direction === 'INBOUND'
+                            ? 'bg-gray-50 border border-gray-100'
+                            : 'bg-green-50 border border-green-100'
+                        }`}>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                              msg.direction === 'INBOUND' ? 'bg-gray-400' : 'bg-green-500'
+                            }`} />
+                            <span className="text-[10px] text-gray-400">
+                              {msg.direction === 'INBOUND' ? 'Customer' : 'You'} ·{' '}
+                              {new Date(msg.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                            </span>
+                          </div>
+                          <p className="text-gray-700 line-clamp-2 leading-relaxed">
+                            {msg.bodyPreview || '(media)'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    {waSummary.totalMessages > 4 && (
+                      <p className="text-[10px] text-gray-400 text-center">
+                        {waSummary.totalMessages - 4} more message{waSummary.totalMessages - 4 !== 1 ? 's' : ''} in PaVa Connect
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             )}
 

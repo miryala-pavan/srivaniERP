@@ -742,4 +742,72 @@ export class CustomersService {
     await this.prisma.customerAddress.delete({ where: { id: addrId } });
     return { deleted: true };
   }
+
+  async getListEntries(businessId: string, customerId: string, page = 1, limit = 12) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, businessId },
+      select: { id: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const filesBase = (process.env.FILES_BASE_URL ?? 'http://localhost:4001/shop-list').replace(/\/$/, '');
+
+    const eWhere = { customerId, businessId };
+    const [entries, agg, allDatesRaw] = await Promise.all([
+      this.prisma.customerListEntry.findMany({
+        where: eWhere,
+        orderBy: { entryDate: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: { id: true, entryDate: true, pageCount: true, source: true, imageUrls: true },
+      }),
+      this.prisma.customerListEntry.aggregate({
+        where: eWhere,
+        _count: { id: true },
+        _sum:   { pageCount: true },
+      }),
+      this.prisma.customerListEntry.findMany({
+        where: eWhere,
+        orderBy: { entryDate: 'desc' },
+        select: { entryDate: true },
+      }),
+    ]);
+
+    const total = agg._count.id;
+    return {
+      entries: entries.map(e => ({
+        ...e,
+        imageUrls: (e.imageUrls as string[]).map(p =>
+          `${filesBase}/${p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')}`,
+        ),
+      })),
+      allDates: allDatesRaw.map(e => e.entryDate),
+      total,
+      totalPageCount: agg._sum.pageCount ?? 0,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async getWaSummary(businessId: string, customerId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, businessId },
+      select: { phone: true },
+    });
+    if (!customer?.phone) return { messages: [], phone: null, totalMessages: 0 };
+
+    const e164 = `91${customer.phone}`;
+    const [messages, totalMessages] = await Promise.all([
+      this.prisma.waMessage.findMany({
+        where: { businessId, phone: e164 },
+        orderBy: { createdAt: 'desc' },
+        take: 4,
+        select: { id: true, direction: true, bodyPreview: true, status: true, createdAt: true },
+      }),
+      this.prisma.waMessage.count({ where: { businessId, phone: e164 } }),
+    ]);
+
+    return { messages, phone: e164, totalMessages };
+  }
 }
