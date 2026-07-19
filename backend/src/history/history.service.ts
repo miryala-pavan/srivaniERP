@@ -169,28 +169,67 @@ export class HistoryService {
 
     const shopUrl = (process.env.SHOP_URL ?? 'http://localhost:4002').replace(/\/$/, '');
     const url = `${shopUrl}/history/${token}`;
-
-    const msg = buildMessage(customer.name, url);
+    const displayName = cleanName(customer.name);
 
     let waSent = false;
     let waError: string | undefined;
-    try {
-      // Note: sendTextMessage only works within a 24h session window.
-      // For cold contacts (no recent inbound message), use a WhatsApp template instead.
-      await this.wa.sendTextMessage(businessId, customer.phone, msg);
+    let method: 'template' | 'text' = 'template';
+
+    // Try approved template first (works for cold contacts, no 24h restriction)
+    const templateResult = await this.wa.sendTemplateToNumber(
+      businessId, customer.phone, 'svn_history_link', 'en', [displayName], token,
+    );
+
+    if (templateResult.ok) {
       waSent = true;
-    } catch (err) {
-      waError = String(err);
+    } else {
+      // Fallback: plain text (requires active 24h session window)
+      method = 'text';
+      try {
+        await this.wa.sendTextMessage(businessId, customer.phone, buildMessage(customer.name, url));
+        waSent = true;
+      } catch (err) {
+        waError = String(err);
+      }
     }
 
     return {
       token,
       url,
       waSent,
+      method,
       waError,
       previouslySentAt: customer.historySentAt,
       customer: { id: customer.id, name: customer.name, phone: customer.phone },
     };
+  }
+
+  /** One-time: register the svn_history_link template with Meta for approval. */
+  async registerHistoryTemplate() {
+    const shopUrl = (process.env.SHOP_URL ?? 'https://srivani.com').replace(/\/$/, '');
+    return this.wa.createTemplate({
+      name: 'svn_history_link',
+      category: 'UTILITY',
+      language: 'en',
+      bodyText: `Dear {{1}},
+
+మీరు మాకు కేవలం customer కాదు — మీరు మా family! 🙏
+You are not just our customer — you are family.
+
+మీరు ఇన్ని సంవత్సరాలు పంపించిన ప్రతి list, చేసిన ప్రతి order — అవన్నీ మేము జాగ్రత్తగా భద్రపరచాము.
+Every list you sent, every order you placed — we have preserved them all.
+
+✨ మీ Personal Order History సిద్ధంగా ఉంది.
+Your complete purchase history is ready — tap the button below to view.`,
+      footerText: 'Srivani Stores 🌿',
+      buttons: [
+        {
+          type: 'URL',
+          text: 'View My History',
+          url: `${shopUrl}/history/{{1}}`,
+        },
+      ],
+    });
   }
 }
 

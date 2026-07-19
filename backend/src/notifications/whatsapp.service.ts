@@ -1624,7 +1624,14 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
-  async sendTemplateToNumber(businessId: string, phone: string, templateName: string, language: string, params: string[]) {
+  async sendTemplateToNumber(
+    businessId: string,
+    phone: string,
+    templateName: string,
+    language: string,
+    params: string[],
+    urlButtonParam?: string,   // dynamic suffix for URL button at index 0
+  ) {
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
     if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
@@ -1634,6 +1641,14 @@ export class WhatsAppService implements OnModuleInit {
       components.push({
         type: 'body',
         parameters: params.map(text => ({ type: 'text', text })),
+      });
+    }
+    if (urlButtonParam) {
+      components.push({
+        type: 'button',
+        sub_type: 'url',
+        index: '0',
+        parameters: [{ type: 'text', text: urlButtonParam }],
       });
     }
     const result = await this.logAndSend(

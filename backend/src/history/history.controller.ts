@@ -46,4 +46,12 @@ export class HistoryController {
   sendHistoryLink(@Param('id') id: string, @Request() req: any) {
     return this.historyService.sendHistoryLink(id, req.user.businessId);
   }
+
+  /** One-time: submit svn_history_link template to Meta for approval. SUPER_ADMIN only. */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Post('register-template')
+  registerTemplate() {
+    return this.historyService.registerHistoryTemplate();
+  }
 }
