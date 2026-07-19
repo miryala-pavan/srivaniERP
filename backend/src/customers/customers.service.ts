@@ -23,12 +23,13 @@ export class CustomersService {
   ) {}
 
   private buildWhere(businessId: string, filters: {
-    isActive?: string; channel?: string; customerGroup?: string;
-    whatsappOptIn?: string; search?: string;
+    isActive?: string; channel?: string; customerType?: string;
+    customerGroup?: string; whatsappOptIn?: string; search?: string;
   }): any {
     const where: any = { businessId };
     if (filters.isActive !== undefined) where.isActive = filters.isActive === 'true';
-    if (filters.channel)       where.channel       = filters.channel;
+    if (filters.channel)       where.channel      = filters.channel;
+    if (filters.customerType)  where.customerType = filters.customerType;
     if (filters.customerGroup) where.customerGroup = filters.customerGroup;
     if (filters.whatsappOptIn !== undefined) where.whatsappOptIn = filters.whatsappOptIn === 'true';
     if (filters.search) {
@@ -42,6 +43,19 @@ export class CustomersService {
       ];
     }
     return where;
+  }
+
+  private buildOrderBy(sort?: string): any {
+    switch (sort) {
+      case 'name_desc':    return { name: 'desc' };
+      case 'code_asc':     return { customerCode: { sort: 'asc',  nulls: 'last' } };
+      case 'code_desc':    return { customerCode: { sort: 'desc', nulls: 'last' } };
+      case 'phone_asc':    return { phone: { sort: 'asc',  nulls: 'last' } };
+      case 'phone_desc':   return { phone: { sort: 'desc', nulls: 'last' } };
+      case 'created_asc':  return { createdAt: 'asc' };
+      case 'created_desc': return { createdAt: 'desc' };
+      default:             return { name: 'asc' };
+    }
   }
 
   // ─── STEP 5: CODE GENERATION ─────────────────────────────────────────────────
@@ -140,7 +154,7 @@ export class CustomersService {
     const [customers, total] = await this.prisma.$transaction([
       this.prisma.customer.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy: this.buildOrderBy(query.sort),
         skip,
         take: limit,
         select: {

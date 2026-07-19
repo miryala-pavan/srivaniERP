@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
-  Plus, Search, Edit2, Phone, AlertTriangle, X, Check, MessageCircle,
+  Plus, Edit2, Phone, AlertTriangle, X, Check, ChevronUp, ChevronDown, ChevronsUpDown,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
@@ -40,6 +40,7 @@ interface Customer {
   isActive: boolean;
   isSystemDefault: boolean;
   whatsappOptIn: boolean;
+  createdAt: string;
 }
 
 const EMPTY_FORM = {
@@ -80,6 +81,34 @@ function StatusBadge({ s, isActive }: { s: string; isActive: boolean }) {
 }
 
 
+// ── SortTh helper ────────────────────────────────────────────────────────────
+
+type SortDir = 'asc' | 'desc' | null;
+
+function SortTh({
+  label, field, sort, onSort,
+  className = '',
+}: {
+  label: string; field: string; sort: string; onSort: (v: string) => void; className?: string;
+}) {
+  const active   = sort.startsWith(field + '_');
+  const dir: SortDir = active ? (sort.endsWith('_asc') ? 'asc' : 'desc') : null;
+  const next = dir === 'asc' ? `${field}_desc` : `${field}_asc`;
+  return (
+    <th
+      onClick={() => onSort(next)}
+      className={`text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide cursor-pointer select-none hover:text-gray-600 transition-colors ${className}`}
+    >
+      <span className="flex items-center gap-1">
+        {label}
+        {dir === 'asc'  ? <ChevronUp   className="w-3 h-3 text-[#1B4F8A]" /> :
+         dir === 'desc' ? <ChevronDown  className="w-3 h-3 text-[#1B4F8A]" /> :
+                          <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
+      </span>
+    </th>
+  );
+}
+
 // ── Toggle helper ────────────────────────────────────────────────────────────
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
@@ -104,6 +133,9 @@ export default function CustomersPage() {
   const [page, setPage]                   = useState(1);
   const [showInactive, setShowInactive]   = useState(false);
   const [optInFilter, setOptInFilter]     = useState<'all' | 'in' | 'out'>('all');
+  const [channelFilter, setChannelFilter] = useState<'all' | 'POS' | 'ONLINE' | 'BOTH'>('all');
+  const [typeFilter, setTypeFilter]       = useState<'all' | 'B2C' | 'B2B' | 'WALKIN'>('all');
+  const [sort, setSort]                   = useState('name_asc');
   const [showModal, setShowModal]         = useState(false);
   const [editing, setEditing]             = useState<Customer | null>(null);
   const [form, setForm]                   = useState({ ...EMPTY_FORM });
@@ -136,15 +168,18 @@ export default function CustomersPage() {
   // ── Query ──────────────────────────────────────────────────────────────────
 
   const { data, isLoading } = useQuery({
-    queryKey: ['customers', { page, search: debouncedSearch, showInactive, optInFilter }],
+    queryKey: ['customers', { page, search: debouncedSearch, showInactive, optInFilter, channelFilter, typeFilter, sort }],
     queryFn: async () => {
       const res = await api.get('/customers', {
         params: {
           page,
           limit: 20,
-          search: debouncedSearch || undefined,
-          isActive: showInactive ? undefined : 'true',
+          search:        debouncedSearch || undefined,
+          isActive:      showInactive ? undefined : 'true',
           whatsappOptIn: optInFilter === 'all' ? undefined : optInFilter === 'in' ? 'true' : 'false',
+          channel:       channelFilter !== 'all' ? channelFilter : undefined,
+          customerType:  typeFilter    !== 'all' ? typeFilter    : undefined,
+          sort:          sort !== 'name_asc' ? sort : undefined,
         },
       });
       return res.data as { data: Customer[]; meta: { totalPages: number; total: number } };
@@ -161,7 +196,7 @@ export default function CustomersPage() {
   useEffect(() => {
     setSelectedIds(new Set());
     setSelectAllMatching(false);
-  }, [page, debouncedSearch, showInactive, optInFilter]);
+  }, [page, debouncedSearch, showInactive, optInFilter, channelFilter, typeFilter]);
 
   const selectedCount = selectAllMatching ? total : selectedIds.size;
   const allOnPageSelected = customers.length > 0 && customers.every((c) => selectedIds.has(c.id));
@@ -336,6 +371,46 @@ export default function CustomersPage() {
           >
             {showInactive ? 'Hide inactive' : 'Show inactive'}
           </button>
+          {/* Channel filter */}
+          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
+            {([
+              { key: 'all',    label: 'All channels' },
+              { key: 'POS',    label: 'POS' },
+              { key: 'ONLINE', label: 'Online' },
+              { key: 'BOTH',   label: 'Both' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => { setChannelFilter(opt.key); setPage(1); }}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  channelFilter === opt.key ? 'bg-[#1B4F8A] text-white' : 'text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Type filter */}
+          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
+            {([
+              { key: 'all',    label: 'All types' },
+              { key: 'B2C',    label: 'B2C' },
+              { key: 'B2B',    label: 'B2B' },
+              { key: 'WALKIN', label: 'Walk-in' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => { setTypeFilter(opt.key); setPage(1); }}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  typeFilter === opt.key ? 'bg-[#1B4F8A] text-white' : 'text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
           {canBulkOptIn && (
             <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
               {([
@@ -426,15 +501,16 @@ export default function CustomersPage() {
                       </th>
                     )}
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide w-10">#</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide w-20">Code</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Name</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden md:table-cell">Phone</th>
+                    <SortTh label="Code"    field="code"    sort={sort} onSort={(v) => { setSort(v); setPage(1); }} className="w-20" />
+                    <SortTh label="Name"    field="name"    sort={sort} onSort={(v) => { setSort(v); setPage(1); }} />
+                    <SortTh label="Phone"   field="phone"   sort={sort} onSort={(v) => { setSort(v); setPage(1); }} className="hidden md:table-cell" />
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden lg:table-cell">Type</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden lg:table-cell">Channel</th>
                     <th className="text-right px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Outstanding</th>
                     <th className="text-right px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden xl:table-cell">Credit Limit</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden md:table-cell">Status</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-400 text-xs uppercase tracking-wide hidden lg:table-cell">WhatsApp</th>
+                    <SortTh label="Joined" field="created" sort={sort} onSort={(v) => { setSort(v); setPage(1); }} className="hidden xl:table-cell" />
                     <th className="px-3 py-3 w-10"></th>
                   </tr>
                 </thead>
@@ -511,6 +587,9 @@ export default function CustomersPage() {
                         </td>
                         <td className="px-3 py-3 hidden lg:table-cell">
                           <OptInBadge on={c.whatsappOptIn} />
+                        </td>
+                        <td className="px-3 py-3 hidden xl:table-cell text-xs text-gray-400">
+                          {c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                         </td>
                         <td className="px-3 py-3">
                           <button

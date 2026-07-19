@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards, Request, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards, Request, BadRequestException, HttpCode } from '@nestjs/common';
 import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { OnlineOrdersService } from './online-orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -108,6 +108,14 @@ export class OnlineOrdersController {
   @Post(':orderNumber/notify')
   notifyCustomer(@Param('orderNumber') orderNumber: string) {
     return this.service.notifyCustomer(orderNumber);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('backfill-customers')
+  @HttpCode(200)
+  backfillCustomers(@Request() req: any) {
+    return this.service.backfillCustomers(req.user.businessId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

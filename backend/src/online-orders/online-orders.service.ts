@@ -980,6 +980,50 @@ export class OnlineOrdersService {
     return null;
   }
 
+  async backfillCustomers(businessId: string): Promise<{ created: number; upgraded: number; skipped: number }> {
+    const orders = await this.prisma.onlineOrder.findMany({
+      where:  { businessId, customerPhone: { not: null as any } },
+      select: { customerPhone: true, customerName: true, customerEmail: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let created = 0, upgraded = 0, skipped = 0;
+
+    for (const order of orders) {
+      const phone = this.normalizePhone(order.customerPhone!);
+      if (!phone) { skipped++; continue; }
+
+      const existing = await this.prisma.customer.findFirst({
+        where: { businessId, phone },
+        select: { id: true, channel: true, email: true },
+      });
+
+      if (existing) {
+        const updates: Record<string, unknown> = {};
+        if (existing.channel === 'POS') updates.channel = 'BOTH';
+        if (!existing.email && order.customerEmail) updates.email = order.customerEmail;
+        if (Object.keys(updates).length > 0) {
+          await this.prisma.customer.update({ where: { id: existing.id }, data: updates });
+          upgraded++;
+        } else {
+          skipped++;
+        }
+      } else {
+        const cleanedName = (order.customerName ?? '').trim().replace(/\s+/g, ' ') || `Customer ${phone}`;
+        await this.prisma.customer.create({
+          data: {
+            businessId, name: cleanedName, phone,
+            email: order.customerEmail || undefined,
+            channel: 'ONLINE', status: 'ACTIVE', isActive: true, whatsappOptIn: false,
+          },
+        });
+        created++;
+      }
+    }
+
+    return { created, upgraded, skipped };
+  }
+
   async upsertCustomer(businessId: string, rawPhone: string, name: string, email?: string | null): Promise<string | null> {
     const phone = this.normalizePhone(rawPhone);
     if (!phone) return null;
