@@ -125,6 +125,13 @@ export class NotificationsController {
     return this.whatsapp.deleteTemplate(name);
   }
 
+  /** One-time: subscribe Meta App to this WABA so webhook messages/statuses are delivered. */
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/subscribe-app')
+  subscribeApp() {
+    return this.whatsapp.subscribeApp();
+  }
+
   // ── Send any template to any number ───────────────────────────────────────
   // Powers both Campaigns (SUPER_ADMIN-only tab) and the chat inbox's New
   // Chat flow (BRANCH_MANAGER too) — the only way to message a number with

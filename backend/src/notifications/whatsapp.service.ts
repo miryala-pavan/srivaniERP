@@ -1528,6 +1528,26 @@ export class WhatsAppService implements OnModuleInit {
     ], { relatedType: 'PRODUCT', relatedId: data.productName });
   }
 
+  // ── WABA subscription ───────────────────────────────────────────────────────
+
+  /** Subscribe the Meta App to this WABA so webhook events (messages, statuses) are delivered. */
+  async subscribeApp() {
+    if (!this.token || !this.wabaId) {
+      return { ok: false, error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
+    }
+    try {
+      const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/subscribed_apps`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      const data = await res.json() as any;
+      return res.ok ? { ok: true, data } : { ok: false, error: data?.error?.message ?? JSON.stringify(data) };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  }
+
   // ── Template management (Meta Graph API) ────────────────────────────────────
 
   async listTemplates() {
@@ -1550,12 +1570,13 @@ export class WhatsAppService implements OnModuleInit {
     category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
     language: string;
     bodyText: string;
+    bodyExample?: string[];   // one sample value per {{N}} variable in bodyText
     headerText?: string;
     footerText?: string;
     buttons?: Array<
       | { type: 'QUICK_REPLY'; text: string }
       | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
-      | { type: 'URL'; text: string; url: string }
+      | { type: 'URL'; text: string; url: string; example?: string }
     >;
   }) {
     if (!this.token || !this.wabaId) {
@@ -1565,7 +1586,11 @@ export class WhatsAppService implements OnModuleInit {
     if (dto.headerText) {
       components.push({ type: 'HEADER', format: 'TEXT', text: dto.headerText });
     }
-    components.push({ type: 'BODY', text: dto.bodyText });
+    const bodyComponent: any = { type: 'BODY', text: dto.bodyText };
+    if (dto.bodyExample && dto.bodyExample.length > 0) {
+      bodyComponent.example = { body_text: [dto.bodyExample] };
+    }
+    components.push(bodyComponent);
     if (dto.footerText) {
       components.push({ type: 'FOOTER', text: dto.footerText });
     }

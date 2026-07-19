@@ -213,20 +213,19 @@ export class HistoryService {
       language: 'en',
       bodyText: `Dear {{1}},
 
-మీరు మాకు కేవలం customer కాదు — మీరు మా family! 🙏
-You are not just our customer — you are family.
+You are not just our customer - you are family.
 
-మీరు ఇన్ని సంవత్సరాలు పంపించిన ప్రతి list, చేసిన ప్రతి order — అవన్నీ మేము జాగ్రత్తగా భద్రపరచాము.
-Every list you sent, every order you placed — we have preserved them all.
+Every list you sent, every order you placed - we have preserved them all, all these years.
 
-✨ మీ Personal Order History సిద్ధంగా ఉంది.
-Your complete purchase history is ready — tap the button below to view.`,
-      footerText: 'Srivani Stores 🌿',
+Your complete purchase history is ready. Tap the button below to view it.`,
+      bodyExample: ['Ramesh'],
+      footerText: 'Srivani Stores',
       buttons: [
         {
           type: 'URL',
           text: 'View My History',
           url: `${shopUrl}/history/{{1}}`,
+          example: `${shopUrl}/history/abc123sample`,
         },
       ],
     });

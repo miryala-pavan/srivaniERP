@@ -40,9 +40,15 @@ const TEMPLATE_DESC: Record<string, string> = {
   svn_order_placed:  '🛍️ Customer confirmation — sent when COD order is placed',
   svn_payment_done:  '✅ Payment receipt — sent to customer after online payment',
   svn_order_update:  '🔔 Status update — sent to customer on order progress',
+  svn_history_link:  '📜 History link — sent from customer page to share purchase history',
   hello_world:       '👋 Meta built-in test template',
-  post_delivery_feedback: '⭐ Feedback request — sent to customer after order is delivered',
-  google_review_request:  '🌟 Review nudge — sent when a customer taps the positive feedback button',
+  post_delivery_feedback:  '⭐ Feedback request — sent to customer after order is delivered',
+  google_review_request:   '🌟 Review nudge — sent when a customer taps the positive feedback button',
+  svn_credit_reminder:     '💰 Credit reminder — sent to customers with outstanding dues',
+  svn_reorder_reminder:    '🔄 Reorder nudge — sent when customer hasn\'t ordered in a while',
+  svn_welcome_customer:    '🌿 Welcome — sent to new customers on their first order',
+  svn_back_in_stock:       '📢 Back in stock — sent when a product is restocked',
+  svn_campaign:            '📣 Campaign — bulk promotional message',
 };
 
 interface RequiredTemplate {
@@ -161,6 +167,7 @@ export default function WhatsAppTemplatesPage() {
   const [submitting, setSubmitting]   = useState(false);
   const [testPhone, setTestPhone]     = useState('');
   const [testing, setTesting]         = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
   const [showCredsModal, setShowCredsModal] = useState(false);
   const [creds, setCreds]             = useState({ ...BLANK_CREDS });
   const [credsStatus, setCredsStatus] = useState<{
@@ -658,6 +665,19 @@ export default function WhatsAppTemplatesPage() {
     }
   }
 
+  async function subscribeApp() {
+    setSubscribing(true);
+    try {
+      const { data } = await api.post('/notifications/whatsapp/subscribe-app');
+      if (data?.ok) toast.success('App subscribed to WABA! Webhooks will now receive messages and statuses.');
+      else toast.error(data?.error ?? 'Subscription failed');
+    } catch {
+      toast.error('Subscription failed');
+    } finally {
+      setSubscribing(false);
+    }
+  }
+
   async function sendHelloWorld() {
     if (!testPhone.trim()) return toast.error('Enter a phone number');
     setTesting(true);
@@ -923,6 +943,16 @@ export default function WhatsAppTemplatesPage() {
               <button onClick={sendHelloWorld} disabled={testing}
                 className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 whitespace-nowrap transition-colors">
                 <Send size={12} /> {testing ? 'Sending…' : 'Send hello_world'}
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5 bg-blue-50/60 border-t border-blue-100">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-blue-800">Subscribe App to WABA</p>
+                <p className="text-xs text-blue-600 mt-0.5">Required once — lets Meta deliver webhook messages and statuses to this ERP</p>
+              </div>
+              <button onClick={subscribeApp} disabled={subscribing}
+                className="flex items-center gap-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 whitespace-nowrap transition-colors disabled:opacity-50 shrink-0">
+                <Wifi size={12} /> {subscribing ? 'Subscribing…' : 'Subscribe Now'}
               </button>
             </div>
           </div>
