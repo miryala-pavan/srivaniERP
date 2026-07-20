@@ -1290,6 +1290,7 @@ export class WhatsAppService implements OnModuleInit {
     params: string[],
     meta?: { relatedType?: string; relatedId?: string },
     buttonPayloads?: { index: number; payload: string }[],
+    urlButtonSuffix?: string,  // dynamic suffix for URL button at index 0
   ): Promise<void> {
     const components: any[] = [
       {
@@ -1303,6 +1304,14 @@ export class WhatsAppService implements OnModuleInit {
         sub_type: 'quick_reply',
         index: String(bp.index),
         parameters: [{ type: 'payload', payload: bp.payload }],
+      });
+    }
+    if (urlButtonSuffix) {
+      components.push({
+        type: 'button',
+        sub_type: 'url',
+        index: '0',
+        parameters: [{ type: 'text', text: urlButtonSuffix }],
       });
     }
     await this.logAndSend(
@@ -1398,10 +1407,11 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   /**
-   * Template: svn_payment_done
+   * Template: svn_order_confirm_v2
    * Send to CUSTOMER after Razorpay payment is verified.
    *
    * Body params: {{1}}=name, {{2}}=order#, {{3}}=amount, {{4}}=payment method
+   * URL button suffix: order number → shop.srivani.com/order/{orderNumber}
    */
   async sendCustomerPaymentConfirmed(businessId: string, order: {
     customerName: string;
@@ -1412,12 +1422,13 @@ export class WhatsAppService implements OnModuleInit {
   }): Promise<void> {
     const to = this.e164(order.customerPhone);
     if (!to) return;
-    await this.sendTemplate(businessId, to, 'svn_payment_done', [
-      order.customerName,
+    await this.sendTemplate(
+      businessId, to, 'svn_order_confirm_v2',
+      [order.customerName, order.orderNumber, order.total.toFixed(0), order.paymentMethod ?? 'Online Payment'],
+      { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber },
+      [],
       order.orderNumber,
-      order.total.toFixed(0),
-      order.paymentMethod ?? 'Online Payment',
-    ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber });
+    );
   }
 
   /**
