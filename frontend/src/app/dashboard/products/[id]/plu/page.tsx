@@ -10,7 +10,7 @@ import { getUser } from '@/lib/auth';
 import { canViewCost } from '@/lib/cost-visibility';
 import { BackButton } from '@/components/shared/BackButton';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
-import { UNIT_SYMBOLS, UQC_MAP, calcBaseUnitQty, fmtBaseQty } from '@/lib/units';
+import { UNIT_SYMBOLS, UQC_MAP, calcBaseUnitQty, fmtBaseQty, MEASURE_TYPES, MEASURE_TYPE_LABELS } from '@/lib/units';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -544,9 +544,7 @@ export default function PluManagePage() {
                                       onChange={e => setEditForm(f => ({ ...f, measureType: e.target.value, unitSymbol: '', unitSize: '', gstUqc: '' }))}
                                       className="inp text-xs">
                                       <option value="">— none —</option>
-                                      <option value="WEIGHT">Weight</option>
-                                      <option value="VOLUME">Volume</option>
-                                      <option value="COUNT">Count</option>
+                                      {MEASURE_TYPES.map(mt => <option key={mt} value={mt}>{MEASURE_TYPE_LABELS[mt]}</option>)}
                                     </select>
                                   </div>
                                   <div>
@@ -800,9 +798,7 @@ export default function PluManagePage() {
                       className="inp"
                     >
                       <option value="">— optional —</option>
-                      <option value="WEIGHT">Weight (kg / g)</option>
-                      <option value="VOLUME">Volume (L / ml)</option>
-                      <option value="COUNT">Count (pcs / ctn / box…)</option>
+                      {MEASURE_TYPES.map(mt => <option key={mt} value={mt}>{MEASURE_TYPE_LABELS[mt]}</option>)}
                     </select>
                   </PluFld>
                   <PluFld label="Unit Symbol">

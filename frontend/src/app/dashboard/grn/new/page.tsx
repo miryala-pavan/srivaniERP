@@ -14,7 +14,7 @@ import { useKeyboardNav } from '@/hooks/useKeyboardNav';
 import { FieldHelp } from '@/components/ui/FieldHelp';
 import { useFormAutosave } from '@/hooks/useFormAutosave';
 import { RestoreBanner } from '@/components/ui/RestoreBanner';
-import { UNIT_SYMBOLS, calcBaseUnitQty, deriveUqc, suggestUnitFromName } from '@/lib/units';
+import { UNIT_SYMBOLS, calcBaseUnitQty, deriveUqc, suggestUnitFromName, MEASURE_TYPES, MEASURE_TYPE_LABELS } from '@/lib/units';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1377,9 +1377,7 @@ export default function NewGrnPage() {
                                     onChange={(e) => updateItem(idx, { measureType: e.target.value || undefined, unitSymbol: undefined })}
                                     className="finp text-xs">
                                     <option value="">— Skip —</option>
-                                    <option value="WEIGHT">Weight</option>
-                                    <option value="VOLUME">Volume</option>
-                                    <option value="COUNT">Count</option>
+                                    {MEASURE_TYPES.map(mt => <option key={mt} value={mt}>{MEASURE_TYPE_LABELS[mt]}</option>)}
                                   </select>
                                   <select value={it.unitSymbol ?? ''}
                                     onChange={(e) => updateItem(idx, { unitSymbol: e.target.value || undefined })}
@@ -1768,9 +1766,7 @@ export default function NewGrnPage() {
                     onChange={(e) => setQuickCreateForm(f => ({ ...f, measureType: e.target.value, unitSymbol: '' }))}
                     className="finp">
                     <option value="">— Not set —</option>
-                    <option value="WEIGHT">Weight</option>
-                    <option value="VOLUME">Volume</option>
-                    <option value="COUNT">Count</option>
+                    {MEASURE_TYPES.map(mt => <option key={mt} value={mt}>{MEASURE_TYPE_LABELS[mt]}</option>)}
                   </select>
                   <div className="flex gap-2">
                     <select value={quickCreateForm.unitSymbol}

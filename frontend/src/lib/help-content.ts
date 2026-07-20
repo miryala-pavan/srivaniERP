@@ -103,6 +103,7 @@ export const HELP_CONTENT: HelpEntry[] = [
       'Preferred Supplier': { en: 'The supplier auto-selected when a Purchase Order is created for this product (manual or auto-reorder). You can override it when creating the PO.', te: 'ఈ ఉత్పత్తికి కొనుగోలు ఆర్డర్ సృష్టించినప్పుడు (మాన్యువల్ లేదా ఆటో-రీఆర్డర్) స్వయంచాలకంగా ఎంచుకున్న సరఫరాదారు. PO సృష్టించేటప్పుడు మీరు దీన్ని మార్చవచ్చు.' },
       'Reorder Level': { en: 'When stock falls to this quantity, the system auto-creates a Draft Purchase Order. Set it to 1–2 weeks of typical demand. Leave blank to disable auto-reorder for this product.', te: 'స్టాక్ ఈ పరిమాణానికి పడినప్పుడు, సిస్టమ్ స్వయంచాలకంగా డ్రాఫ్ట్ కొనుగోలు ఆర్డర్ సృష్టిస్తుంది. సాధారణ డిమాండ్ యొక్క 1–2 వారాలుగా సెట్ చేయండి. ఈ ఉత్పత్తికి ఆటో-రీఆర్డర్ నిలిపివేయడానికి ఖాళీగా వదిలేయండి.' },
       'Reorder Qty': { en: 'Default quantity filled on the auto-generated PO. Typically a full case or truckload quantity — whatever you normally order at once.', te: 'ఆటో-జనరేట్ అయిన PO లో నిండిన డిఫాల్ట్ పరిమాణం. సాధారణంగా పూర్తి కేస్ లేదా ట్రక్‌లోడ్ పరిమాణం — మీరు సాధారణంగా ఒకేసారి ఆర్డర్ చేసే మొత్తం.' },
+      'Pack Size / GST Unit (UQC)': { en: 'Optional — sets Measure Type, Unit Symbol and Pack Size directly on this product\'s default PLU, using the same government-standards unit list (GST UQC) as PLU Management and Unit Management. Leave blank to set it later — nothing here blocks saving the product. Setting it here is what unlocks auto-suggested quantities and automatic wastage tracking in Break Bulk for this product.', te: 'ఐచ్ఛికం — PLU Management మరియు Unit Management లో ఉపయోగించే అదే ప్రభుత్వ-ప్రమాణాల యూనిట్ జాబితా (GST UQC) ఉపయోగించి, ఈ ఉత్పత్తి యొక్క డిఫాల్ట్ PLU పై నేరుగా Measure Type, Unit Symbol మరియు Pack Size సెట్ చేస్తుంది. తర్వాత సెట్ చేయడానికి ఖాళీగా వదిలేయండి — ఇక్కడ ఏదీ ఉత్పత్తి సేవ్‌ను బ్లాక్ చేయదు. ఇక్కడ సెట్ చేయడం ఈ ఉత్పత్తికి Break Bulk లో స్వయంచాలక సూచించిన పరిమాణాలు మరియు స్వయంచాలక వ్యర్థం ట్రాకింగ్‌ను అన్‌లాక్ చేస్తుంది.' },
     },
     sections: [
       {
@@ -130,7 +131,7 @@ export const HELP_CONTENT: HelpEntry[] = [
         fix: { en: 'A product needs at least one active PLU with stock > 0 to appear in POS search. Create a PLU under this product and set opening stock.', te: 'POS శోధనలో కనిపించడానికి ఉత్పత్తికి కనీసం ఒక యాక్టివ్ PLU స్టాక్ > 0 తో అవసరం. ఈ ఉత్పత్తి కింద PLU సృష్టించి ఓపెనింగ్ స్టాక్ సెట్ చేయండి.' },
       },
     ],
-    relatedTopics: ['plu', 'grn', 'categories', 'hsn'],
+    relatedTopics: ['plu', 'unit-management', 'grn', 'categories', 'hsn'],
     tags: ['products', 'catalog', 'hsn', 'gst', 'reorder'],
   },
 
@@ -149,10 +150,10 @@ export const HELP_CONTENT: HelpEntry[] = [
       'Tax Inclusive': { en: 'ON = selling price already includes GST (standard for retail, packaged FMCG). OFF = GST is added on top at billing. MOST grocery items are Tax Inclusive — this matches how MRP is printed on packs.', te: 'ON = అమ్మకపు ధరలో ఇప్పటికే GST చేర్చబడింది (రిటైల్, ప్యాకేజ్డ్ FMCG కోసం ప్రమాణం). OFF = బిల్లింగ్ సమయంలో GST అదనంగా జోడించబడుతుంది. చాలా కిరాణా వస్తువులు Tax Inclusive — ఇది ప్యాక్‌లపై MRP ముద్రించిన విధానంతో సరిపోతుంది.' },
       'GST Rate': { en: 'Percentage — 0, 5, 12, 18, or 28. Inherited from the product by default but can be overridden per PLU. Affects GSTR-1 and GSTR-3B filing. Even exempt items must have 0%.', te: 'శాతం — 0, 5, 12, 18, లేదా 28. డిఫాల్ట్‌గా ఉత్పత్తి నుండి వారసత్వంగా వస్తుంది కానీ PLU కు అనుగుణంగా మార్చవచ్చు. GSTR-1 మరియు GSTR-3B ఫైలింగ్‌ను ప్రభావితం చేస్తుంది. మినహాయింపు పొందిన వస్తువులు కూడా 0% కలిగి ఉండాలి.' },
       'Cess Rate': { en: 'Additional cess on top of GST — used for tobacco, pan masala, aerated drinks. Leave 0 for normal grocery items.', te: 'GST పై అదనపు సెస్ — పొగాకు, పాన్ మసాలా, వాయు పానీయాలకు ఉపయోగించబడుతుంది. సాధారణ కిరాణా వస్తువులకు 0 వదిలేయండి.' },
-      'Measure Type': { en: 'WEIGHT for items sold by kg/g (sugar, rice, atta, dal, dry fruits). VOLUME for liquids (oil, milk, shampoo). COUNT for pieces/boxes (biscuit packs, bottles, soaps). Governs which Unit Symbols are available.', te: 'kg/g లో అమ్మే వస్తువులకు WEIGHT (చక్కెర, బియ్యం, ఆటా, పప్పు, డ్రై ఫ్రూట్స్). ద్రవాలకు VOLUME (నూనె, పాలు, షాంపూ). ముక్కలు/పెట్టెలకు COUNT (బిస్కెట్ ప్యాక్‌లు, బాటిల్‌లు, సబ్బులు). ఏ యూనిట్ చిహ్నాలు అందుబాటులో ఉన్నాయో నిర్ణయిస్తుంది.' },
-      'Unit Symbol': { en: 'The specific unit: kg, g, L, ml, pcs, nos, ctn, box, doz, btl, bag, pkt. Sets the GST UQC (Unit Quantity Code) automatically — needed for GSTR-1 annual returns. Select Measure Type first.', te: 'నిర్దిష్ట యూనిట్: kg, g, L, ml, pcs, nos, ctn, box, doz, btl, bag, pkt. స్వయంచాలకంగా GST UQC (యూనిట్ పరిమాణ కోడ్) సెట్ చేస్తుంది — GSTR-1 వార్షిక రిటర్న్‌లకు అవసరం. ముందు Measure Type ఎంచుకోండి.' },
-      'Pack Size': { en: 'Quantity in the chosen unit that one pack of this PLU contains. 50kg bag → 50. 500ml bottle → 500. 1 dozen eggs → 12 (with unit=doz, size=1 OR unit=pcs, size=12). Used by Break Bulk to auto-fill the bulk weight.', te: 'ఈ PLU యొక్క ఒక ప్యాక్‌లో ఎంచుకున్న యూనిట్‌లో పరిమాణం. 50kg బ్యాగ్ → 50. 500ml బాటిల్ → 500. 1 డజన్ గుడ్లు → 12. Break Bulk కోసం బల్క్ బరువును స్వయంచాలకంగా నింపడానికి ఉపయోగించబడుతుంది.' },
-      'Base Qty': { en: 'Auto-calculated — always in the base unit (grams for WEIGHT, ml for VOLUME, units for COUNT). Pack Size 50 kg → Base Qty 50000 g. This is what Break Bulk uses internally. You never enter this directly.', te: 'స్వయంచాలకంగా లెక్కించబడుతుంది — ఎల్లప్పుడూ బేస్ యూనిట్‌లో (WEIGHT కోసం గ్రాములు, VOLUME కోసం ml, COUNT కోసం యూనిట్‌లు). ప్యాక్ సైజు 50 kg → బేస్ qty 50000 g. ఇది Break Bulk అంతర్గతంగా ఉపయోగించేది. మీరు దీన్ని నేరుగా నమోదు చేయరు.' },
+      'Measure Type': { en: 'One of five government-recognised categories: Weight (sugar, rice, atta, dal), Volume (oil, milk, shampoo), Count (biscuit packs, bottles, soaps), or Length/Area (cloth, wire, tiles). Governs which Unit Symbols are available — see Unit Management for the full reference table of every unit and its GST UQC code.', te: 'ఐదు ప్రభుత్వ-గుర్తింపు పొందిన వర్గాలలో ఒకటి: Weight (చక్కెర, బియ్యం, ఆటా, పప్పు), Volume (నూనె, పాలు, షాంపూ), Count (బిస్కెట్ ప్యాక్‌లు, బాటిల్‌లు, సబ్బులు), లేదా Length/Area (గుడ్డ, తీగ, టైల్స్). ఏ యూనిట్ చిహ్నాలు అందుబాటులో ఉన్నాయో నిర్ణయిస్తుంది.' },
+      'Unit Symbol': { en: 'The specific unit within the chosen Measure Type — e.g. kg/g/qtl/ton for Weight, ml/L/kl for Volume, pcs/doz/box/ctn/bag for Count. Every option is a real GST UQC code, not a shortcut list — sets the GST UQC automatically, needed for GSTR-1 and e-invoices. Select Measure Type first.', te: 'ఎంచుకున్న Measure Type లోపల నిర్దిష్ట యూనిట్ — ఉదా. Weight కి kg/g/qtl/ton, Volume కి ml/L/kl, Count కి pcs/doz/box/ctn/bag. ప్రతి ఎంపిక నిజమైన GST UQC కోడ్ — స్వయంచాలకంగా GST UQC సెట్ చేస్తుంది, GSTR-1 మరియు ఇ-ఇన్‌వాయిస్‌లకు అవసరం. ముందు Measure Type ఎంచుకోండి.' },
+      'Pack Size': { en: 'Quantity in the chosen unit that one pack of this PLU contains. 50kg bag → 50. 500ml bottle → 500. 1 dozen eggs → 12 (with unit=doz, size=1) — dozen/pair/gross/thousand always convert as true fixed constants. Used by Break Bulk to auto-fill the bulk weight and track wastage.', te: 'ఈ PLU యొక్క ఒక ప్యాక్‌లో ఎంచుకున్న యూనిట్‌లో పరిమాణం. 50kg బ్యాగ్ → 50. 500ml బాటిల్ → 500. 1 డజన్ గుడ్లు → 12. dozen/pair/gross/thousand ఎల్లప్పుడూ నిజమైన స్థిర స్థిరాంకాలుగా మార్చబడతాయి. Break Bulk కోసం బల్క్ బరువును స్వయంచాలకంగా నింపి వ్యర్థాన్ని ట్రాక్ చేయడానికి ఉపయోగించబడుతుంది.' },
+      'Base Qty': { en: 'Auto-calculated — always in the base unit (grams for Weight, ml for Volume, cm for Length, sq.cm for Area, pieces for Count). Pack Size 50 kg → Base Qty 50000 g. This is what Break Bulk uses internally to compute wastage. You never enter this directly.', te: 'స్వయంచాలకంగా లెక్కించబడుతుంది — ఎల్లప్పుడూ బేస్ యూనిట్‌లో (Weight కోసం గ్రాములు, Volume కోసం ml, Length కోసం cm, Area కోసం sq.cm, Count కోసం ముక్కలు). ప్యాక్ సైజు 50 kg → బేస్ qty 50000 g. ఇది Break Bulk వ్యర్థాన్ని లెక్కించడానికి అంతర్గతంగా ఉపయోగించేది. మీరు దీన్ని నేరుగా నమోదు చేయరు.' },
       'Loose / Weigh': { en: 'ON for counter loose items sold by weight at POS — e.g., loose sugar, loose rice scooped from a container. When scanned at POS, a weight popup opens instead of adding qty=1. The price is calculated as: Bill Qty = Grams entered ÷ Base Qty, Bill Amount = Bill Qty × Selling Price.', te: 'POS లో బరువు ద్వారా అమ్మే కౌంటర్ లూస్ వస్తువులకు ON — ఉదా. కంటైనర్ నుండి స్కూప్ చేసిన లూస్ చక్కెర, లూస్ బియ్యం. POS లో స్కాన్ చేసినప్పుడు, qty=1 జోడించడానికి బదులుగా బరువు పాప్‌అప్ తెరుచుకుంటుంది.' },
       'EAN / Barcode': { en: 'The barcode printed on the pack — scan it here to register. Once set, scanning this barcode at POS adds the item instantly. If the pack has no barcode, leave blank and use product name search at POS.', te: 'ప్యాక్‌పై ముద్రించిన బార్‌కోడ్ — నమోదు చేయడానికి ఇక్కడ స్కాన్ చేయండి. సెట్ చేసిన తర్వాత, POS లో ఈ బార్‌కోడ్ స్కాన్ చేయడం వస్తువును తక్షణం జోడిస్తుంది. ప్యాక్‌కు బార్‌కోడ్ లేకపోతే, ఖాళీగా వదిలి POS లో ఉత్పత్తి పేరు శోధన ఉపయోగించండి.' },
       'Opening Stock': { en: 'Physical count of this PLU on your shelf right now — enter when creating a new PLU. After the first GRN is approved, stock is maintained automatically by the system. Re-entering here after setup will create a discrepancy.', te: 'ఇప్పుడు మీ షెల్ఫ్‌లో ఈ PLU యొక్క శారీరక గణన — కొత్త PLU సృష్టించేటప్పుడు నమోదు చేయండి. మొదటి GRN ఆమోదించిన తర్వాత, సిస్టమ్ స్వయంచాలకంగా స్టాక్‌ను నిర్వహిస్తుంది.' },
@@ -185,7 +186,7 @@ export const HELP_CONTENT: HelpEntry[] = [
       { mistake: { en: 'UOM fields left blank for weighable items', te: 'తూకం వేయగల వస్తువులకు UOM ఫీల్డ్‌లు ఖాళీగా వదిలేయడం' }, fix: { en: 'Set Measure Type, Unit, and Pack Size for all sugar, rice, atta, oil, dal items. Without these, Break Bulk cannot auto-fill the weight and GST UQC is wrong for annual returns.', te: 'అన్ని చక్కెర, బియ్యం, ఆటా, నూనె, పప్పు వస్తువులకు Measure Type, Unit మరియు Pack Size సెట్ చేయండి.' } },
       { mistake: { en: 'GST Rate not set', te: 'GST రేటు సెట్ చేయకపోవడం' }, fix: { en: 'Even 0% exempt items must have GST Rate = 0. Blank rate causes items to appear under "Unknown" in GST reports and can trigger filing discrepancies.', te: '0% మినహాయింపు వస్తువులు కూడా GST రేటు = 0 కలిగి ఉండాలి. ఖాళీ రేటు వస్తువులు GST రిపోర్టులలో "తెలియదు" కింద కనిపించేలా చేస్తుంది.' } },
     ],
-    relatedTopics: ['break-bulk', 'grn', 'products'],
+    relatedTopics: ['break-bulk', 'unit-management', 'grn', 'products'],
     tags: ['plu', 'price', 'mrp', 'stock', 'uom', 'gst', 'barcode'],
   },
 
@@ -278,48 +279,94 @@ export const HELP_CONTENT: HelpEntry[] = [
 
   // ── Break Bulk ─────────────────────────────────────────────────────────────
   {
-    id: 'break-bulk', route: '/dashboard/inventory/break-bulk', module: 'inventory', version: '2.3',
+    id: 'break-bulk', route: '/dashboard/inventory/break-bulk', module: 'inventory', version: '3.0',
     title: { en: 'Break Bulk', te: 'బ్రేక్ బల్క్' },
     summary: {
-      en: 'Split large bulk stock into smaller retail packs. Stock moves from the source (bulk) PLU to output (retail) PLUs. Two modes: Fixed (always the same split ratio) and Variable (weighable items split to custom pack sizes each time).',
-      te: 'పెద్ద బల్క్ స్టాక్‌ను చిన్న రిటైల్ ప్యాక్‌లుగా విభజించండి. స్టాక్ మూల (బల్క్) PLU నుండి అవుట్‌పుట్ (రిటైల్) PLU లకు తరలుతుంది. రెండు మోడ్‌లు: Fixed (ఎల్లప్పుడూ అదే స్ప్లిట్ నిష్పత్తి) మరియు Variable (ప్రతిసారి కస్టమ్ ప్యాక్ సైజులకు తూకం వేయగల వస్తువులు విభజించబడతాయి).',
+      en: 'Split a bulk item (a 50kg sugar bag, a carton of soap) into the smaller retail packs you actually sell. Stock moves from the source (bulk) PLU to one or more output (retail) PLUs in one session — one simple 3-step flow for every kind of break, weighable or countable.',
+      te: 'ఒక బల్క్ వస్తువును (50kg చక్కెర బ్యాగ్, సబ్బు కార్టన్) మీరు నిజంగా అమ్మే చిన్న రిటైల్ ప్యాక్‌లుగా విభజించండి. స్టాక్ మూల (బల్క్) PLU నుండి ఒకటి లేదా అంతకంటే ఎక్కువ అవుట్‌పుట్ (రిటైల్) PLU లకు ఒకే సెషన్‌లో తరలుతుంది — తూకం వేయగలిగినా, లెక్కించదగినా, ప్రతి రకమైన బ్రేక్‌కు ఒకే సాధారణ 3-దశల ప్రవాహం.',
     },
     sections: [
       {
-        title: { en: 'Fixed Break — how it works', te: 'Fixed Break — ఎలా పని చేస్తుంది' },
+        title: { en: 'The 3-step flow', te: '3-దశల ప్రవాహం' },
         body: {
-          en: 'Setup once: source PLU (e.g. Biscuits 1-Carton) maps to output PLU (Biscuits 1-Packet) with ratio 12. At each session, enter number of cartons to break. Math: Cartons × 12 = Packets added to stock. Cartons subtracted from source. Ratio never changes unless you edit the bundle configuration.',
-          te: 'ఒకసారి సెటప్ చేయండి: మూల PLU (ఉదా. బిస్కెట్‌లు 1-కార్టన్) అవుట్‌పుట్ PLU (బిస్కెట్‌లు 1-ప్యాకెట్) కి నిష్పత్తి 12 తో మ్యాప్ అవుతుంది. ప్రతి సెషన్‌లో, విరగ్గొట్టడానికి కార్టన్‌ల సంఖ్య నమోదు చేయండి. గణిత: కార్టన్‌లు × 12 = స్టాక్‌కు ప్యాకెట్‌లు జోడించబడతాయి.',
+          en: 'Step 1 (Search): find the bulk item by name, PLU code or barcode — or use Quick Pick if you\'ve broken this exact pair before, it loads both source and target in one click. Step 2 (Lines): enter how many bulk units you\'re opening (usually 1), then add each retail pack you produced and how many you got. Step 3 (Confirm): review the balance, add an optional wastage reason, and Commit. Stock moves atomically — the bulk PLU goes down, every pack PLU goes up, in a single transaction.',
+          te: 'దశ 1 (శోధన): బల్క్ వస్తువును పేరు, PLU కోడ్ లేదా బార్‌కోడ్ ద్వారా కనుగొనండి — లేదా మీరు ఇంతకుముందు ఈ ఖచ్చితమైన జతను విరగ్గొట్టి ఉంటే Quick Pick ఉపయోగించండి, అది ఒకే క్లిక్‌లో మూలం మరియు లక్ష్యం రెండింటినీ లోడ్ చేస్తుంది. దశ 2 (లైన్‌లు): మీరు ఎన్ని బల్క్ యూనిట్‌లు తెరుస్తున్నారో నమోదు చేయండి (సాధారణంగా 1), తర్వాత మీరు ఉత్పత్తి చేసిన ప్రతి రిటైల్ ప్యాక్ మరియు ఎంత వచ్చిందో జోడించండి. దశ 3 (నిర్ధారణ): బ్యాలెన్స్ సమీక్షించి, ఐచ్ఛిక వ్యర్థం కారణం జోడించి, Commit చేయండి. స్టాక్ ఒకే లావాదేవీలో కదులుతుంది — బల్క్ PLU తగ్గుతుంది, ప్రతి ప్యాక్ PLU పెరుగుతుంది.',
         },
       },
       {
-        title: { en: 'Variable Break — calculation', te: 'Variable Break — లెక్కింపు' },
+        title: { en: 'Auto-suggested quantities and automatic wastage', te: 'స్వయంచాలక సూచించిన పరిమాణాలు మరియు స్వయంచాలక వ్యర్థం' },
         body: {
-          en: 'For weighable items. Bulk input weight (e.g. 50 kg bag = 50000 g). You produce: 30 × 1kg packs (30000 g) + 20 × 500g packs (10000 g) + wastage (e.g. 500 g dust/moisture). Check: 30000 + 10000 + 500 = 40500 g used. But bulk was 50000 g — remaining 9500 g must also be accounted for (more packs or wastage). The screen shows remaining balance live as you enter values.',
-          te: 'తూకం వేయగల వస్తువులకు. బల్క్ ఇన్‌పుట్ బరువు (ఉదా. 50 kg బ్యాగ్ = 50000 g). మీరు ఉత్పత్తి చేస్తారు: 30 × 1kg ప్యాక్‌లు (30000 g) + 20 × 500g ప్యాక్‌లు (10000 g) + వ్యర్థం (ఉదా. 500 g). తనిఖీ: 30000 + 10000 + 500 = 40500 g ఉపయోగించబడింది. కానీ బల్క్ 50000 g — మిగిలిన 9500 g కూడా వివరించాలి. మీరు విలువలు నమోదు చేస్తున్నప్పుడు స్క్రీన్ మిగిలిన బ్యాలెన్స్ లైవ్‌గా చూపిస్తుంది.',
+          en: 'This only works when BOTH the source and the target PLU have a unit size set (Measure Type + Unit Symbol + Pack Size, in PLU Management or Unit Management). When they do, Step 2 auto-fills each pack\'s quantity from the remaining balance (always editable), and Step 3 shows a live Opened / Packed / Wastage card computed in the item\'s own base unit — grams for weight, ml for volume, pieces for count. Wastage is just what\'s left over: Opened − Packed. No manual balancing.',
+          te: 'ఇది మూలం మరియు లక్ష్యం PLU రెండింటికీ యూనిట్ సైజు సెట్ చేసినప్పుడు మాత్రమే పని చేస్తుంది (Measure Type + Unit Symbol + Pack Size, PLU Management లేదా Unit Management లో). అలా అయితే, దశ 2 మిగిలిన బ్యాలెన్స్ నుండి ప్రతి ప్యాక్ పరిమాణాన్ని స్వయంచాలకంగా నింపుతుంది (ఎల్లప్పుడూ సవరించదగినది), మరియు దశ 3 వస్తువు యొక్క సొంత బేస్ యూనిట్‌లో లెక్కించిన లైవ్ Opened / Packed / Wastage కార్డు చూపిస్తుంది — బరువుకు గ్రాములు, ఘనపరిమాణానికి ml, లెక్కకు ముక్కలు. వ్యర్థం అంటే మిగిలింది: Opened − Packed. మాన్యువల్ బ్యాలెన్సింగ్ అవసరం లేదు.',
         },
       },
       {
-        title: { en: 'Wastage tracking and reporting', te: 'వ్యర్థం ట్రాకింగ్ మరియు రిపోర్టింగ్' },
+        title: { en: 'When a unit isn\'t set yet', te: 'యూనిట్ ఇంకా సెట్ చేయనప్పుడు' },
         body: {
-          en: 'Enter wastage in grams with a reason (moisture, dust, spillage, packing material). Wastage reduces the source stock without creating output stock. The Wastage Report (Reports → Inventory) shows cumulative losses by product over any date range. Use this quarterly to adjust selling prices if wastage is consistently high.',
-          te: 'కారణంతో పాటు గ్రాములలో వ్యర్థం నమోదు చేయండి (తేమ, దుమ్ము, చిందటం, ప్యాకింగ్ మెటీరియల్). వ్యర్థం అవుట్‌పుట్ స్టాక్ సృష్టించకుండా మూల స్టాక్‌ను తగ్గిస్తుంది. వ్యర్థం నివేదిక (రిపోర్టులు → ఇన్వెంటరీ) ఏ తేదీ పరిధిలోనైనా ఉత్పత్తి వారీగా సంచిత నష్టాలను చూపిస్తుంది.',
+          en: 'You can still commit a session even if the source or target has no unit size — Step 3 shows an amber notice instead of the balance card, with a "Fix unit for X →" link that jumps straight to that product\'s PLU page. Set the unit there (Measure Type → Unit Symbol → Size, takes a few seconds), come back, and re-enter the same numbers to get the automatic balance. You only have to do this once per bulk/pack pair — it\'s remembered forever after.',
+          te: 'మూలం లేదా లక్ష్యానికి యూనిట్ సైజు లేకపోయినా మీరు ఇంకా సెషన్ commit చేయవచ్చు — దశ 3 బ్యాలెన్స్ కార్డుకు బదులుగా అంబర్ నోటీసు చూపిస్తుంది, "Fix unit for X →" లింక్‌తో అది నేరుగా ఆ ఉత్పత్తి PLU పేజీకి తీసుకెళుతుంది. అక్కడ యూనిట్ సెట్ చేయండి (Measure Type → Unit Symbol → Size, కొన్ని సెకన్లు పడుతుంది), తిరిగి వచ్చి, అదే సంఖ్యలు మళ్ళీ నమోదు చేసి స్వయంచాలక బ్యాలెన్స్ పొందండి. ప్రతి బల్క్/ప్యాక్ జతకు ఇది ఒక్కసారి మాత్రమే చేయాలి — తర్వాత ఎప్పటికీ గుర్తుంచుకోబడుతుంది.',
         },
       },
       {
         title: { en: 'Reversing a session', te: 'సెషన్ రివర్స్ చేయడం' },
         body: {
-          en: 'Open History tab → find the session → click Reverse. All stock movements are undone. Reversal is only allowed if none of the output stock from that session has been sold. If partial sales occurred, the system will warn you — you must manually adjust the remaining qty instead.',
-          te: 'హిస్టరీ ట్యాబ్ తెరవండి → సెషన్ కనుగొనండి → రివర్స్ క్లిక్ చేయండి. అన్ని స్టాక్ కదలికలు రద్దు చేయబడతాయి. ఆ సెషన్ నుండి అవుట్‌పుట్ స్టాక్ ఏదీ అమ్మబడకపోతే మాత్రమే రివర్సల్ అనుమతించబడుతుంది.',
+          en: 'Open the History tab → find the session → click Reverse. All stock movements are undone. Reversal is only allowed if none of the output stock from that session has been sold. If partial sales occurred, the system will warn you — you must manually adjust the remaining qty instead.',
+          te: 'హిస్టరీ ట్యాబ్ తెరవండి → సెషన్ కనుగొనండి → రివర్స్ క్లిక్ చేయండి. అన్ని స్టాక్ కదలికలు రద్దు చేయబడతాయి. ఆ సెషన్ నుండి అవుట్‌పుట్ స్టాక్ ఏదీ అమ్మబడకపోతే మాత్రమే రివర్సల్ అనుమతించబడుతుంది. పాక్షిక అమ్మకాలు జరిగితే, సిస్టమ్ మిమ్మల్ని హెచ్చరిస్తుంది — బదులుగా మీరు మిగిలిన qty మాన్యువల్‌గా సర్దుబాటు చేయాలి.',
         },
       },
     ],
     commonMistakes: [
-      { mistake: { en: 'Output weight exceeds bulk weight', te: 'అవుట్‌పుట్ బరువు బల్క్ బరువు మించడం' }, fix: { en: 'Total output + wastage cannot exceed bulk weight. Reduce quantities. The screen shows the remaining balance — it must reach zero before you can save.', te: 'మొత్తం అవుట్‌పుట్ + వ్యర్థం బల్క్ బరువు మించకూడదు. పరిమాణాలు తగ్గించండి. స్క్రీన్ మిగిలిన బ్యాలెన్స్ చూపిస్తుంది — సేవ్ చేయడానికి ముందు అది సున్నాకు చేరాలి.' } },
-      { mistake: { en: 'Breaking without stock in the source PLU', te: 'మూల PLU లో స్టాక్ లేకుండా విరగ్గొట్టడం' }, fix: { en: 'Receive the bulk goods via GRN first, approve the GRN, then break bulk. The system blocks sessions where source quantity > available stock.', te: 'ముందు GRN ద్వారా బల్క్ వస్తువులు స్వీకరించండి, GRN ఆమోదించండి, తర్వాత బ్రేక్ బల్క్ చేయండి.' } },
+      { mistake: { en: 'Output exceeds what was opened', te: 'తెరిచిన దాని కంటే అవుట్‌పుట్ ఎక్కువ' }, fix: { en: 'Total packed quantity cannot exceed the opened quantity — Step 3 blocks Commit and shows "Output exceeds what was opened" in red. Go back to Step 2 and reduce a pack quantity.', te: 'మొత్తం ప్యాక్ చేసిన పరిమాణం తెరిచిన పరిమాణాన్ని మించకూడదు — దశ 3 Commit ను బ్లాక్ చేసి ఎరుపు రంగులో హెచ్చరిక చూపిస్తుంది. దశ 2కు వెళ్లి ప్యాక్ పరిమాణం తగ్గించండి.' } },
+      { mistake: { en: 'Breaking without stock in the source PLU', te: 'మూల PLU లో స్టాక్ లేకుండా విరగ్గొట్టడం' }, fix: { en: 'Receive the bulk goods via GRN first, approve the GRN, then break bulk. The system blocks sessions where the opened quantity exceeds available stock.', te: 'ముందు GRN ద్వారా బల్క్ వస్తువులు స్వీకరించండి, GRN ఆమోదించండి, తర్వాత బ్రేక్ బల్క్ చేయండి. తెరిచిన పరిమాణం అందుబాటులో ఉన్న స్టాక్‌ను మించే సెషన్‌లను సిస్టమ్ బ్లాక్ చేస్తుంది.' } },
+      { mistake: { en: 'Expecting auto-wastage without setting units first', te: 'ముందుగా యూనిట్‌లు సెట్ చేయకుండా ఆటో-వ్యర్థం ఆశించడం' }, fix: { en: 'Wastage only auto-computes when both PLUs have a unit size. If you break the same bulk/pack pair often, set the units once via Unit Management and every future session for that pair gets automatic tracking for free.', te: 'రెండు PLU లకు యూనిట్ సైజు ఉన్నప్పుడు మాత్రమే వ్యర్థం స్వయంచాలకంగా లెక్కించబడుతుంది. మీరు తరచుగా అదే బల్క్/ప్యాక్ జతను విరగ్గొడితే, Unit Management ద్వారా ఒకసారి యూనిట్‌లు సెట్ చేయండి, ఆ జతకు భవిష్యత్తు సెషన్‌లన్నీ ఉచితంగా స్వయంచాలక ట్రాకింగ్ పొందుతాయి.' } },
     ],
-    relatedTopics: ['plu', 'grn', 'products'],
-    tags: ['break-bulk', 'stock', 'repack', 'wastage', 'variable', 'fixed'],
+    relatedTopics: ['plu', 'unit-management', 'grn', 'products'],
+    tags: ['break-bulk', 'stock', 'repack', 'wastage', 'unit-management', 'uqc'],
+  },
+
+  // ── Unit Management ────────────────────────────────────────────────────────
+  {
+    id: 'unit-management', route: '/dashboard/products/unit-management', module: 'products', version: '1.0',
+    title: { en: 'Unit Management', te: 'యూనిట్ నిర్వహణ' },
+    summary: {
+      en: 'A single audit-and-bulk-edit screen for the unit-of-measure (Measure Type, Unit Symbol, Pack Size, GST UQC) that every PLU should have. Grounded in two Indian government standards, not invented ad hoc: the full GST UQC (Unit Quantity Code) list required on GST returns, and the Legal Metrology Act\'s rules on what can be declared as net quantity. This is where you find PLUs missing units and fix many at once — nothing here is mandatory, and nothing you do here ever blocks a sale, a GRN, or a product save.',
+      te: 'ప్రతి PLU కి ఉండవలసిన కొలత యూనిట్ (Measure Type, Unit Symbol, Pack Size, GST UQC) కోసం ఒకే ఆడిట్-అండ్-బల్క్-ఎడిట్ స్క్రీన్. రెండు భారత ప్రభుత్వ ప్రమాణాలలో ఆధారపడింది, తాత్కాలికంగా కనిపెట్టినది కాదు: GST రిటర్న్‌లపై అవసరమైన పూర్తి GST UQC (యూనిట్ పరిమాణ కోడ్) జాబితా, మరియు నికర పరిమాణంగా ఏమి ప్రకటించవచ్చో లీగల్ మెట్రాలజీ చట్టం నియమాలు. యూనిట్‌లు లేని PLU లను కనుగొని చాలా వాటిని ఒకేసారి సరిచేయడానికి ఇది స్థలం — ఇక్కడ ఏదీ తప్పనిసరి కాదు, మరియు మీరు ఇక్కడ చేసేది ఎప్పుడూ అమ్మకాన్ని, GRN ను, లేదా ఉత్పత్తి సేవ్‌ను బ్లాక్ చేయదు.',
+    },
+    fields: {
+      'Measure Type': { en: 'One of five government-recognised categories: Weight, Volume, Length, Area, Count. Weight/Volume/Count are the three the Legal Metrology Act allows for declaring net quantity on packaging, so they alone drive pack-size auto-math (Break Bulk wastage tracking, base-unit conversion). Length and Area are real, selectable GST UQC categories too — for cloth, wire, tiles, flooring — but have no packaging "net quantity" concept, so they stay selectable for correct GST filing without auto-math.', te: 'ఐదు ప్రభుత్వ-గుర్తింపు పొందిన వర్గాలలో ఒకటి: Weight, Volume, Length, Area, Count. ప్యాకేజింగ్‌పై నికర పరిమాణం ప్రకటించడానికి లీగల్ మెట్రాలజీ చట్టం అనుమతించే మూడు Weight/Volume/Count మాత్రమే, కాబట్టి అవి మాత్రమే ప్యాక్-సైజు ఆటో-గణితాన్ని నడిపిస్తాయి. Length మరియు Area కూడా నిజమైన, ఎంచుకోదగిన GST UQC వర్గాలు — గుడ్డ, తీగ, టైల్స్ కోసం — కానీ ప్యాకేజింగ్ "నికర పరిమాణం" భావన లేదు.' },
+      'Unit Symbol': { en: 'The specific display unit within the chosen Measure Type — e.g. kg, g, qtl, ton for Weight; ml, L, kl for Volume; pcs, doz, box, ctn, bag for Count. Every symbol here is a real GST UQC entry, not an invented shortcut — the full official list is used, uncut, across all five categories.', te: 'ఎంచుకున్న Measure Type లోపల నిర్దిష్ట డిస్‌ప్లే యూనిట్ — ఉదా. Weight కి kg, g, qtl, ton; Volume కి ml, L, kl; Count కి pcs, doz, box, ctn, bag. ఇక్కడ ప్రతి చిహ్నం నిజమైన GST UQC ఎంట్రీ, కనిపెట్టిన సత్వరమార్గం కాదు — పూర్తి అధికారిక జాబితా, కత్తిరించకుండా, అన్ని ఐదు వర్గాలలో ఉపయోగించబడుతుంది.' },
+      'Pack Size': { en: 'The quantity in the chosen unit that one pack/PLU contains — 50 for a 50kg bag, 1 for a 1kg pack, 12 for a dozen. Fixed multiples (dozen=12, pair=2, gross=144, great gross=1728, thousand=1000) are true universal constants, always converted correctly. Box/carton/bag/bottle/etc. have no fixed multiple since their size genuinely varies per product — you enter the real size for each.', te: 'ఎంచుకున్న యూనిట్‌లో ఒక ప్యాక్/PLU కలిగి ఉన్న పరిమాణం — 50kg బ్యాగ్‌కు 50, 1kg ప్యాక్‌కు 1, డజన్‌కు 12. స్థిర గుణిజాలు (dozen=12, pair=2, gross=144, great gross=1728, thousand=1000) నిజమైన విశ్వవ్యాప్త స్థిరాంకాలు, ఎల్లప్పుడూ సరిగ్గా మార్చబడతాయి. Box/carton/bag/bottle మొదలైనవాటికి స్థిర గుణిజం లేదు ఎందుకంటే వాటి పరిమాణం ఉత్పత్తికి నిజంగా మారుతుంది.' },
+      'GST UQC': { en: 'Auto-derived from the Unit Symbol the moment you pick it — you never type this separately. This is the exact code CBIC/GSTN require on GSTR-1 and e-invoices. Once set here, the GST report prefers this PLU-level code over the older, coarser guess made from the product\'s general Unit of Measure field.', te: 'మీరు ఎంచుకున్న క్షణమే Unit Symbol నుండి స్వయంచాలకంగా తీసుకోబడుతుంది — దీన్ని మీరు వేరుగా టైప్ చేయరు. GSTR-1 మరియు ఇ-ఇన్‌వాయిస్‌లపై CBIC/GSTN కు అవసరమైన ఖచ్చితమైన కోడ్ ఇది. ఇక్కడ సెట్ చేసిన తర్వాత, GST రిపోర్ట్ ఉత్పత్తి యొక్క సాధారణ Unit of Measure ఫీల్డ్ నుండి చేసిన పాత, స్థూలమైన అంచనా కంటే ఈ PLU-స్థాయి కోడ్‌ను ఇష్టపడుతుంది.' },
+    },
+    sections: [
+      {
+        title: { en: 'Filters and the audit view', te: 'ఫిల్టర్‌లు మరియు ఆడిట్ వీక్షణ' },
+        body: {
+          en: 'The summary chips at the top (No Unit Info / Weight / Volume / Length / Area / Count) both show counts and act as filters — click one to see only those PLUs. "No Unit Info" is usually the one to work through first when you\'re cleaning up a catalog. Search narrows by product name, PLU code, or barcode within the active filter.',
+          te: 'పైన ఉన్న సారాంశ చిప్‌లు (No Unit Info / Weight / Volume / Length / Area / Count) గణనలు చూపిస్తాయి మరియు ఫిల్టర్‌లుగా కూడా పని చేస్తాయి — ఆ PLU లను మాత్రమే చూడటానికి ఒకదాన్ని క్లిక్ చేయండి. మీరు కేటలాగ్ శుభ్రం చేస్తున్నప్పుడు సాధారణంగా "No Unit Info" ద్వారా ముందుగా పని చేయాలి.',
+        },
+      },
+      {
+        title: { en: 'Bulk-set on selected rows', te: 'ఎంచుకున్న వరుసలపై బల్క్-సెట్' },
+        body: {
+          en: 'Select multiple rows with the checkboxes, then use the floating action bar to apply one Measure Type / Unit Symbol / Pack Size to all of them in a single click. Only select rows you know genuinely share the same pack size — a mixed selection (some 1kg, some 500g) would apply the wrong size to some of them. This same bulk action is also reachable from the Products page (select products → Set Units) and resolves to each product\'s default PLU.',
+          te: 'చెక్‌బాక్స్‌లతో బహుళ వరుసలు ఎంచుకోండి, తర్వాత ఒకే క్లిక్‌లో వాటన్నింటికీ ఒక Measure Type / Unit Symbol / Pack Size వర్తింపజేయడానికి ఫ్లోటింగ్ యాక్షన్ బార్ ఉపయోగించండి. నిజంగా అదే ప్యాక్ సైజు పంచుకునే వరుసలను మాత్రమే ఎంచుకోండి — మిశ్రమ ఎంపిక (కొన్ని 1kg, కొన్ని 500g) కొన్నింటికి తప్పు సైజు వర్తింపజేస్తుంది.',
+        },
+      },
+      {
+        title: { en: '"Fix individually" for a single PLU', te: 'ఒకే PLU కోసం "వ్యక్తిగతంగా సరిచేయి"' },
+        body: {
+          en: 'Every row also has a "Fix individually →" link straight to that product\'s PLU page, for the cases where bulk-set isn\'t safe — a product with several differently-sized PLUs, or one you want to double-check against the pack in hand before setting.',
+          te: 'బల్క్-సెట్ సురక్షితం కాని సందర్భాలకు, ప్రతి వరుసలో నేరుగా ఆ ఉత్పత్తి PLU పేజీకి "Fix individually →" లింక్ కూడా ఉంటుంది — వేర్వేరు సైజుల అనేక PLU లు ఉన్న ఉత్పత్తి, లేదా సెట్ చేయడానికి ముందు చేతిలో ఉన్న ప్యాక్‌తో రెండుసార్లు తనిఖీ చేయాలనుకునేది.',
+        },
+      },
+    ],
+    commonMistakes: [
+      { mistake: { en: 'Bulk-setting a mixed selection', te: 'మిశ్రమ ఎంపికను బల్క్-సెట్ చేయడం' }, fix: { en: 'Selecting PLUs of different real-world sizes and bulk-applying one size stamps the wrong size on some of them. Sort/search first so your selection is genuinely uniform, or fix those rows individually instead.', te: 'వేర్వేరు నిజ-ప్రపంచ సైజుల PLU లను ఎంచుకుని ఒక సైజును బల్క్-వర్తింపజేయడం కొన్నింటికి తప్పు సైజు ముద్రిస్తుంది. మీ ఎంపిక నిజంగా ఏకరీతిగా ఉండేలా ముందు సార్ట్/శోధించండి, లేదా ఆ వరుసలను వ్యక్తిగతంగా సరిచేయండి.' } },
+      { mistake: { en: 'Treating unit info as mandatory before you can save a product', te: 'ఉత్పత్తి సేవ్ చేయడానికి ముందు యూనిట్ సమాచారం తప్పనిసరి అని భావించడం' }, fix: { en: 'It never is. Units can always be added later from here, from the product/PLU edit form, or from GRN entry — nothing about product creation, GRN approval, or billing is blocked by missing unit info.', te: 'ఇది ఎప్పుడూ కాదు. యూనిట్‌లను ఎల్లప్పుడూ తర్వాత ఇక్కడి నుండి, ఉత్పత్తి/PLU ఎడిట్ ఫారమ్ నుండి, లేదా GRN ఎంట్రీ నుండి జోడించవచ్చు — ఉత్పత్తి సృష్టి, GRN ఆమోదం, లేదా బిల్లింగ్ గురించి ఏదీ లేని యూనిట్ సమాచారం వల్ల బ్లాక్ చేయబడదు.' } },
+    ],
+    relatedTopics: ['plu', 'break-bulk', 'products', 'grn-new'],
+    tags: ['unit-management', 'uqc', 'gst', 'legal-metrology', 'measure-type', 'bulk-edit'],
   },
 
   // ── Purchase Orders ────────────────────────────────────────────────────────

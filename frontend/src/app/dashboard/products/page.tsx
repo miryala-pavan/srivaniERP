@@ -25,7 +25,8 @@ import { EntityLink } from '@/components/shared/EntityLink';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { ProductImage } from '@/components/shared/ProductImage';
 import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
-import { UNIT_SYMBOLS, calcBaseUnitQty, deriveUqc } from '@/lib/units';
+import { UNIT_SYMBOLS, UQC_MAP, calcBaseUnitQty, deriveUqc, fmtBaseQty, MEASURE_TYPES, MEASURE_TYPE_LABELS } from '@/lib/units';
+import { SetUnitModal } from '@/components/shared/SetUnitModal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,7 @@ const EMPTY_FORM = {
   purchaseUnit: 'PCS', stockUnit: 'PCS', brandId: '',
   aisle: '', rackNumber: '', shelfPosition: '',
   keywords: '', description: '',
+  measureType: '', unitSymbol: '', unitSize: '', gstUqc: '',
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -502,22 +504,6 @@ export default function ProductsPage() {
   });
 
   const [showBulkUnitsModal, setShowBulkUnitsModal] = useState(false);
-  const bulkSetUnitsMutation = useMutation({
-    mutationFn: async ({ productIds, measureType, unitSymbol, unitSize }: { productIds: string[]; measureType: string; unitSymbol: string; unitSize: number }) => {
-      const res = await api.patch('/products/unit-audit/bulk-set', {
-        productIds, measureType, unitSymbol, unitSize,
-        baseUnitQty: calcBaseUnitQty(unitSymbol, unitSize),
-        gstUqc: deriveUqc(unitSymbol) ?? undefined,
-      });
-      return res.data;
-    },
-    onSuccess: (data) => {
-      toast.success(`Unit set on ${data.updated} product${data.updated !== 1 ? 's' : ''}`);
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      setShowBulkUnitsModal(false);
-    },
-    onError: () => { toast.error('Failed to set units'); },
-  });
 
   function setViewPersist(v: 'list' | 'card' | 'compact') {
     setView(v);
@@ -569,7 +555,7 @@ export default function ProductsPage() {
     setShowModal(true);
   }
 
-  function openEdit(p: Product) {
+  async function openEdit(p: Product) {
     setEditing(p);
     const isSubCat = !!p.category?.parent;
     const parentCatId = isSubCat ? (p.category?.parent?.id ?? '') : (p.category?.id ?? '');
@@ -610,6 +596,7 @@ export default function ProductsPage() {
       shelfPosition: (p as any).shelfPosition ?? '',
       keywords: (p as any).keywords ?? '',
       description: (p as any).description ?? '',
+      measureType: '', unitSymbol: '', unitSize: '', gstUqc: '',
     });
     setSellingPriceError('');
     setCostPriceWarn('');
@@ -620,6 +607,18 @@ export default function ProductsPage() {
     setPendingImage(null);
     setPendingImagePreview(null);
     setShowModal(true);
+    try {
+      const res = await api.get(`/products/${p.id}/default-plu-units`);
+      if (res.data?.measureType) {
+        setForm((f) => ({
+          ...f,
+          measureType: res.data.measureType ?? '',
+          unitSymbol:  res.data.unitSymbol ?? '',
+          unitSize:    res.data.unitSize != null ? String(Number(res.data.unitSize)) : '',
+          gstUqc:      res.data.gstUqc ?? '',
+        }));
+      }
+    } catch { /* unit prefill is best-effort */ }
   }
 
   async function save() {
@@ -668,6 +667,13 @@ export default function ProductsPage() {
         brandId: (form as any).brandId || undefined,
         keywords: (form as any).keywords?.trim() || '',
         description: (form as any).description?.trim() || '',
+        ...((form as any).measureType && (form as any).unitSymbol && (form as any).unitSize ? {
+          measureType: (form as any).measureType,
+          unitSymbol:  (form as any).unitSymbol,
+          unitSize:    Number((form as any).unitSize),
+          baseUnitQty: calcBaseUnitQty((form as any).unitSymbol, Number((form as any).unitSize)),
+          gstUqc:      deriveUqc((form as any).unitSymbol) ?? undefined,
+        } : {}),
       };
       if (editing) {
         const res = await api.put(`/products/${editing.id}`, payload);
@@ -1816,6 +1822,37 @@ export default function ProductsPage() {
                   </p>
                 </Fld>
 
+                <Fld label="Pack Size / GST Unit (UQC)" help={{
+                  hint: 'The exact pack size and official GST unit code (UQC) for this product\'s default PLU',
+                  title: 'Pack Size & GST UQC',
+                  description: 'Sets the measure type, unit symbol and pack size on this product\'s default PLU — used for Break Bulk wastage math and GST filing (UQC is the government-mandated Unit Quantity Code shown on GSTR-1/e-invoices). Optional — leave blank to set later from Unit Management.',
+                  example: 'Example: Weight / kg / 50 for a 50kg sugar bag',
+                }}>
+                  <div className="flex gap-2">
+                    <select value={(form as any).measureType}
+                      onChange={(e) => setForm({ ...form, measureType: e.target.value, unitSymbol: '', unitSize: '', gstUqc: '' } as any)}
+                      className="inp flex-1">
+                      <option value="">— Measure —</option>
+                      {MEASURE_TYPES.map(mt => <option key={mt} value={mt}>{MEASURE_TYPE_LABELS[mt]}</option>)}
+                    </select>
+                    <select value={(form as any).unitSymbol}
+                      onChange={(e) => setForm({ ...form, unitSymbol: e.target.value, gstUqc: UQC_MAP[e.target.value] ?? '' } as any)}
+                      disabled={!(form as any).measureType} className="inp flex-1 disabled:bg-gray-50">
+                      <option value="">Unit</option>
+                      {(UNIT_SYMBOLS[(form as any).measureType] ?? []).map(s => <option key={s} value={s}>{s} ({UQC_MAP[s]})</option>)}
+                    </select>
+                    <input type="number" min="0" step="any" value={(form as any).unitSize}
+                      onChange={(e) => setForm({ ...form, unitSize: e.target.value } as any)}
+                      disabled={!(form as any).unitSymbol} placeholder="Size"
+                      className="inp w-24 disabled:bg-gray-50" />
+                  </div>
+                  {(form as any).unitSymbol && (form as any).unitSize && Number((form as any).unitSize) > 0 && (
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      = {fmtBaseQty((form as any).unitSymbol, calcBaseUnitQty((form as any).unitSymbol, Number((form as any).unitSize)))} · UQC: {(form as any).gstUqc || deriveUqc((form as any).unitSymbol)}
+                    </p>
+                  )}
+                </Fld>
+
                 <Fld label="Purchase Unit">
                   <select value={form.purchaseUnit} onChange={(e) => setForm({ ...form, purchaseUnit: e.target.value })} className="inp">
                     {PURCH_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
@@ -2410,13 +2447,13 @@ export default function ProductsPage() {
       )}
 
       {showBulkUnitsModal && (
-        <BulkUnitsModal
-          count={selectedIds.size}
-          saving={bulkSetUnitsMutation.isPending}
+        <SetUnitModal
+          target={{ mode: 'product', ids: Array.from(selectedIds) }}
           onClose={() => setShowBulkUnitsModal(false)}
-          onSave={(measureType, unitSymbol, unitSize) =>
-            bulkSetUnitsMutation.mutate({ productIds: Array.from(selectedIds), measureType, unitSymbol, unitSize })
-          }
+          onSaved={() => {
+            setShowBulkUnitsModal(false);
+            queryClient.invalidateQueries({ queryKey: ['products'] });
+          }}
         />
       )}
 
@@ -2659,57 +2696,3 @@ function SectionDivider({ label }: { label: string }) {
   );
 }
 
-function BulkUnitsModal({ count, saving, onClose, onSave }: {
-  count: number; saving: boolean; onClose: () => void;
-  onSave: (measureType: string, unitSymbol: string, unitSize: number) => void;
-}) {
-  const [measureType, setMeasureType] = useState('');
-  const [unitSymbol, setUnitSymbol]   = useState('');
-  const [unitSize, setUnitSize]       = useState('');
-
-  function save() {
-    const size = parseFloat(unitSize);
-    if (!measureType || !unitSymbol || !size || size <= 0) { toast.error('Choose a measure, unit and size'); return; }
-    onSave(measureType, unitSymbol, size);
-  }
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Set unit for {count} product{count !== 1 ? 's' : ''}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="p-5 space-y-3">
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            The same unit is applied to every selected product's default PLU. Only select products you know share the same pack size.
-          </p>
-          <select value={measureType} onChange={e => { setMeasureType(e.target.value); setUnitSymbol(''); }}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-            <option value="">— Measure type —</option>
-            <option value="WEIGHT">Weight</option>
-            <option value="VOLUME">Volume</option>
-            <option value="COUNT">Count</option>
-          </select>
-          <div className="flex gap-2">
-            <select value={unitSymbol} onChange={e => setUnitSymbol(e.target.value)}
-              disabled={!measureType} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50">
-              <option value="">Unit</option>
-              {(UNIT_SYMBOLS[measureType] ?? []).map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-            <input type="number" min="0" value={unitSize} onChange={e => setUnitSize(e.target.value)}
-              disabled={!unitSymbol} placeholder="Size"
-              className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50" />
-          </div>
-        </div>
-        <div className="flex gap-3 px-5 pb-5">
-          <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
-          <button onClick={save} disabled={saving}
-            className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60 font-medium">
-            {saving ? 'Saving…' : 'Apply to Selected'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}

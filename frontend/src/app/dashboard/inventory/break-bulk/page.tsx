@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
@@ -10,6 +9,7 @@ import {
   History, AlertTriangle, CheckCircle2, X, Clock, User,
   Undo2, AlertCircle, ChevronRight, Zap,
 } from 'lucide-react';
+import { SetUnitModal, type SavedUnitValues } from '@/components/shared/SetUnitModal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -169,8 +169,18 @@ function NewSessionTab({ qc }: { qc: any }) {
   const [lines, setLines]         = useState<OutputLine[]>([newLine()]);
   const [wastageNote, setWastageNote] = useState('');
   const [notes, setNotes]         = useState('');
+  const [fixUnitPlu, setFixUnitPlu] = useState<Plu | null>(null);
 
   const { data: recentPairs = [] } = useQuery({ queryKey: ['repack-recent-pairs'], queryFn: fetchRecentPairs });
+
+  // Patches the just-saved unit values straight into local state — no refetch, no navigation,
+  // so the confirm step re-renders with the live balance card using the qty already typed.
+  function applyUnitPatch(pluId: string, v: SavedUnitValues) {
+    const patch = { measureType: v.measureType, unitSymbol: v.unitSymbol, unitSize: v.unitSize, baseUnitQty: v.baseUnitQty };
+    setSourcePlu(p => (p && p.id === pluId ? { ...p, ...patch } : p));
+    setLines(ls => ls.map(l => (l.targetPlu && l.targetPlu.id === pluId ? { ...l, targetPlu: { ...l.targetPlu, ...patch } } : l)));
+    setFixUnitPlu(null);
+  }
 
   function reset() {
     setPhase('search'); setSourcePlu(null); setSourceQty('1'); setLines([newLine()]);
@@ -449,10 +459,10 @@ function NewSessionTab({ qc }: { qc: any }) {
                       .map(p => [p.id, p]),
                   ).values(),
                 ).map(p => (
-                  <Link key={p.id} href={`/dashboard/products/${p.product.id}/plu`}
+                  <button key={p.id} onClick={() => setFixUnitPlu(p)}
                     className="text-xs font-medium text-amber-800 bg-amber-100 hover:bg-amber-200 rounded-full px-2.5 py-1">
-                    Fix unit for {productName(p)} →
-                  </Link>
+                    Set unit for {productName(p)} →
+                  </button>
                 ))}
               </div>
             </div>
@@ -478,6 +488,15 @@ function NewSessionTab({ qc }: { qc: any }) {
             </button>
           </div>
         </div>
+      )}
+
+      {fixUnitPlu && (
+        <SetUnitModal
+          target={{ mode: 'plu', ids: [fixUnitPlu.id] }}
+          title={`Set unit for ${productName(fixUnitPlu)}`}
+          onClose={() => setFixUnitPlu(null)}
+          onSaved={(values) => applyUnitPatch(fixUnitPlu.id, values)}
+        />
       )}
     </div>
   );

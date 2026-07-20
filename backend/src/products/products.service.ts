@@ -1000,6 +1000,33 @@ export class ProductsService {
       } catch { /* PLU archival errors must never block product updates */ }
     }
 
+    // Apply explicitly-submitted unit fields (from the Product edit form) to whichever PLU is
+    // now the default — the one just created above if price changed, otherwise the existing one.
+    // Re-queried rather than reusing `defaultPlu` above so a simultaneous price+unit edit lands
+    // the new unit values on the new PLU, not the one just archived.
+    const hasUnitUpdate = dto.measureType !== undefined || dto.unitSymbol !== undefined
+      || dto.unitSize !== undefined || dto.gstUqc !== undefined;
+    if (hasUnitUpdate) {
+      try {
+        const currentDefaultPlu = await this.prisma.productPlu.findFirst({
+          where: { productId: id, isDefault: true, isActive: true, isArchived: false },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (currentDefaultPlu) {
+          await this.prisma.productPlu.update({
+            where: { id: currentDefaultPlu.id },
+            data: {
+              ...(dto.measureType !== undefined ? { measureType: dto.measureType } : {}),
+              ...(dto.unitSymbol  !== undefined ? { unitSymbol:  dto.unitSymbol }  : {}),
+              ...(dto.unitSize    !== undefined ? { unitSize:    dto.unitSize }    : {}),
+              ...(dto.baseUnitQty !== undefined ? { baseUnitQty: dto.baseUnitQty } : {}),
+              ...(dto.gstUqc      !== undefined ? { gstUqc:      dto.gstUqc }      : {}),
+            },
+          });
+        }
+      } catch { /* unit update errors must never block product updates */ }
+    }
+
     return updated;
   }
 
@@ -2118,6 +2145,8 @@ export class ProductsService {
         case 'HAS_UNIT_INFO': return rows.filter(r => r.flags.includes('HAS_UNIT_INFO'));
         case 'WEIGHT':         return rows.filter(r => r.measureType === 'WEIGHT');
         case 'VOLUME':         return rows.filter(r => r.measureType === 'VOLUME');
+        case 'LENGTH':         return rows.filter(r => r.measureType === 'LENGTH');
+        case 'AREA':           return rows.filter(r => r.measureType === 'AREA');
         case 'COUNT':          return rows.filter(r => r.measureType === 'COUNT');
         default:                return rows;
       }
@@ -2129,6 +2158,8 @@ export class ProductsService {
       hasUnitInfo:  rows.filter(r => r.flags.includes('HAS_UNIT_INFO')).length,
       weight:       rows.filter(r => r.measureType === 'WEIGHT').length,
       volume:       rows.filter(r => r.measureType === 'VOLUME').length,
+      length:       rows.filter(r => r.measureType === 'LENGTH').length,
+      area:         rows.filter(r => r.measureType === 'AREA').length,
       count:        rows.filter(r => r.measureType === 'COUNT').length,
     };
 

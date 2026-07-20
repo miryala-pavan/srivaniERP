@@ -3,13 +3,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Ruler, CheckCircle, XCircle, RefreshCw, Package, Scale,
-  Search, ChevronDown, X,
+  Search, ChevronDown,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import Link from 'next/link';
 import api from '@/lib/api';
 import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
-import { UNIT_SYMBOLS, calcBaseUnitQty, deriveUqc, FIXED_COUNT_MULTIPLIERS } from '@/lib/units';
+import { UNIT_DEFINITIONS } from '@/lib/units';
+import { SetUnitModal } from '@/components/shared/SetUnitModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ interface AuditPlu {
 
 interface Summary {
   total: number; noUnitInfo: number; hasUnitInfo: number;
-  weight: number; volume: number; count: number;
+  weight: number; volume: number; length: number; area: number; count: number;
 }
 
 // ─── Filter tabs ─────────────────────────────────────────────────────────────
@@ -42,6 +42,8 @@ const FILTERS = [
   { key: 'HAS_UNIT_INFO', label: 'Has Units',      icon: CheckCircle,  color: 'green'  },
   { key: 'WEIGHT',        label: 'Weight',         icon: Scale,        color: 'gray'   },
   { key: 'VOLUME',        label: 'Volume',         icon: Scale,        color: 'gray'   },
+  { key: 'LENGTH',        label: 'Length',         icon: Scale,        color: 'gray'   },
+  { key: 'AREA',          label: 'Area',           icon: Scale,        color: 'gray'   },
   { key: 'COUNT',         label: 'Count',          icon: Scale,        color: 'gray'   },
 ];
 
@@ -68,7 +70,7 @@ export default function UnitManagementPage() {
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
-  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [unitModalIds, setUnitModalIds] = useState<string[] | null>(null);
 
   const load = useCallback(async (f = filter, s = search) => {
     setLoading(true);
@@ -128,16 +130,19 @@ export default function UnitManagementPage() {
         </button>
       </div>
 
-      {/* Unit Definitions — fixed, universal conversions the whole system relies on */}
+      {/* Unit Definitions — fixed, universal conversions the whole system relies on.
+          Sourced from the official GST UQC code list (CBIC/GSTN) — not invented per catalog. */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <h2 className="text-sm font-semibold text-gray-700 mb-2">Unit Definitions</h2>
-        <p className="text-xs text-gray-400 mb-3">These conversions are constants, true for every product — not something you set per item.</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-          <div className="bg-gray-50 rounded-lg px-3 py-2"><span className="font-mono font-semibold">1 kg</span> = 1000 g</div>
-          <div className="bg-gray-50 rounded-lg px-3 py-2"><span className="font-mono font-semibold">1 L</span> = 1000 ml</div>
-          {Object.entries(FIXED_COUNT_MULTIPLIERS).map(([sym, mult]) => (
-            <div key={sym} className="bg-gray-50 rounded-lg px-3 py-2">
-              <span className="font-mono font-semibold">1 {sym}</span> = {mult} pcs
+        <p className="text-xs text-gray-400 mb-3">
+          Official GST UQC conversions — constants true for every product, not something you set per item.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
+          {UNIT_DEFINITIONS.map(d => (
+            <div key={d.symbol} className="bg-gray-50 rounded-lg px-3 py-2">
+              <span className="font-mono font-semibold">1 {d.symbol}</span>
+              <span className="text-[10px] text-gray-400 ml-1">({d.uqc})</span>
+              <span> = {d.equals}</span>
             </div>
           ))}
         </div>
@@ -167,7 +172,7 @@ export default function UnitManagementPage() {
             {FILTERS.map(f => {
               const count = summary ? ({
                 ALL: summary.total, NO_UNIT_INFO: summary.noUnitInfo, HAS_UNIT_INFO: summary.hasUnitInfo,
-                WEIGHT: summary.weight, VOLUME: summary.volume, COUNT: summary.count,
+                WEIGHT: summary.weight, VOLUME: summary.volume, LENGTH: summary.length, AREA: summary.area, COUNT: summary.count,
               } as Record<string, number>)[f.key] ?? 0 : 0;
               const isActive = filter === f.key;
               return (
@@ -202,7 +207,7 @@ export default function UnitManagementPage() {
         {selected.size > 0 && (
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-sm text-gray-600 font-medium">{selected.size} selected</span>
-            <button onClick={() => setShowBulkModal(true)}
+            <button onClick={() => setUnitModalIds(Array.from(selected))}
               className="flex items-center gap-1.5 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold">
               <Ruler className="w-3.5 h-3.5" /> Set Unit for Selected
             </button>
@@ -262,10 +267,10 @@ export default function UnitManagementPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <Link href={`/dashboard/products/${p.productId}/plu`}
+                        <button onClick={() => setUnitModalIds([p.pluId])}
                           className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold whitespace-nowrap">
                           Fix individually →
-                        </Link>
+                        </button>
                       </td>
                     </tr>
                   );
@@ -279,84 +284,13 @@ export default function UnitManagementPage() {
         )}
       </div>
 
-      {showBulkModal && (
-        <BulkSetUnitModal
-          count={selected.size}
-          onClose={() => setShowBulkModal(false)}
-          onSaved={() => { setShowBulkModal(false); load(); }}
-          pluIds={Array.from(selected)}
+      {unitModalIds && (
+        <SetUnitModal
+          target={{ mode: 'plu', ids: unitModalIds }}
+          onClose={() => setUnitModalIds(null)}
+          onSaved={() => { setUnitModalIds(null); load(); }}
         />
       )}
-    </div>
-  );
-}
-
-// ─── Bulk-set modal ─────────────────────────────────────────────────────────
-
-function BulkSetUnitModal({ count, pluIds, onClose, onSaved }: {
-  count: number; pluIds: string[]; onClose: () => void; onSaved: () => void;
-}) {
-  const [measureType, setMeasureType] = useState('');
-  const [unitSymbol, setUnitSymbol]   = useState('');
-  const [unitSize, setUnitSize]       = useState('');
-  const [saving, setSaving]           = useState(false);
-
-  async function save() {
-    const size = parseFloat(unitSize);
-    if (!measureType || !unitSymbol || !size || size <= 0) { toast.error('Choose a measure, unit and size'); return; }
-    setSaving(true);
-    try {
-      const res = await api.patch('/products/unit-audit/bulk-set', {
-        pluIds, measureType, unitSymbol, unitSize: size,
-        baseUnitQty: calcBaseUnitQty(unitSymbol, size),
-        gstUqc: deriveUqc(unitSymbol) ?? undefined,
-      });
-      toast.success(`Unit set on ${res.data.updated} PLU${res.data.updated !== 1 ? 's' : ''}`);
-      onSaved();
-    } catch {
-      toast.error('Failed to update units');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Set unit for {count} PLU{count !== 1 ? 's' : ''}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="p-5 space-y-3">
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            The same unit is applied to every selected PLU. Only select products you know share the same pack size.
-          </p>
-          <select value={measureType} onChange={e => { setMeasureType(e.target.value); setUnitSymbol(''); }}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-            <option value="">— Measure type —</option>
-            <option value="WEIGHT">Weight</option>
-            <option value="VOLUME">Volume</option>
-            <option value="COUNT">Count</option>
-          </select>
-          <div className="flex gap-2">
-            <select value={unitSymbol} onChange={e => setUnitSymbol(e.target.value)}
-              disabled={!measureType} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50">
-              <option value="">Unit</option>
-              {(UNIT_SYMBOLS[measureType] ?? []).map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-            <input type="number" min="0" value={unitSize} onChange={e => setUnitSize(e.target.value)}
-              disabled={!unitSymbol} placeholder="Size"
-              className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50" />
-          </div>
-        </div>
-        <div className="flex gap-3 px-5 pb-5">
-          <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
-          <button onClick={save} disabled={saving}
-            className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60 font-medium">
-            {saving ? 'Saving…' : 'Apply to Selected'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
