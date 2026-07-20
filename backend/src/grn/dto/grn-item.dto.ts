@@ -38,6 +38,14 @@ export class GrnItemDto {
   @IsOptional() @IsDateString() expiryDate?: string;
   @IsOptional() @IsDateString() manufacturingDate?: string;
 
+  // Unit-of-measure info for the receiving PLU (e.g. WEIGHT/kg/50) — optional, captured
+  // inline at GRN entry when the matched PLU doesn't already have it set.
+  @IsOptional() @IsString() measureType?: string;
+  @IsOptional() @IsString() unitSymbol?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) unitSize?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) baseUnitQty?: number;
+  @IsOptional() @IsString() gstUqc?: string;
+
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) rejectedQty?: number;
   @IsOptional() @IsString() rejectionReason?: string;
   @IsOptional() @IsString() rejectionAction?: string;

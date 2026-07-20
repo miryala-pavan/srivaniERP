@@ -305,13 +305,24 @@ export class GstReportsService {
               hsnCode: true, productName: true, quantity: true,
               taxableAmount: true, gstRatePercent: true,
               cgstAmount: true, sgstAmount: true, igstAmount: true,
-              cessAmount: true, unitOfMeasure: true,
+              cessAmount: true, unitOfMeasure: true, pluId: true,
             },
           },
         },
         orderBy: { billDate: 'asc' },
       }),
     ]);
+
+    // Prefer each line's own PLU.gstUqc (set via GRN/Unit Management/PLU editor) over the
+    // coarser product.unitOfMeasure-derived guess, when it's actually been set.
+    const salesPluIds = [...new Set(bills.flatMap(b => b.items.map(i => i.pluId).filter((id): id is string => !!id)))];
+    const pluUqcMap = salesPluIds.length > 0
+      ? new Map((await this.prisma.productPlu.findMany({
+          where: { id: { in: salesPluIds } }, select: { id: true, gstUqc: true },
+        })).filter(p => p.gstUqc).map(p => [p.id, p.gstUqc as string]))
+      : new Map<string, string>();
+    const uomFor = (item: { pluId: string | null; unitOfMeasure: string | null }) =>
+      (item.pluId && pluUqcMap.get(item.pluId)) || normalizeUom(item.unitOfMeasure);
 
     const bizStateCode = biz?.stateCode ?? '36';
 
@@ -429,7 +440,7 @@ export class GstReportsService {
         const cur  = hsnMap.get(key) ?? {
           hsnCode:       hsn,
           description:   item.productName,
-          uom:           normalizeUom(item.unitOfMeasure),
+          uom:           uomFor(item),
           gstRate:       rate,
           totalQty:      0, taxableAmount: 0,
           cgst:          0, sgst: 0, igst: 0, cess: 0,
@@ -1126,6 +1137,16 @@ export class GstReportsService {
       cgst: number; sgst: number; igst: number; totalGST: number; totalCess: number;
     };
 
+    // Prefer each line's own PLU.gstUqc over the coarser unitOfMeasure-derived guess, when set.
+    const hsnPluIds = [...new Set(items.map(i => i.pluId).filter((id): id is string => !!id))];
+    const hsnPluUqcMap = hsnPluIds.length > 0
+      ? new Map((await this.prisma.productPlu.findMany({
+          where: { id: { in: hsnPluIds } }, select: { id: true, gstUqc: true },
+        })).filter(p => p.gstUqc).map(p => [p.id, p.gstUqc as string]))
+      : new Map<string, string>();
+    const hsnUomFor = (item: { pluId: string | null; unitOfMeasure: string | null }) =>
+      (item.pluId && hsnPluUqcMap.get(item.pluId)) || normalizeUom(item.unitOfMeasure);
+
     const hsnMap = new Map<string, HsnRow>();
 
     for (const item of items) {
@@ -1133,7 +1154,7 @@ export class GstReportsService {
       const rate = Number(item.gstRatePercent);
       const key  = `${hsn}|${rate}`;
       const cur  = hsnMap.get(key) ?? {
-        hsnCode: hsn, gstRate: rate, uom: normalizeUom(item.unitOfMeasure),
+        hsnCode: hsn, gstRate: rate, uom: hsnUomFor(item),
         totalQuantity: 0, totalTaxableValue: 0,
         cgst: 0, sgst: 0, igst: 0, totalGST: 0, totalCess: 0,
       };

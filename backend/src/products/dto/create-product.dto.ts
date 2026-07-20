@@ -60,4 +60,11 @@ export class CreateProductDto {
   @IsOptional() @IsString() purchaseUnit?: string;
   @IsOptional() @IsString() stockUnit?: string;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) cessRate?: number;
+
+  // Unit-of-measure for the auto-created first PLU (e.g. WEIGHT/kg/50) — optional.
+  @IsOptional() @IsString() measureType?: string;
+  @IsOptional() @IsString() unitSymbol?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) unitSize?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) baseUnitQty?: number;
+  @IsOptional() @IsString() gstUqc?: string;
 }

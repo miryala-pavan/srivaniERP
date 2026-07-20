@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Request, UseGuards } from '@nestjs/common';
 import { RepackService } from './repack.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -6,11 +6,6 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('repack')
 export class RepackController {
   constructor(private readonly repackService: RepackService) {}
-
-  @Get('search/source')
-  searchSource(@Request() req: any, @Query('q') q: string) {
-    return this.repackService.searchSourcePlus(req.user.businessId, q ?? '');
-  }
 
   @Get('search/any')
   searchAny(@Request() req: any, @Query('q') q: string) {
@@ -26,18 +21,9 @@ export class RepackController {
     return this.repackService.searchTargetPlus(req.user.businessId, q ?? '', exclude ?? '');
   }
 
-  @Get('bundles')
-  getBundles(@Request() req: any) {
-    return this.repackService.getAllBundles(req.user.businessId);
-  }
-
-  @Patch('bundles/:id')
-  updateBundle(
-    @Request() req: any,
-    @Param('id') id: string,
-    @Body() body: { type?: 'FIXED' | 'VARIABLE'; bulkWeightG?: number; unitWeightG?: number; conversionQty?: number; notes?: string },
-  ) {
-    return this.repackService.updateBundle(req.user.businessId, id, { ...body, userRole: req.user.role });
+  @Get('recent-pairs')
+  getRecentPairs(@Request() req: any) {
+    return this.repackService.getRecentPairs(req.user.businessId);
   }
 
   @Post('sessions')
@@ -46,11 +32,7 @@ export class RepackController {
     @Body() body: {
       sourcePluId: string;
       sourceQty: number;
-      type: 'FIXED' | 'VARIABLE';
-      lines: { targetPluId: string; qty: number; unitWeightG?: number; notes?: string }[];
-      bulkWeightG?: number;
-      wastageG?: number;
-      wastageUnits?: number;
+      lines: { targetPluId: string; qty: number; notes?: string }[];
       wastageNotes?: string;
       notes?: string;
     },

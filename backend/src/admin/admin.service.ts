@@ -769,7 +769,12 @@ export class AdminService {
 
           } else {
             // ── Update new fields on existing PLUs ────────────────────────────
+            // If any sibling PLU of this product already has unit info set, fill it onto
+            // siblings that are missing it — non-destructive, never overwrites a PLU's own value.
+            const unitSource = product.plusList.find(p => p.measureType);
+
             for (const plu of product.plusList) {
+              const needsUnitFill = unitSource && plu.id !== unitSource.id && !plu.measureType;
               await tx.productPlu.update({
                 where: { id: plu.id },
                 data: {
@@ -780,6 +785,14 @@ export class AdminService {
                   marginPercent: marginPct,
                   marginRs,
                   effectiveFrom: plu.createdAt,
+                  ...(needsUnitFill ? {
+                    measureType: unitSource!.measureType,
+                    unitSymbol:  unitSource!.unitSymbol,
+                    unitSize:    unitSource!.unitSize,
+                    baseUnitQty: unitSource!.baseUnitQty,
+                    gstUqc:      unitSource!.gstUqc,
+                    isLoose:     unitSource!.isLoose,
+                  } : {}),
                 },
               });
               updatedLog.push(`${product.productCode} (${product.name}): PLU ${plu.pluCode} updated`);

@@ -632,6 +632,11 @@ export class ProductsService {
           receivedQty: 0, soldQty: 0, stockOnHand: 0,
           isDefault: true, isActive: true, isArchived: false,
           createdByName: 'System (auto-created)',
+          measureType: dto.measureType ?? null,
+          unitSymbol:  dto.unitSymbol ?? null,
+          unitSize:    dto.unitSize ?? null,
+          baseUnitQty: dto.baseUnitQty ?? null,
+          gstUqc:      dto.gstUqc ?? null,
         },
       });
 
@@ -973,6 +978,13 @@ export class ProductsService {
                 receivedQty: 0, soldQty: 0, stockOnHand: 0,
                 isDefault: true, isActive: true, isArchived: false,
                 createdByName: 'System (price change)',
+                // Carry forward unit info from the PLU being archived — it must not be silently lost on a price change.
+                measureType: defaultPlu.measureType,
+                unitSymbol:  defaultPlu.unitSymbol,
+                unitSize:    defaultPlu.unitSize,
+                baseUnitQty: defaultPlu.baseUnitQty,
+                gstUqc:      defaultPlu.gstUqc,
+                isLoose:     defaultPlu.isLoose,
               },
             }),
           ]);
@@ -1053,277 +1065,6 @@ export class ProductsService {
   }
 
   // ─── INLINE TAX UPDATE (Feature 3) ──────────────────────────────────────────
-
-  // ─── PLU BUNDLE ─────────────────────────────────────────────────────────────
-
-  async getPluBundle(businessId: string, pluId: string) {
-    const [asBulk, asSingle] = await Promise.all([
-      this.prisma.pluBundle.findFirst({
-        where: { bulkPluId: pluId },
-        include: {
-          singlePlu: { select: { id: true, pluCode: true, mrp: true, sellingPrice: true, stockOnHand: true } },
-        },
-      }),
-      this.prisma.pluBundle.findMany({
-        where: { singlePluId: pluId },
-        include: {
-          bulkPlu: { select: { id: true, pluCode: true, mrp: true, sellingPrice: true, stockOnHand: true } },
-        },
-      }),
-    ]);
-    return { asBulk, asSingle };
-  }
-
-  async createPluBundle(businessId: string, body: {
-    bulkPluId: string; singlePluId: string; conversionQty: number;
-    type?: string; bulkWeightG?: number; unitWeightG?: number; notes?: string;
-  }) {
-    const [bulk, single] = await Promise.all([
-      this.prisma.productPlu.findFirst({ where: { id: body.bulkPluId }, include: { product: { select: { businessId: true } } } }),
-      this.prisma.productPlu.findFirst({ where: { id: body.singlePluId }, include: { product: { select: { businessId: true } } } }),
-    ]);
-    if (!bulk   || bulk.product.businessId   !== businessId) throw new NotFoundException('Bulk PLU not found');
-    if (!single || single.product.businessId !== businessId) throw new NotFoundException('Single PLU not found');
-    if (body.conversionQty < 1) throw new BadRequestException('Conversion qty must be >= 1');
-
-    const type = body.type ?? 'FIXED';
-    // Use composite unique [bulkPluId, singlePluId] — one bulk PLU can link to many singles
-    const existing = await this.prisma.pluBundle.findFirst({
-      where: { bulkPluId: body.bulkPluId, singlePluId: body.singlePluId },
-    });
-    if (existing) {
-      return this.prisma.pluBundle.update({
-        where: { id: existing.id },
-        data: {
-          conversionQty: body.conversionQty,
-          type,
-          bulkWeightG: body.bulkWeightG ?? null,
-          unitWeightG: body.unitWeightG ?? null,
-          notes: body.notes,
-        },
-      });
-    }
-    return this.prisma.pluBundle.create({
-      data: {
-        businessId,
-        bulkPluId:     body.bulkPluId,
-        singlePluId:   body.singlePluId,
-        conversionQty: body.conversionQty,
-        type,
-        bulkWeightG:   body.bulkWeightG ?? null,
-        unitWeightG:   body.unitWeightG ?? null,
-        notes:         body.notes,
-      },
-    });
-  }
-
-  async deletePluBundle(businessId: string, bundleId: string) {
-    const bundle = await this.prisma.pluBundle.findFirst({ where: { id: bundleId, businessId } });
-    if (!bundle) throw new NotFoundException('Bundle not found');
-    await this.prisma.pluBundle.delete({ where: { id: bundleId } });
-    return { message: 'Bundle removed' };
-  }
-
-  async getAllBundles(businessId: string) {
-    return this.prisma.pluBundle.findMany({
-      where: { businessId },
-      include: {
-        bulkPlu:   { select: { id: true, pluCode: true, displayName: true, stockOnHand: true, product: { select: { name: true } } } },
-        singlePlu: { select: { id: true, pluCode: true, displayName: true, stockOnHand: true, product: { select: { name: true } } } },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-  }
-
-  async breakBulk(businessId: string, body: {
-    bundleId: string; bulkQty: number; userId?: string; userName?: string; notes?: string;
-  }) {
-    const bundle = await this.prisma.pluBundle.findFirst({
-      where: { id: body.bundleId, businessId },
-      include: {
-        bulkPlu:   { include: { product: { select: { id: true, name: true } } } },
-        singlePlu: { include: { product: { select: { id: true, name: true } } } },
-      },
-    });
-    if (!bundle) throw new NotFoundException('PLU bundle not found');
-    if (body.bulkQty < 1) throw new BadRequestException('Quantity must be at least 1');
-
-    const bulkStock = Number(bundle.bulkPlu.stockOnHand ?? 0);
-    if (bulkStock < body.bulkQty) {
-      throw new BadRequestException(
-        `Not enough bulk stock. Available: ${bulkStock}, requested: ${body.bulkQty}`
-      );
-    }
-
-    const singlesCreated = body.bulkQty * bundle.conversionQty;
-
-    await this.prisma.$transaction(async (tx) => {
-      // Deduct from bulk PLU
-      await tx.productPlu.update({
-        where: { id: bundle.bulkPluId },
-        data: { stockOnHand: { decrement: body.bulkQty } },
-      });
-      // Add to single PLU
-      await tx.productPlu.update({
-        where: { id: bundle.singlePluId },
-        data: { stockOnHand: { increment: singlesCreated } },
-      });
-      // Log it
-      await tx.breakBulkLog.create({
-        data: {
-          businessId,
-          pluBundleId:    bundle.id,
-          bulkPluId:      bundle.bulkPluId,
-          singlePluId:    bundle.singlePluId,
-          bulkQtyBroken:  body.bulkQty,
-          singlesCreated,
-          notes:          body.notes,
-          createdById:    body.userId,
-          createdByName:  body.userName,
-        },
-      });
-      // Sync product.totalStock for both products
-      const singleAgg = await tx.productPlu.aggregate({
-        where: { productId: bundle.singlePlu.product.id },
-        _sum: { stockOnHand: true },
-      });
-      await tx.product.update({
-        where: { id: bundle.singlePlu.product.id },
-        data: { totalStock: Number(singleAgg._sum.stockOnHand ?? 0) },
-      });
-      const bulkAgg = await tx.productPlu.aggregate({
-        where: { productId: bundle.bulkPlu.product.id },
-        _sum: { stockOnHand: true },
-      });
-      await tx.product.update({
-        where: { id: bundle.bulkPlu.product.id },
-        data: { totalStock: Number(bulkAgg._sum.stockOnHand ?? 0) },
-      });
-    });
-
-    try {
-      this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
-        productId: bundle.bulkPlu.product.id,
-      });
-      this.eventsService.emitToBusiness(businessId, Events.PLU_UPDATED, {
-        productId: bundle.singlePlu.product.id,
-      });
-    } catch (_) { /* fire-and-forget */ }
-
-    return {
-      message:        `Opened ${body.bulkQty} bulk unit(s) → ${singlesCreated} singles created`,
-      bulkQtyBroken:  body.bulkQty,
-      singlesCreated,
-      bulkPluCode:    bundle.bulkPlu.pluCode,
-      singlePluCode:  bundle.singlePlu.pluCode,
-    };
-  }
-
-  async breakBulkMulti(businessId: string, body: {
-    bulkPluId: string;
-    bulkQty: number;
-    targets: { bundleId: string; singlesQty: number }[];
-    notes?: string;
-    userId?: string;
-    userName?: string;
-  }) {
-    if (body.bulkQty < 1) throw new BadRequestException('Bulk quantity must be at least 1');
-    if (!body.targets?.length) throw new BadRequestException('At least one target size required');
-
-    // Load bulk PLU
-    const bulkPlu = await this.prisma.productPlu.findFirst({
-      where: { id: body.bulkPluId, businessId },
-      include: { product: { select: { id: true, name: true } } },
-    });
-    if (!bulkPlu) throw new NotFoundException('Bulk PLU not found');
-
-    const bulkStock = Number(bulkPlu.stockOnHand ?? 0);
-    if (bulkStock < body.bulkQty) {
-      throw new BadRequestException(
-        `Not enough bulk stock. Available: ${bulkStock}, requested: ${body.bulkQty}`,
-      );
-    }
-
-    // Load all target bundles + validate they belong to this bulk PLU
-    const bundles = await this.prisma.pluBundle.findMany({
-      where: { id: { in: body.targets.map(t => t.bundleId) }, businessId, bulkPluId: body.bulkPluId },
-      include: { singlePlu: { include: { product: { select: { id: true } } } } },
-    });
-    if (bundles.length !== body.targets.length) {
-      throw new BadRequestException('One or more bundle IDs are invalid or do not belong to this bulk PLU');
-    }
-
-    const targetMap = new Map(bundles.map(b => [b.id, b]));
-    const summaryLines: string[] = [];
-
-    await this.prisma.$transaction(async (tx) => {
-      // Deduct bulk stock
-      await tx.productPlu.update({
-        where: { id: body.bulkPluId },
-        data: { stockOnHand: { decrement: body.bulkQty } },
-      });
-
-      for (const t of body.targets) {
-        if (t.singlesQty <= 0) continue;
-        const bundle = targetMap.get(t.bundleId)!;
-        // Add to single PLU
-        await tx.productPlu.update({
-          where: { id: bundle.singlePluId },
-          data: { stockOnHand: { increment: t.singlesQty } },
-        });
-        // Log each conversion separately
-        await tx.breakBulkLog.create({
-          data: {
-            businessId,
-            pluBundleId:   bundle.id,
-            bulkPluId:     body.bulkPluId,
-            singlePluId:   bundle.singlePluId,
-            bulkQtyBroken: body.bulkQty,
-            singlesCreated: t.singlesQty,
-            notes:         body.notes,
-            createdById:   body.userId,
-            createdByName: body.userName,
-          },
-        });
-        // Update target product totalStock
-        const agg = await tx.productPlu.aggregate({
-          where: { productId: bundle.singlePlu.product.id, isActive: true, isArchived: false },
-          _sum: { stockOnHand: true },
-        });
-        await tx.product.update({
-          where: { id: bundle.singlePlu.product.id },
-          data: { totalStock: Number(agg._sum.stockOnHand ?? 0) },
-        });
-        summaryLines.push(`${t.singlesQty} × ${bundle.singlePlu.pluCode}`);
-      }
-
-      // Update bulk product totalStock
-      const bulkAgg = await tx.productPlu.aggregate({
-        where: { productId: bulkPlu.product.id, isActive: true, isArchived: false },
-        _sum: { stockOnHand: true },
-      });
-      await tx.product.update({
-        where: { id: bulkPlu.product.id },
-        data: { totalStock: Number(bulkAgg._sum.stockOnHand ?? 0) },
-      });
-    });
-
-    return {
-      message: `Opened ${body.bulkQty} bulk unit(s) → ${summaryLines.join(', ')}`,
-      bulkQtyBroken: body.bulkQty,
-      targets: summaryLines,
-    };
-  }
-
-  async getBreakBulkHistory(businessId: string, pluId?: string) {
-    const where: any = { businessId };
-    if (pluId) where.OR = [{ bulkPluId: pluId }, { singlePluId: pluId }];
-    return this.prisma.breakBulkLog.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-  }
 
   async updateHsn(businessId: string, id: string, hsnCode: string, userId?: string) {
     const hsn = (hsnCode ?? '').trim();
@@ -1584,6 +1325,17 @@ export class ProductsService {
       return plus.map(p => { const r = { ...p } as any; delete r.costPrice; delete r.basicCost; return r; });
     }
     return plus;
+  }
+
+  // Lightweight lookup used by GRN entry to decide whether to show the inline "set unit"
+  // prompt for a product it's about to add — returns null when no unit info is set yet.
+  async getDefaultPluUnits(businessId: string, productId: string) {
+    const plu = await this.prisma.productPlu.findFirst({
+      where: { productId, businessId, isDefault: true, isActive: true, isArchived: false },
+      select: { measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true, gstUqc: true },
+    });
+    if (!plu || !plu.measureType) return null;
+    return plu;
   }
 
   async getActivePlusForProduct(businessId: string, productId: string) {
@@ -2310,6 +2062,110 @@ export class ProductsService {
     }
     await this.shopCache.bustNavigation().catch(() => {});
     return { updated: productIds.length };
+  }
+
+  // ─── UNIT AUDIT ────────────────────────────────
+  // Every active PLU, flagged by whether its unit-of-measure info is set — used by the
+  // Unit Management page's audit table + bulk-edit tool.
+  async getUnitAudit(businessId: string, filter?: string, search?: string) {
+    const products = await this.prisma.product.findMany({
+      where: {
+        businessId,
+        isActive: true,
+        ...(search?.trim() ? {
+          OR: [
+            { name: { contains: search.trim(), mode: 'insensitive' } },
+            { productCode: { contains: search.trim(), mode: 'insensitive' } },
+          ],
+        } : {}),
+      },
+      select: {
+        id: true, productCode: true, name: true,
+        plusList: {
+          where: { isActive: true, isArchived: false },
+          select: {
+            id: true, pluCode: true, displayName: true, stockOnHand: true,
+            measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true, gstUqc: true,
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const rows = products.flatMap(p => p.plusList.map(plu => {
+      const hasUnit = !!plu.measureType && !!plu.unitSymbol;
+      const flags: string[] = [hasUnit ? 'HAS_UNIT_INFO' : 'NO_UNIT_INFO'];
+      return {
+        pluId:       plu.id,
+        productId:   p.id,
+        productCode: p.productCode,
+        productName: p.name,
+        pluCode:     plu.pluCode,
+        displayName: plu.displayName,
+        stockOnHand: Number(plu.stockOnHand),
+        measureType: plu.measureType,
+        unitSymbol:  plu.unitSymbol,
+        unitSize:    plu.unitSize != null ? Number(plu.unitSize) : null,
+        baseUnitQty: plu.baseUnitQty != null ? Number(plu.baseUnitQty) : null,
+        gstUqc:      plu.gstUqc,
+        flags,
+      };
+    }));
+
+    const filtered = (() => {
+      switch (filter) {
+        case 'NO_UNIT_INFO':  return rows.filter(r => r.flags.includes('NO_UNIT_INFO'));
+        case 'HAS_UNIT_INFO': return rows.filter(r => r.flags.includes('HAS_UNIT_INFO'));
+        case 'WEIGHT':         return rows.filter(r => r.measureType === 'WEIGHT');
+        case 'VOLUME':         return rows.filter(r => r.measureType === 'VOLUME');
+        case 'COUNT':          return rows.filter(r => r.measureType === 'COUNT');
+        default:                return rows;
+      }
+    })();
+
+    const summary = {
+      total:        rows.length,
+      noUnitInfo:   rows.filter(r => r.flags.includes('NO_UNIT_INFO')).length,
+      hasUnitInfo:  rows.filter(r => r.flags.includes('HAS_UNIT_INFO')).length,
+      weight:       rows.filter(r => r.measureType === 'WEIGHT').length,
+      volume:       rows.filter(r => r.measureType === 'VOLUME').length,
+      count:        rows.filter(r => r.measureType === 'COUNT').length,
+    };
+
+    return { summary, data: filtered };
+  }
+
+  // Applies the SAME unit setting to every targeted PLU at once — either by direct PLU ids
+  // (Unit Management page) or by product ids, resolved server-side to each product's default
+  // PLU (Products page bulk action).
+  async bulkSetUnits(businessId: string, body: {
+    pluIds?: string[]; productIds?: string[];
+    measureType: string; unitSymbol: string; unitSize: number; baseUnitQty: number;
+    gstUqc?: string; isLoose?: boolean;
+  }) {
+    const ids = new Set(body.pluIds ?? []);
+    if (body.productIds?.length) {
+      const defaults = await this.prisma.productPlu.findMany({
+        where: { businessId, productId: { in: body.productIds }, isDefault: true, isActive: true, isArchived: false },
+        select: { id: true },
+      });
+      for (const d of defaults) ids.add(d.id);
+    }
+    const pluIds = Array.from(ids);
+    if (pluIds.length === 0) return { updated: 0 };
+
+    const result = await this.prisma.productPlu.updateMany({
+      where: { id: { in: pluIds }, businessId },
+      data: {
+        measureType: body.measureType,
+        unitSymbol:  body.unitSymbol,
+        unitSize:    body.unitSize,
+        baseUnitQty: body.baseUnitQty,
+        ...(body.gstUqc !== undefined ? { gstUqc: body.gstUqc } : {}),
+        ...(body.isLoose !== undefined ? { isLoose: body.isLoose } : {}),
+      },
+    });
+    return { updated: result.count };
   }
 
   // ─── PLU PRICE HISTORY ────────────────────────────────

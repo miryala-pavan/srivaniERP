@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { Plus, Edit2, X, Check, Star, Power, ChevronDown, ChevronRight, AlertCircle, Link2, Scissors, Search } from 'lucide-react';
+import { Plus, Edit2, X, Check, Star, Power, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -10,6 +10,7 @@ import { getUser } from '@/lib/auth';
 import { canViewCost } from '@/lib/cost-visibility';
 import { BackButton } from '@/components/shared/BackButton';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
+import { UNIT_SYMBOLS, UQC_MAP, calcBaseUnitQty, fmtBaseQty } from '@/lib/units';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,29 +63,6 @@ interface Plu {
 const fmt = (n: number | string | null | undefined) =>
   n == null ? '—' : new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(Number(n));
 
-const UNIT_SYMBOLS: Record<string, string[]> = {
-  WEIGHT: ['kg', 'g'],
-  VOLUME: ['L', 'ml'],
-  COUNT:  ['pcs', 'nos', 'ctn', 'box', 'doz', 'btl', 'bag', 'pkt'],
-};
-
-const UQC_MAP: Record<string, string> = {
-  kg: 'KGS', g: 'GMS', L: 'LTR', ml: 'MLT',
-  pcs: 'PCS', nos: 'NOS', ctn: 'CTN', box: 'BOX',
-  doz: 'DOZ', btl: 'BTL', bag: 'BAG', pkt: 'PAC',
-};
-
-function calcBaseUnitQty(unitSymbol: string, unitSize: number): number {
-  if (unitSymbol === 'kg' || unitSymbol === 'L') return unitSize * 1000;
-  return unitSize;
-}
-
-function fmtBaseQty(symbol: string, qty: number): string {
-  if (symbol === 'kg' || symbol === 'g') return `${qty.toLocaleString('en-IN')} g`;
-  if (symbol === 'L' || symbol === 'ml') return `${qty.toLocaleString('en-IN')} ml`;
-  return `${qty}`;
-}
-
 const EMPTY_ADD = {
   eanCode: '', basicCost: '', costPrice: '', mrp: '', sellingPrice: '',
   wholesalePrice: '', minSellingPrice: '', gstRate: '', hsnCode: '',
@@ -126,18 +104,6 @@ export default function PluManagePage() {
   const [togglingOnlineId, setTogglingOnlineId] = useState<string | null>(null);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
 
-  // PLU Bundle (bulk ↔ single)
-  const [bundles, setBundles]                   = useState<any[]>([]);
-  const [showBundlePanel, setShowBundlePanel]   = useState(false);
-  const [bundleForm, setBundleForm]             = useState({ bulkPluId: '', singlePluId: '', conversionQty: '1', type: 'FIXED', bulkWeightG: '', unitWeightG: '', notes: '' });
-  const [savingBundle, setSavingBundle]         = useState(false);
-  // Single PLU search (cross-product)
-  const [singleSearch, setSingleSearch]         = useState('');
-  const [singleResults, setSingleResults]       = useState<any[]>([]);
-  const [singleSearching, setSingleSearching]   = useState(false);
-  const [selectedSinglePlu, setSelectedSinglePlu] = useState<any | null>(null);
-  const singleDebounce = React.useRef<any>(null);
-
   const loadData = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -157,24 +123,6 @@ export default function PluManagePage() {
           taxRate: parseFloat(String(t.taxRate)),
         }))
       );
-      // Load bundles for all PLUs of this product
-      const allPlusData: any[] = plusRes.data ?? [];
-      if (allPlusData.length > 0) {
-        const bundleResults = await Promise.allSettled(
-          allPlusData.map((p: any) => api.get(`/products/plu-bundles/${p.id}`))
-        );
-        const allBundles: any[] = [];
-        bundleResults.forEach((r, i) => {
-          if (r.status === 'fulfilled') {
-            const { asBulk, asSingle } = r.value.data;
-            if (asBulk)             allBundles.push({ ...asBulk, role: 'bulk',   plu: allPlusData[i] });
-            if (asSingle?.length)   asSingle.forEach((b: any) => allBundles.push({ ...b, role: 'single', plu: allPlusData[i] }));
-          }
-        });
-        // Deduplicate by bundle id
-        const seen = new Set<string>();
-        setBundles(allBundles.filter(b => { if (seen.has(b.id)) return false; seen.add(b.id); return true; }));
-      }
     } catch {
       toast.error('Failed to load PLUs');
     } finally {
@@ -192,68 +140,6 @@ export default function PluManagePage() {
 
   const activePlus   = plus.filter((p) => p.isActive && !p.isArchived);
   const archivedPlus = plus.filter((p) => !p.isActive || p.isArchived);
-
-  function doSingleSearch(q: string) {
-    clearTimeout(singleDebounce.current);
-    setSingleSearch(q);
-    if (!q.trim()) { setSingleResults([]); return; }
-    singleDebounce.current = setTimeout(async () => {
-      setSingleSearching(true);
-      try {
-        const res = await api.get(`/repack/search/target?q=${encodeURIComponent(q)}&exclude=${bundleForm.bulkPluId || ''}`);
-        setSingleResults(res.data ?? []);
-      } catch { setSingleResults([]); }
-      finally { setSingleSearching(false); }
-    }, 250);
-  }
-
-  function closeBundlePanel() {
-    setShowBundlePanel(false);
-    setBundleForm({ bulkPluId: '', singlePluId: '', conversionQty: '1', type: 'FIXED', bulkWeightG: '', unitWeightG: '', notes: '' });
-    setSingleSearch(''); setSingleResults([]); setSelectedSinglePlu(null);
-  }
-
-  async function handleSaveBundle() {
-    if (!bundleForm.bulkPluId) { toast.error('Select bulk PLU'); return; }
-    if (bundleForm.type === 'FIXED') {
-      if (!selectedSinglePlu) { toast.error('Search and select the single unit PLU'); return; }
-      if (bundleForm.bulkPluId === selectedSinglePlu.id) { toast.error('Bulk and single PLU must be different'); return; }
-      const qty = parseInt(bundleForm.conversionQty);
-      if (!qty || qty < 1) { toast.error('Conversion qty must be at least 1'); return; }
-    } else {
-      if (!parseFloat(bundleForm.bulkWeightG)) { toast.error('Enter bulk unit weight in grams'); return; }
-    }
-    setSavingBundle(true);
-    try {
-      const payload: any = {
-        bulkPluId: bundleForm.bulkPluId,
-        singlePluId: selectedSinglePlu?.id ?? bundleForm.singlePluId,
-        conversionQty: parseInt(bundleForm.conversionQty) || 1,
-        type: bundleForm.type,
-        notes: bundleForm.notes || undefined,
-      };
-      if (bundleForm.type === 'VARIABLE') {
-        payload.bulkWeightG = parseFloat(bundleForm.bulkWeightG);
-        if (bundleForm.unitWeightG) payload.unitWeightG = parseFloat(bundleForm.unitWeightG);
-      }
-      await api.post('/products/plu-bundles', payload);
-      toast.success('Bundle linked');
-      closeBundlePanel();
-      await loadData();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Failed to save bundle');
-    } finally { setSavingBundle(false); }
-  }
-
-  async function handleDeleteBundle(bundleId: string) {
-    if (!confirm('Remove this bundle link?')) return;
-    try {
-      await api.delete(`/products/plu-bundles/${bundleId}`);
-      toast.success('Bundle removed');
-      await loadData();
-    } catch { toast.error('Failed to remove bundle'); }
-  }
-
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
@@ -355,6 +241,23 @@ export default function PluManagePage() {
       toast.error(e?.response?.data?.message ?? 'Failed to update online status');
     } finally {
       setTogglingOnlineId(null);
+    }
+  }
+
+  async function handleCopyUnits(sourcePlu: Plu, targetPluId: string) {
+    try {
+      await api.patch(`/products/${id}/plus/${targetPluId}`, {
+        measureType: sourcePlu.measureType,
+        unitSymbol:  sourcePlu.unitSymbol,
+        unitSize:    sourcePlu.unitSize,
+        baseUnitQty: sourcePlu.baseUnitQty,
+        gstUqc:      sourcePlu.gstUqc,
+        isLoose:     sourcePlu.isLoose,
+      });
+      toast.success('Unit copied');
+      await loadData();
+    } catch {
+      toast.error('Failed to copy unit');
     }
   }
 
@@ -482,6 +385,15 @@ export default function PluManagePage() {
                                 {Number(plu.unitSize)}{plu.unitSymbol}{plu.isLoose ? ' · loose' : ''}
                               </div>
                             )}
+                            {!plu.unitSymbol && activePlus.length > 1 && (() => {
+                              const source = activePlus.find(p => p.id !== plu.id && p.unitSymbol);
+                              return source ? (
+                                <button onClick={() => handleCopyUnits(source, plu.id)}
+                                  className="text-[10px] text-indigo-500 hover:text-indigo-700 hover:underline mt-0.5">
+                                  Copy unit from {source.pluCode} ({Number(source.unitSize)}{source.unitSymbol})
+                                </button>
+                              ) : null;
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-xs text-gray-500 font-mono">
                             {plu.barcodes.find((b) => b.isPrimary)?.barcodeValue ?? plu.eanCode ?? '—'}
@@ -782,260 +694,19 @@ export default function PluManagePage() {
             )}
           </div>
         )}
-        {/* ── PLU Bundle (Bulk ↔ Single) ── */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Link2 className="w-4 h-4 text-[#1B4F8A]" />
-              <span className="font-semibold text-sm text-gray-800">Bulk ↔ Single Linking</span>
-              {bundles.length > 0 && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{bundles.length}</span>}
-            </div>
-            <button onClick={() => setShowBundlePanel(true)}
-              className="flex items-center gap-1 text-xs text-[#1B4F8A] hover:underline">
-              <Plus className="w-3 h-3" /> Link PLUs
-            </button>
+        {/* ── Break Bulk shortcut ── */}
+        <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
+          <div>
+            <span className="font-semibold text-sm text-gray-800">Splitting a bulk item into packs?</span>
+            <p className="text-xs text-gray-400 mt-0.5">Break bulk stock into the pack sizes you sell on the dedicated Break Bulk page.</p>
           </div>
-
-          {bundles.length === 0 ? (
-            <div className="px-4 py-6 text-center text-xs text-gray-400">
-              No bulk/single links yet.
-              <button onClick={() => setShowBundlePanel(true)} className="text-[#1B4F8A] hover:underline ml-1">
-                Link a pack PLU to a single PLU
-              </button>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-50">
-              {bundles.map(b => (
-                <div key={b.id} className="px-4 py-3 flex items-center gap-4">
-                  <div className="flex-1 grid grid-cols-3 gap-4 items-center text-sm">
-                    <div className="text-center">
-                      <div className="text-xs text-gray-400 mb-0.5">BULK PLU</div>
-                      <div className="font-mono font-semibold text-gray-800">{b.bulkPlu?.pluCode ?? b.bulkPluId}</div>
-                      <div className="text-xs text-gray-400">Stock: {Number(b.bulkPlu?.stockOnHand ?? 0).toFixed(2)}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl text-gray-300">⇄</div>
-                      <div className="text-xs font-bold text-[#1B4F8A]">1 bulk = {b.conversionQty} singles</div>
-                      {b.notes && <div className="text-xs text-gray-400 italic">{b.notes}</div>}
-                    </div>
-                    <div className="text-center">
-                      <div className="text-xs text-gray-400 mb-0.5">SINGLE PLU</div>
-                      <div className="font-mono font-semibold text-gray-800">{b.singlePlu?.pluCode ?? b.singlePluId}</div>
-                      <div className="text-xs text-gray-400">Stock: {Number(b.singlePlu?.stockOnHand ?? 0).toFixed(2)}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <a href="/dashboard/inventory/break-bulk"
-                      className="flex items-center gap-1 text-xs bg-amber-500 text-white px-3 py-1.5 rounded-lg hover:bg-amber-600">
-                      <Scissors className="w-3 h-3" /> Break Bulk
-                    </a>
-                    <button onClick={() => handleDeleteBundle(b.id)}
-                      className="text-gray-300 hover:text-red-500 p-1">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Repack sessions are managed on the dedicated Break Bulk page */}
+          <a href="/dashboard/inventory/break-bulk"
+            className="shrink-0 flex items-center gap-1 text-xs bg-amber-500 text-white px-3 py-1.5 rounded-lg hover:bg-amber-600">
+            Break Bulk
+          </a>
         </div>
 
       </main>
-
-      {/* ── Link PLU Bundle Panel ── */}
-      {showBundlePanel && (
-        <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1 bg-black/30" onClick={closeBundlePanel} />
-          <div className="w-full max-w-sm bg-white shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-              <h2 className="font-bold text-gray-900 flex items-center gap-2">
-                <Link2 className="w-4 h-4 text-[#1B4F8A]" /> Set Up Break Bulk
-              </h2>
-              <button onClick={closeBundlePanel} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="flex-1 p-5 space-y-4 overflow-y-auto">
-
-              {/* Step 1: Type */}
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 1 — Break Type</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => { setBundleForm(f => ({ ...f, type: 'FIXED', bulkWeightG: '', unitWeightG: '' })); setSelectedSinglePlu(null); setSingleSearch(''); setSingleResults([]); }}
-                    className={`p-3 rounded-xl border-2 text-left transition-colors ${bundleForm.type === 'FIXED' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                    <div className="text-sm font-bold text-gray-800">📦 Fixed</div>
-                    <div className="text-xs text-gray-500 mt-0.5">1 carton = always same units</div>
-                    <div className="text-xs text-blue-600 mt-1 font-medium">e.g. 1 box = 12 bottles</div>
-                  </button>
-                  <button
-                    onClick={() => { setBundleForm(f => ({ ...f, type: 'VARIABLE', conversionQty: '1' })); setSelectedSinglePlu(null); setSingleSearch(''); setSingleResults([]); }}
-                    className={`p-3 rounded-xl border-2 text-left transition-colors ${bundleForm.type === 'VARIABLE' ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                    <div className="text-sm font-bold text-gray-800">⚖️ Variable</div>
-                    <div className="text-xs text-gray-500 mt-0.5">Split by weight at repack</div>
-                    <div className="text-xs text-amber-600 mt-1 font-medium">e.g. 50kg bag → any mix</div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Step 2: Bulk PLU */}
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 2 — Bulk Item (this product)</p>
-                <select value={bundleForm.bulkPluId} onChange={e => setBundleForm(f => ({ ...f, bulkPluId: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#1B4F8A]">
-                  <option value="">— Select which PLU is the bulk unit —</option>
-                  {activePlus.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.displayName ?? p.pluCode} — ₹{p.mrp} · stock: {Number(p.stockOnHand).toFixed(0)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Step 3: Type-specific fields */}
-              {bundleForm.type === 'FIXED' ? (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 — Conversion</p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600 whitespace-nowrap">1 bulk =</span>
-                    <input type="number" min="1" value={bundleForm.conversionQty}
-                      onChange={e => setBundleForm(f => ({ ...f, conversionQty: e.target.value }))}
-                      className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm text-center font-mono focus:outline-none focus:border-[#1B4F8A]" />
-                    <span className="text-sm text-gray-600 whitespace-nowrap">single units</span>
-                  </div>
-                  {bundleForm.conversionQty && parseInt(bundleForm.conversionQty) > 1 && (
-                    <p className="text-xs text-blue-600 mt-1">✓ Each time you break 1 bulk unit, {bundleForm.conversionQty} singles will be added to stock</p>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 — Weights</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs text-gray-500 block mb-1">Total weight of bulk unit *</label>
-                      <div className="relative">
-                        <input type="number" min="1" value={bundleForm.bulkWeightG}
-                          onChange={e => setBundleForm(f => ({ ...f, bulkWeightG: e.target.value }))}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:border-[#1B4F8A]"
-                          placeholder="e.g. 50000" />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">g</span>
-                      </div>
-                      {bundleForm.bulkWeightG && <p className="text-xs text-gray-400 mt-0.5">= {(parseFloat(bundleForm.bulkWeightG)/1000).toFixed(2)} kg</p>}
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 block mb-1">Default pack size (optional)</label>
-                      <div className="relative">
-                        <input type="number" min="1" value={bundleForm.unitWeightG}
-                          onChange={e => setBundleForm(f => ({ ...f, unitWeightG: e.target.value }))}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:border-[#1B4F8A]"
-                          placeholder="e.g. 1000" />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">g</span>
-                      </div>
-                      {bundleForm.unitWeightG && bundleForm.bulkWeightG && (
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          Max {Math.floor(parseFloat(bundleForm.bulkWeightG)/parseFloat(bundleForm.unitWeightG))} packs
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 4: Single PLU — cross-product search */}
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Step 4 — {bundleForm.type === 'FIXED' ? 'Single Unit PLU *' : 'Default Output PLU (optional)'}
-                </p>
-                {bundleForm.type === 'VARIABLE' && (
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
-                    At repack time you choose the actual output — this is just the default suggestion. You can skip this.
-                  </p>
-                )}
-                {selectedSinglePlu ? (
-                  <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
-                    <div>
-                      <p className="text-sm font-semibold text-green-900">{selectedSinglePlu.product?.name ?? selectedSinglePlu.displayName ?? selectedSinglePlu.pluCode}</p>
-                      <p className="text-xs text-green-600 mt-0.5">{selectedSinglePlu.displayName ?? selectedSinglePlu.pluCode} · Stock: {Number(selectedSinglePlu.stockOnHand).toFixed(0)}</p>
-                    </div>
-                    <button onClick={() => { setSelectedSinglePlu(null); setSingleSearch(''); setSingleResults([]); }}
-                      className="text-green-400 hover:text-green-700 ml-2"><X className="w-4 h-4" /></button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      value={singleSearch}
-                      onChange={e => doSingleSearch(e.target.value)}
-                      placeholder="Search across all products…"
-                      disabled={!bundleForm.bulkPluId}
-                      className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#1B4F8A] disabled:bg-gray-50 disabled:text-gray-400"
-                    />
-                    {!bundleForm.bulkPluId && (
-                      <p className="text-xs text-gray-400 mt-1">Select the bulk PLU first (Step 2)</p>
-                    )}
-                    {singleSearch && (
-                      <div className="absolute z-20 left-0 right-0 mt-1 border border-gray-200 rounded-lg bg-white shadow-lg divide-y max-h-44 overflow-y-auto">
-                        {singleSearching && <p className="p-3 text-sm text-gray-400">Searching…</p>}
-                        {!singleSearching && singleResults.length === 0 && singleSearch.length > 0 && (
-                          <p className="p-3 text-sm text-gray-400">No PLUs found — try product name or PLU code</p>
-                        )}
-                        {singleResults.map((r: any) => (
-                          <button key={r.id}
-                            onClick={() => { setSelectedSinglePlu(r); setBundleForm(f => ({ ...f, singlePluId: r.id })); setSingleSearch(''); setSingleResults([]); }}
-                            className="w-full text-left px-3 py-2.5 hover:bg-gray-50">
-                            <p className="text-sm font-medium text-gray-900">{r.product?.name ?? r.displayName ?? r.pluCode}</p>
-                            <p className="text-xs text-gray-500">{r.displayName ?? r.pluCode} · ₹{r.mrp ?? '—'} · stock: {Number(r.stockOnHand).toFixed(0)}</p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-gray-500 block mb-1">Notes (optional)</label>
-                <input value={bundleForm.notes} onChange={e => setBundleForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder={bundleForm.type === 'FIXED' ? 'e.g. 1 carton = 12 dozen packs' : 'e.g. 50kg sugar bag, variable packing'}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#1B4F8A]" />
-              </div>
-
-              {/* Preview */}
-              {bundleForm.bulkPluId && (
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 text-xs space-y-1">
-                  <p className="font-semibold text-gray-600">Preview</p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-mono">
-                      {activePlus.find(p => p.id === bundleForm.bulkPluId)?.displayName ?? activePlus.find(p => p.id === bundleForm.bulkPluId)?.pluCode ?? '?'}
-                    </span>
-                    <span className="text-gray-400">→</span>
-                    {bundleForm.type === 'FIXED' ? (
-                      <>
-                        <span className="font-bold text-gray-700">{bundleForm.conversionQty || '?'} ×</span>
-                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-mono">
-                          {selectedSinglePlu ? (selectedSinglePlu.displayName ?? selectedSinglePlu.pluCode) : '— select single —'}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-gray-500 italic">
-                        {bundleForm.bulkWeightG ? `${(parseFloat(bundleForm.bulkWeightG)/1000).toFixed(2)}kg` : '? kg'} · split at repack time
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="px-5 py-4 border-t border-gray-100 flex gap-3">
-              <button onClick={closeBundlePanel}
-                className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSaveBundle} disabled={savingBundle}
-                className="flex-1 py-2.5 text-sm bg-[#1B4F8A] text-white rounded-xl hover:bg-[#163d6d] disabled:opacity-60 font-medium">
-                {savingBundle ? 'Saving…' : 'Save & Link'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Add New PLU Panel ── */}
       {showAddPanel && (

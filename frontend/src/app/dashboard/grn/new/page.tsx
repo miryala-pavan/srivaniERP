@@ -14,6 +14,7 @@ import { useKeyboardNav } from '@/hooks/useKeyboardNav';
 import { FieldHelp } from '@/components/ui/FieldHelp';
 import { useFormAutosave } from '@/hooks/useFormAutosave';
 import { RestoreBanner } from '@/components/ui/RestoreBanner';
+import { UNIT_SYMBOLS, calcBaseUnitQty, deriveUqc, suggestUnitFromName } from '@/lib/units';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,9 @@ interface GrnItem {
   mrp: number; sellingPrice: number; cessRate: number;
   batchNumber: string; expiryDate: string;
   rejectedQty: number; rejectionReason: string;
+  // Unit-of-measure — set inline when the matched PLU doesn't already have it.
+  hasExistingUnitInfo?: boolean;
+  measureType?: string; unitSymbol?: string; unitSize?: number;
 }
 
 interface Adj {
@@ -341,6 +345,7 @@ export default function NewGrnPage() {
   const [quickCreateForm, setQuickCreateForm]   = useState({
     name: '', categoryId: '', hsnCode: '', unitOfMeasure: 'PCS',
     mrp: '', sellingPrice: '', taxId: '',
+    measureType: '', unitSymbol: '', unitSize: '',
   });
   const [quickCreateCats, setQuickCreateCats]   = useState<{ id: string; name: string; label: string }[]>([]);
   const [quickCreateTaxes, setQuickCreateTaxes] = useState<{ id: string; taxName: string; taxRate: number }[]>([]);
@@ -542,6 +547,8 @@ export default function NewGrnPage() {
       lastRate = r.data?.[0] ?? null;
     } catch {}
     if (items.some((i) => i.productId === p.id)) { toast('Product already in list', { icon: 'i' }); return; }
+    const existingUnits = await api.get(`/products/${p.id}/default-plu-units`).then(r => r.data).catch(() => null);
+    const suggested = existingUnits ? null : suggestUnitFromName(p.name);
     setItems((prev) => [...prev, {
       productId: p.id, productName: p.name, hsnCode: p.hsnCode ?? '',
       unitOfMeasure: p.unitOfMeasure,
@@ -553,6 +560,8 @@ export default function NewGrnPage() {
       sellingPrice: lastRate?.sellingPrice ?? n(p.sellingPrice),
       cessRate: lastRate?.cessRate ?? n(p.cessRate),
       batchNumber: '', expiryDate: '', rejectedQty: 0, rejectionReason: '',
+      hasExistingUnitInfo: !!existingUnits,
+      measureType: suggested?.measureType, unitSymbol: suggested?.unitSymbol, unitSize: suggested?.unitSize,
     }]);
   }
 
@@ -572,7 +581,11 @@ export default function NewGrnPage() {
 
   async function openQuickCreate() {
     setQuickCreateName(productSearch.trim());
-    setQuickCreateForm(f => ({ ...f, name: productSearch.trim() }));
+    const suggested = suggestUnitFromName(productSearch.trim());
+    setQuickCreateForm(f => ({
+      ...f, name: productSearch.trim(),
+      measureType: suggested?.measureType ?? '', unitSymbol: suggested?.unitSymbol ?? '', unitSize: suggested ? String(suggested.unitSize) : '',
+    }));
     // Fetch cats + taxes if not loaded
     if (quickCreateCats.length === 0) {
       try {
@@ -605,10 +618,17 @@ export default function NewGrnPage() {
         mrp: parseFloat(f.mrp),
         sellingPrice: parseFloat(f.sellingPrice),
         taxId: f.taxId,
+        ...(f.measureType && f.unitSymbol && f.unitSize ? {
+          measureType: f.measureType,
+          unitSymbol: f.unitSymbol,
+          unitSize: parseFloat(f.unitSize),
+          baseUnitQty: calcBaseUnitQty(f.unitSymbol, parseFloat(f.unitSize)),
+          gstUqc: deriveUqc(f.unitSymbol),
+        } : {}),
       });
       toast.success(`Product "${res.data.name}" created`);
       setShowQuickCreate(false);
-      setQuickCreateForm({ name: '', categoryId: '', hsnCode: '', unitOfMeasure: 'PCS', mrp: '', sellingPrice: '', taxId: '' });
+      setQuickCreateForm({ name: '', categoryId: '', hsnCode: '', unitOfMeasure: 'PCS', mrp: '', sellingPrice: '', taxId: '', measureType: '', unitSymbol: '', unitSize: '' });
       // Add to GRN immediately
       await addProductById(res.data.id);
     } catch (e: any) {
@@ -618,17 +638,19 @@ export default function NewGrnPage() {
     }
   }
 
-  async function addProductById(id: string) {
+  async function addProductById(id: string, seedUnits?: { measureType?: string; unitSymbol?: string; unitSize?: number }) {
     if (items.some((i) => i.productId === id)) { toast('Product already in list', { icon: 'i' }); return; }
     try {
-      const [prodRes, ratesRes] = await Promise.all([
+      const [prodRes, ratesRes, unitsRes] = await Promise.all([
         api.get(`/products/${id}`),
         api.get(`/grn/product/${id}/last-rates`).catch(() => ({ data: [] })),
+        api.get(`/products/${id}/default-plu-units`).then(r => r.data).catch(() => null),
       ]);
       const p = prodRes.data;
       if (!p) { toast.error('Product not found'); return; }
       lastRatesCache.current[id] = ratesRes.data ?? [];
       const lastRate = ratesRes.data?.[0] ?? null;
+      const suggested = unitsRes ? null : (seedUnits ?? suggestUnitFromName(p.name));
       setItems((prev) => [...prev, {
         productId: p.id, productName: p.name, hsnCode: p.hsnCode ?? '',
         unitOfMeasure: p.unitOfMeasure,
@@ -640,6 +662,8 @@ export default function NewGrnPage() {
         sellingPrice: lastRate?.sellingPrice ?? n(p.sellingPrice),
         cessRate: lastRate?.cessRate ?? n(p.cessRate ?? 0),
         batchNumber: '', expiryDate: '', rejectedQty: 0, rejectionReason: '',
+        hasExistingUnitInfo: !!unitsRes,
+        measureType: suggested?.measureType, unitSymbol: suggested?.unitSymbol, unitSize: suggested?.unitSize,
       }]);
       toast.success(`${p.name} added`);
     } catch { toast.error('Failed to add product'); }
@@ -839,6 +863,11 @@ export default function NewGrnPage() {
           expiryDate: it.expiryDate || undefined,
           rejectedQty: it.rejectedQty || undefined,
           rejectionReason: it.rejectionReason || undefined,
+          measureType: it.measureType || undefined,
+          unitSymbol: it.unitSymbol || undefined,
+          unitSize: it.unitSize || undefined,
+          baseUnitQty: it.unitSymbol && it.unitSize ? calcBaseUnitQty(it.unitSymbol, it.unitSize) : undefined,
+          gstUqc: it.unitSymbol ? (deriveUqc(it.unitSymbol) ?? undefined) : undefined,
         })),
       });
       grnAutosave.clearSaved();
@@ -1337,6 +1366,34 @@ export default function NewGrnPage() {
                                 <div className="finp bg-gray-50 font-bold text-gray-700">{c.totalReceivedQty}</div>
                               </div>
                             </div>
+                            {!it.hasExistingUnitInfo && (
+                              <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <span className="text-xs font-medium text-amber-700">Unit size not set</span>
+                                  <FieldHelp title="Unit size" description="How big is one of this item, e.g. 50 kg for a bulk bag or 1 kg for a retail pack. Optional, but needed for Break Bulk to auto-track quantities and wastage on this product." />
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                  <select value={it.measureType ?? ''}
+                                    onChange={(e) => updateItem(idx, { measureType: e.target.value || undefined, unitSymbol: undefined })}
+                                    className="finp text-xs">
+                                    <option value="">— Skip —</option>
+                                    <option value="WEIGHT">Weight</option>
+                                    <option value="VOLUME">Volume</option>
+                                    <option value="COUNT">Count</option>
+                                  </select>
+                                  <select value={it.unitSymbol ?? ''}
+                                    onChange={(e) => updateItem(idx, { unitSymbol: e.target.value || undefined })}
+                                    disabled={!it.measureType} className="finp text-xs disabled:bg-gray-50">
+                                    <option value="">Unit</option>
+                                    {(UNIT_SYMBOLS[it.measureType ?? ''] ?? []).map(u => <option key={u} value={u}>{u}</option>)}
+                                  </select>
+                                  <input type="number" min="0" value={it.unitSize ?? ''}
+                                    onChange={(e) => updateItem(idx, { unitSize: e.target.value ? Number(e.target.value) : undefined })}
+                                    disabled={!it.unitSymbol} placeholder="Size"
+                                    className="finp text-xs disabled:bg-gray-50" />
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           {/* Row 2: Pricing */}
@@ -1701,6 +1758,32 @@ export default function NewGrnPage() {
                     className="finp mt-1">
                     {['PCS','KG','LTR','BTL','PKT','BOX','CASE'].map(u => <option key={u}>{u}</option>)}
                   </select>
+                </div>
+              </div>
+              <div>
+                <label className="label">Pack size (optional)</label>
+                <p className="text-[11px] text-gray-400 -mt-0.5 mb-1">e.g. 50 kg for a bulk bag, 12 pcs for a carton — used by Break Bulk to auto-track wastage.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <select value={quickCreateForm.measureType}
+                    onChange={(e) => setQuickCreateForm(f => ({ ...f, measureType: e.target.value, unitSymbol: '' }))}
+                    className="finp">
+                    <option value="">— Not set —</option>
+                    <option value="WEIGHT">Weight</option>
+                    <option value="VOLUME">Volume</option>
+                    <option value="COUNT">Count</option>
+                  </select>
+                  <div className="flex gap-2">
+                    <select value={quickCreateForm.unitSymbol}
+                      onChange={(e) => setQuickCreateForm(f => ({ ...f, unitSymbol: e.target.value }))}
+                      disabled={!quickCreateForm.measureType} className="finp flex-1 disabled:bg-gray-50">
+                      <option value="">Unit</option>
+                      {(UNIT_SYMBOLS[quickCreateForm.measureType] ?? []).map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                    <input type="number" min="0" value={quickCreateForm.unitSize}
+                      onChange={(e) => setQuickCreateForm(f => ({ ...f, unitSize: e.target.value }))}
+                      disabled={!quickCreateForm.unitSymbol} placeholder="Size"
+                      className="finp w-20 disabled:bg-gray-50" />
+                  </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">

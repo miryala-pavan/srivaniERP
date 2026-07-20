@@ -3,47 +3,17 @@ import { PrismaService } from '../prisma/prisma.service';
 
 const REPACK_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'PURCHASE_CHECKER'];
 
+const PLU_SELECT = {
+  id: true, pluCode: true, displayName: true, stockOnHand: true, costPrice: true,
+  measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true, gstUqc: true, isLoose: true,
+  product: { select: { id: true, name: true } },
+} as const;
+
 @Injectable()
 export class RepackService {
   constructor(private prisma: PrismaService) {}
 
-  // ─── Search PLUs that have at least one FIXED bundle (source for fixed break) ──
-  async searchSourcePlus(businessId: string, query: string) {
-    return this.prisma.productPlu.findMany({
-      where: {
-        businessId,
-        isActive: true,
-        isArchived: false,
-        asBulk: { some: {} },   // only PLUs configured as bulk
-        OR: [
-          { pluCode: { contains: query, mode: 'insensitive' } },
-          { displayName: { contains: query, mode: 'insensitive' } },
-          { product: { name: { contains: query, mode: 'insensitive' } } },
-          { eanCode: { contains: query } },
-        ],
-      },
-      select: {
-        id: true, pluCode: true, displayName: true, stockOnHand: true, costPrice: true,
-        measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true, gstUqc: true, isLoose: true,
-        product: { select: { id: true, name: true } },
-        asBulk: {
-          select: {
-            id: true, type: true, conversionQty: true,
-            bulkWeightG: true, unitWeightG: true,
-            singlePlu: {
-              select: {
-                id: true, pluCode: true, displayName: true, stockOnHand: true,
-                measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true,
-              },
-            },
-          },
-        },
-      },
-      take: 20,
-    });
-  }
-
-  // ─── Search ALL active PLUs (for unified break-bulk source picker) ────────────
+  // ─── Search all active PLUs (source or target picker) ───────────────────────
   async searchAnyPlu(businessId: string, query: string) {
     return this.prisma.productPlu.findMany({
       where: {
@@ -55,27 +25,12 @@ export class RepackService {
           { eanCode: { contains: query } },
         ],
       },
-      select: {
-        id: true, pluCode: true, displayName: true, stockOnHand: true, costPrice: true,
-        measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true, gstUqc: true, isLoose: true,
-        product: { select: { id: true, name: true } },
-        asBulk: {
-          select: {
-            id: true, type: true, conversionQty: true, bulkWeightG: true, unitWeightG: true,
-            singlePlu: {
-              select: {
-                id: true, pluCode: true, displayName: true, stockOnHand: true,
-                measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true,
-              },
-            },
-          },
-        },
-      },
+      select: PLU_SELECT,
       take: 20,
     });
   }
 
-  // ─── Search any PLU for variable output lines ───────────────────────────────
+  // ─── Search any PLU for an output line, excluding the source ────────────────
   async searchTargetPlus(businessId: string, query: string, excludePluId: string) {
     return this.prisma.productPlu.findMany({
       where: {
@@ -89,87 +44,91 @@ export class RepackService {
           { product: { name: { contains: query, mode: 'insensitive' } } },
         ],
       },
-      select: {
-        id: true, pluCode: true, displayName: true, stockOnHand: true,
-        measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true,
-        product: { select: { name: true } },
-        asSingle: { select: { unitWeightG: true } },
-      },
+      select: PLU_SELECT,
       take: 15,
     });
   }
 
-  // ─── Get all PLU bundles ────────────────────────────────────────────────────
-  async getAllBundles(businessId: string) {
-    return this.prisma.pluBundle.findMany({
-      where: { businessId },
-      include: {
-        bulkPlu:   { select: { id: true, pluCode: true, displayName: true, stockOnHand: true, measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true, product: { select: { name: true } } } },
-        singlePlu: { select: { id: true, pluCode: true, displayName: true, stockOnHand: true, measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true, product: { select: { name: true } } } },
-      },
-      orderBy: { createdAt: 'asc' },
+  // ─── Recently repacked source→target pairs, for the "Quick Pick" list ───────
+  async getRecentPairs(businessId: string) {
+    const sessions = await this.prisma.repackSession.findMany({
+      where: { businessId, reversed: false },
+      include: { lines: { select: { targetPluId: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    const seen = new Set<string>();
+    const pairs: { sourcePluId: string; targetPluId: string }[] = [];
+    outer: for (const s of sessions) {
+      for (const l of s.lines) {
+        const key = `${s.sourcePluId}:${l.targetPluId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push({ sourcePluId: s.sourcePluId, targetPluId: l.targetPluId });
+        if (pairs.length >= 15) break outer;
+      }
+    }
+
+    const pluIds = [...new Set(pairs.flatMap(p => [p.sourcePluId, p.targetPluId]))];
+    const plus = await this.prisma.productPlu.findMany({ where: { id: { in: pluIds } }, select: PLU_SELECT });
+    const pluMap: Record<string, any> = {};
+    for (const p of plus) pluMap[p.id] = p;
+
+    return pairs
+      .map(p => ({ sourcePlu: pluMap[p.sourcePluId] ?? null, targetPlu: pluMap[p.targetPluId] ?? null }))
+      .filter(p => p.sourcePlu && p.targetPlu);
+  }
+
+  // ─── Keep Product.totalStock in sync with the sum of its active PLUs ────────
+  private async resyncProductTotalStock(tx: any, productId: string) {
+    const agg = await tx.productPlu.aggregate({
+      where: { productId, isActive: true, isArchived: false },
+      _sum: { stockOnHand: true },
+    });
+    await tx.product.update({
+      where: { id: productId },
+      data: { totalStock: agg._sum.stockOnHand ?? 0 },
     });
   }
 
-  // ─── Commit a repack session ────────────────────────────────────────────────
+  // ─── Commit a repack session — one unified flow, no Fixed/Variable branch ───
   async commitSession(businessId: string, body: {
     sourcePluId: string;
     sourceQty: number;
-    type: 'FIXED' | 'VARIABLE';
-    lines: { targetPluId: string; qty: number; unitWeightG?: number; notes?: string }[];
-    bulkWeightG?: number;       // grams per bulk unit (VARIABLE)
-    wastageG?: number;          // grams wasted (VARIABLE)
-    wastageUnits?: number;      // units wasted (FIXED)
+    lines: { targetPluId: string; qty: number; notes?: string }[];
     wastageNotes?: string;
     notes?: string;
     userId?: string;
     userName?: string;
     userRole?: string;
   }) {
-    // ── Role guard ────────────────────────────────────────────────────────────
     if (body.userRole && !REPACK_ROLES.includes(body.userRole)) {
       throw new ForbiddenException('You do not have permission to commit repack sessions');
     }
-
-    // ── Input validation ──────────────────────────────────────────────────────
     if (!body.sourceQty || body.sourceQty <= 0) {
       throw new BadRequestException('sourceQty must be greater than 0');
-    }
-    if (body.type === 'FIXED' && !Number.isInteger(body.sourceQty)) {
-      throw new BadRequestException('For FIXED type, sourceQty must be a whole number');
     }
     if (!body.lines || body.lines.length === 0) {
       throw new BadRequestException('At least one output line is required');
     }
-
-    // ── VARIABLE weight balance check ─────────────────────────────────────────
-    if (body.type === 'VARIABLE' && body.bulkWeightG) {
-      const totalInputG = body.sourceQty * body.bulkWeightG;
-      const totalOutputG = body.lines.reduce((s, l) => s + (l.qty * (l.unitWeightG ?? 0)), 0);
-      const wastageG = body.wastageG ?? 0;
-      if (totalOutputG + wastageG > totalInputG + 1) {  // 1g tolerance for rounding
-        throw new BadRequestException(
-          `Output (${(totalOutputG / 1000).toFixed(3)} kg) + wastage exceeds input (${(totalInputG / 1000).toFixed(3)} kg)`
-        );
-      }
+    for (const line of body.lines) {
+      if (!line.targetPluId) throw new BadRequestException('targetPluId is required on each line');
+      if (!line.qty || line.qty <= 0) throw new BadRequestException('Line qty must be > 0');
     }
 
     return this.prisma.$transaction(async (tx) => {
       // ── 1. Verify source PLU belongs to this business ─────────────────────
       const sourcePlu = await tx.productPlu.findFirst({
         where: { id: body.sourcePluId, businessId },
-        select: { id: true, pluCode: true, displayName: true, stockOnHand: true, costPrice: true,
-                  asBulk: { select: { id: true }, take: 1 } },
+        select: {
+          id: true, pluCode: true, displayName: true, stockOnHand: true, costPrice: true,
+          measureType: true, baseUnitQty: true, productId: true,
+        },
       });
       if (!sourcePlu) throw new NotFoundException('Source PLU not found');
-      if (body.type === 'FIXED' && sourcePlu.asBulk.length === 0) {
-        throw new BadRequestException(
-          `Source PLU "${sourcePlu.displayName ?? sourcePlu.pluCode}" has no bundle configured — set up a PLU bundle before running a FIXED break-bulk`,
-        );
-      }
 
-      // ── 2. Atomic stock deduction — prevents negative stock under concurrent load ──
-      // The WHERE clause on stockOnHand acts as a row-level guard.
+      // ── 2. Atomic stock deduction — the WHERE clause guards against negative stock under concurrent load ──
       const deducted = await tx.$executeRaw`
         UPDATE "product_plu"
         SET "stockOnHand" = "stockOnHand" - ${body.sourceQty}
@@ -178,111 +137,125 @@ export class RepackService {
           AND "stockOnHand" >= ${body.sourceQty}
       `;
       if (deducted === 0) {
-        const fresh = await tx.productPlu.findFirst({
-          where: { id: body.sourcePluId },
-          select: { stockOnHand: true },
-        });
-        throw new BadRequestException(
-          `Insufficient stock — only ${fresh?.stockOnHand ?? 0} units available`
-        );
+        const fresh = await tx.productPlu.findFirst({ where: { id: body.sourcePluId }, select: { stockOnHand: true } });
+        throw new BadRequestException(`Insufficient stock — only ${fresh?.stockOnHand ?? 0} units available`);
       }
 
-      // ── 3. Validate and credit each target PLU ────────────────────────────
+      // ── 3. Fetch + validate every target PLU up front ─────────────────────
+      const targets: Record<string, any> = {};
       for (const line of body.lines) {
-        if (!line.targetPluId) throw new BadRequestException('targetPluId is required on each line');
-        if (!line.qty || line.qty <= 0) throw new BadRequestException('Line qty must be > 0');
-        const t = await tx.productPlu.findFirst({ where: { id: line.targetPluId, businessId }, select: { id: true } });
+        if (targets[line.targetPluId]) continue;
+        const t = await tx.productPlu.findFirst({
+          where: { id: line.targetPluId, businessId },
+          select: { id: true, measureType: true, baseUnitQty: true, mrp: true, sellingPrice: true, productId: true },
+        });
         if (!t) throw new NotFoundException(`Target PLU not found: ${line.targetPluId}`);
+        targets[line.targetPluId] = t;
+      }
+
+      // ── 4. Base-unit balance check + wastage — only when every side shares a comparable unit ──
+      const sourceBase = sourcePlu.baseUnitQty ? Number(sourcePlu.baseUnitQty) : null;
+      const sameUnitEverywhere = sourceBase !== null && body.lines.every(l => {
+        const t = targets[l.targetPluId];
+        return t.baseUnitQty && t.measureType === sourcePlu.measureType;
+      });
+
+      let totalInputG: number | null = null;
+      let totalOutputG: number | null = null;
+      let wastageBase = 0;
+      if (sameUnitEverywhere) {
+        totalInputG  = body.sourceQty * sourceBase!;
+        totalOutputG = body.lines.reduce((s, l) => s + l.qty * Number(targets[l.targetPluId].baseUnitQty), 0);
+        const tolerance = Math.max(1, totalInputG * 0.001);
+        if (totalOutputG > totalInputG + tolerance) {
+          const unit = totalInputG >= 1000 ? 'kg' : 'g';
+          const fmt = (g: number) => (unit === 'kg' ? (g / 1000).toFixed(3) + ' kg' : g.toFixed(0) + ' g');
+          throw new BadRequestException(`Output (${fmt(totalOutputG)}) exceeds input (${fmt(totalInputG)})`);
+        }
+        wastageBase = Math.max(0, totalInputG - totalOutputG);
+      }
+      const isCount = sourcePlu.measureType === 'COUNT' || !sourcePlu.measureType;
+      const wastageUnits = isCount ? Math.round(wastageBase) : 0;
+      const wastageG      = !isCount ? wastageBase : 0;
+      const sessionType    = isCount ? 'FIXED' : 'VARIABLE';
+
+      // ── 5. Credit each target PLU + re-allocate cost ──────────────────────
+      const sourceCost = Number(sourcePlu.costPrice ?? 0);
+      for (const line of body.lines) {
         await tx.productPlu.update({
           where: { id: line.targetPluId },
           data: { stockOnHand: { increment: line.qty } },
         });
-      }
 
-      // ── 3b. Cost allocation — update costPrice on each output PLU ────────
-      const sourceCost = Number(sourcePlu.costPrice ?? 0);
-      if (sourceCost > 0) {
-        for (const line of body.lines) {
-          let newCost: number | null = null;
-
-          if (body.type === 'FIXED') {
-            const bundle = await tx.pluBundle.findFirst({
-              where: { bulkPluId: body.sourcePluId, singlePluId: line.targetPluId },
-              select: { conversionQty: true },
-            });
-            if (bundle && bundle.conversionQty > 0) {
-              newCost = sourceCost / bundle.conversionQty;
-            }
-          } else if (body.type === 'VARIABLE' && body.bulkWeightG && body.bulkWeightG > 0 && line.unitWeightG && line.unitWeightG > 0) {
-            newCost = sourceCost * (line.unitWeightG / body.bulkWeightG);
-          }
-
-          if (newCost !== null && newCost > 0) {
-            const target = await tx.productPlu.findFirst({
+        const t = targets[line.targetPluId];
+        if (sourceCost > 0 && sourceBase && sourceBase > 0 && t.baseUnitQty && t.measureType === sourcePlu.measureType) {
+          const perBaseUnitCost = sourceCost / sourceBase;
+          const newCost = perBaseUnitCost * Number(t.baseUnitQty);
+          if (newCost > 0) {
+            const mrp = Number(t.mrp);
+            const sp  = Number(t.sellingPrice);
+            await tx.productPlu.update({
               where: { id: line.targetPluId },
-              select: { mrp: true, sellingPrice: true },
+              data: {
+                costPrice:     newCost,
+                basicCost:     newCost,
+                marginRs:      sp - newCost,
+                marginPercent: mrp > 0 ? ((mrp - newCost) / mrp) * 100 : null,
+              },
             });
-            if (target) {
-              const mrp = Number(target.mrp);
-              const sp  = Number(target.sellingPrice);
-              await tx.productPlu.update({
-                where: { id: line.targetPluId },
-                data: {
-                  costPrice:     newCost,
-                  basicCost:     newCost,
-                  marginRs:      sp - newCost,
-                  marginPercent: mrp > 0 ? ((mrp - newCost) / mrp) * 100 : null,
-                },
-              });
-            }
           }
         }
       }
 
-      // ── 4. Compute weight totals for VARIABLE ─────────────────────────────
-      let totalInputG: number | null = null;
-      let totalOutputG: number | null = null;
-      if (body.type === 'VARIABLE' && body.bulkWeightG) {
-        totalInputG  = body.sourceQty * body.bulkWeightG;
-        totalOutputG = body.lines.reduce((s, l) => s + (l.qty * (l.unitWeightG ?? 0)), 0);
-      }
-
-      // ── 5. Generate session number inside the transaction (unique constraint prevents duplicates) ──
+      // ── 6. Generate session number inside the transaction ─────────────────
       const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const count = await tx.repackSession.count({
         where: { businessId, createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
       });
       const sessionNo = `RPK-${today}-${String(count + 1).padStart(4, '0')}`;
 
-      // ── 6. Create session record ──────────────────────────────────────────
-      return tx.repackSession.create({
+      // ── 7. Create session record ───────────────────────────────────────────
+      const session = await tx.repackSession.create({
         data: {
           businessId,
           sessionNo,
           sourcePluId: body.sourcePluId,
           sourceQty: body.sourceQty,
-          type: body.type,
-          bulkWeightG: body.bulkWeightG ?? null,
+          type: sessionType,
+          bulkWeightG: sourceBase ?? null,
           totalInputG,
           totalOutputG,
-          wastageG:    body.type === 'VARIABLE' ? (body.wastageG ?? 0) : 0,
-          wastageUnits: body.type === 'FIXED'   ? (body.wastageUnits ?? 0) : 0,
+          wastageG,
+          wastageUnits,
           wastageNotes: body.wastageNotes,
           notes: body.notes,
           createdById: body.userId,
           createdByName: body.userName,
           lines: {
-            create: body.lines.map(l => ({
-              targetPluId: l.targetPluId,
-              qty: l.qty,
-              unitWeightG: l.unitWeightG ?? null,
-              totalWeightG: l.unitWeightG ? l.qty * l.unitWeightG : null,
-              notes: l.notes,
-            })),
+            create: body.lines.map(l => {
+              const t = targets[l.targetPluId];
+              const unitWeightG = t.baseUnitQty ? Number(t.baseUnitQty) : null;
+              return {
+                targetPluId: l.targetPluId,
+                qty: l.qty,
+                unitWeightG,
+                totalWeightG: unitWeightG ? l.qty * unitWeightG : null,
+                notes: l.notes,
+              };
+            }),
           },
         },
         include: { lines: true },
       });
+
+      // ── 8. Keep Product.totalStock in sync on both sides ──────────────────
+      await this.resyncProductTotalStock(tx, sourcePlu.productId);
+      const targetProductIds = new Set(Object.values(targets).map((t: any) => t.productId));
+      for (const productId of targetProductIds) {
+        await this.resyncProductTotalStock(tx, productId);
+      }
+
+      return session;
     });
   }
 
@@ -305,6 +278,11 @@ export class RepackService {
     if (session.reversed) throw new BadRequestException('Session is already reversed');
 
     return this.prisma.$transaction(async (tx) => {
+      const sourcePlu = await tx.productPlu.findFirst({
+        where: { id: session.sourcePluId },
+        select: { productId: true },
+      });
+
       // Restore source stock atomically
       await tx.productPlu.update({
         where: { id: session.sourcePluId },
@@ -312,10 +290,11 @@ export class RepackService {
       });
 
       // Deduct each target — check stock first
+      const targetProductIds = new Set<string>();
       for (const line of session.lines) {
         const t = await tx.productPlu.findFirst({
           where: { id: line.targetPluId },
-          select: { stockOnHand: true, pluCode: true },
+          select: { stockOnHand: true, pluCode: true, productId: true },
         });
         if (!t || Number(t.stockOnHand) < Number(line.qty)) {
           throw new BadRequestException(
@@ -326,6 +305,7 @@ export class RepackService {
           where: { id: line.targetPluId },
           data: { stockOnHand: { decrement: Number(line.qty) } },
         });
+        targetProductIds.add(t.productId);
       }
 
       // Mark original as reversed
@@ -362,6 +342,12 @@ export class RepackService {
           reversedSessionId: reversal.id,
         },
       });
+
+      // Keep Product.totalStock in sync on both sides
+      if (sourcePlu) await this.resyncProductTotalStock(tx, sourcePlu.productId);
+      for (const productId of targetProductIds) {
+        await this.resyncProductTotalStock(tx, productId);
+      }
 
       return { reversalSessionNo: reverseSessionNo, reversedSessionNo: session.sessionNo };
     });
@@ -448,31 +434,5 @@ export class RepackService {
     }
 
     return Object.values(grouped);
-  }
-
-  // ─── Update PluBundle type/weights ──────────────────────────────────────────
-  async updateBundle(businessId: string, bundleId: string, body: {
-    type?: 'FIXED' | 'VARIABLE';
-    bulkWeightG?: number;
-    unitWeightG?: number;
-    conversionQty?: number;
-    notes?: string;
-    userRole?: string;
-  }) {
-    if (body.userRole && !REPACK_ROLES.includes(body.userRole)) {
-      throw new ForbiddenException('You do not have permission to update bundles');
-    }
-    const bundle = await this.prisma.pluBundle.findFirst({ where: { id: bundleId, businessId } });
-    if (!bundle) throw new NotFoundException('Bundle not found');
-    return this.prisma.pluBundle.update({
-      where: { id: bundleId },
-      data: {
-        ...(body.type         !== undefined ? { type: body.type } : {}),
-        ...(body.bulkWeightG  !== undefined ? { bulkWeightG: body.bulkWeightG } : {}),
-        ...(body.unitWeightG  !== undefined ? { unitWeightG: body.unitWeightG } : {}),
-        ...(body.conversionQty !== undefined ? { conversionQty: body.conversionQty } : {}),
-        ...(body.notes        !== undefined ? { notes: body.notes } : {}),
-      },
-    });
   }
 }

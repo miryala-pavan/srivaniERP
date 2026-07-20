@@ -139,6 +139,20 @@ export class ProductsController {
     return this.productsService.bulkTakeOffline(req.user.businessId, body.productIds);
   }
 
+  @Get('unit-audit')
+  unitAudit(@Request() req: any, @Query('filter') filter?: string, @Query('search') search?: string) {
+    return this.productsService.getUnitAudit(req.user.businessId, filter, search);
+  }
+
+  @Patch('unit-audit/bulk-set')
+  bulkSetUnits(@Request() req: any, @Body() body: {
+    pluIds?: string[]; productIds?: string[];
+    measureType: string; unitSymbol: string; unitSize: number; baseUnitQty: number;
+    gstUqc?: string; isLoose?: boolean;
+  }) {
+    return this.productsService.bulkSetUnits(req.user.businessId, body);
+  }
+
   // ─── SEARCH (before :id) ─────────────────────────────
   @Get('search')
   search(@Request() req: any, @Query('q') q: string) {
@@ -267,6 +281,11 @@ export class ProductsController {
     return this.productsService.getPlusForProduct(req.user.businessId, id, req.user.role);
   }
 
+  @Get(':id/default-plu-units')
+  getDefaultPluUnits(@Request() req: any, @Param('id') id: string) {
+    return this.productsService.getDefaultPluUnits(req.user.businessId, id);
+  }
+
   @Get(':id/plus/active')
   getActivePlus(@Request() req: any, @Param('id') id: string) {
     return this.productsService.getActivePlusForProduct(req.user.businessId, id);
@@ -327,69 +346,6 @@ export class ProductsController {
     @Body() body: { reason?: string },
   ) {
     return this.productsService.deactivatePlu(req.user.businessId, id, pluId, body?.reason);
-  }
-
-  // ─── PLU BUNDLE (Bulk ↔ Single) ──────────────────────
-  @Get('plu-bundles/all')
-  getAllBundles(@Request() req: any) {
-    return this.productsService.getAllBundles(req.user.businessId);
-  }
-
-  @Get('plu-bundles/history')
-  getAllBreakBulkHistory(@Request() req: any) {
-    return this.productsService.getBreakBulkHistory(req.user.businessId);
-  }
-
-  @Get('plu-bundles/:pluId')
-  getPluBundle(@Request() req: any, @Param('pluId') pluId: string) {
-    return this.productsService.getPluBundle(req.user.businessId, pluId);
-  }
-
-  @Post('plu-bundles')
-  createPluBundle(
-    @Request() req: any,
-    @Body() body: { bulkPluId: string; singlePluId: string; conversionQty: number; type?: string; bulkWeightG?: number; unitWeightG?: number; notes?: string },
-  ) {
-    return this.productsService.createPluBundle(req.user.businessId, body);
-  }
-
-  @Delete('plu-bundles/:bundleId')
-  deletePluBundle(@Request() req: any, @Param('bundleId') bundleId: string) {
-    return this.productsService.deletePluBundle(req.user.businessId, bundleId);
-  }
-
-  @Post('plu-bundles/break-bulk')
-  breakBulk(
-    @Request() req: any,
-    @Body() body: { bundleId: string; bulkQty: number; notes?: string },
-  ) {
-    return this.productsService.breakBulk(req.user.businessId, {
-      ...body,
-      userId:   req.user.id,
-      userName: req.user.fullName,
-    });
-  }
-
-  @Post('plu-bundles/break-bulk-multi')
-  breakBulkMulti(
-    @Request() req: any,
-    @Body() body: {
-      bulkPluId: string;
-      bulkQty: number;
-      targets: { bundleId: string; singlesQty: number }[];
-      notes?: string;
-    },
-  ) {
-    return this.productsService.breakBulkMulti(req.user.businessId, {
-      ...body,
-      userId:   req.user.id,
-      userName: req.user.fullName,
-    });
-  }
-
-  @Get('plu-bundles/:pluId/history')
-  getBreakBulkHistory(@Request() req: any, @Param('pluId') pluId: string) {
-    return this.productsService.getBreakBulkHistory(req.user.businessId, pluId);
   }
 
   // ─── IMAGE ────────────────────────────────────────────

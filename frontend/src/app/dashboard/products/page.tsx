@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Plus, Search, Edit2, X, Check, Package, List, LayoutGrid,
   AlignJustify, ChevronDown, AlertCircle, Ban, Loader2, Info,
-  Tag, Layers, Lock, Globe, GlobeLock, Printer,
+  Tag, Layers, Lock, Globe, GlobeLock, Printer, Ruler,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
@@ -25,6 +25,7 @@ import { EntityLink } from '@/components/shared/EntityLink';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { ProductImage } from '@/components/shared/ProductImage';
 import { BarcodeScannerInput } from '@/components/shared/BarcodeScannerInput';
+import { UNIT_SYMBOLS, calcBaseUnitQty, deriveUqc } from '@/lib/units';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -498,6 +499,24 @@ export default function ProductsPage() {
       queryClient.invalidateQueries({ queryKey: ['products'] });
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Bulk update failed'); },
+  });
+
+  const [showBulkUnitsModal, setShowBulkUnitsModal] = useState(false);
+  const bulkSetUnitsMutation = useMutation({
+    mutationFn: async ({ productIds, measureType, unitSymbol, unitSize }: { productIds: string[]; measureType: string; unitSymbol: string; unitSize: number }) => {
+      const res = await api.patch('/products/unit-audit/bulk-set', {
+        productIds, measureType, unitSymbol, unitSize,
+        baseUnitQty: calcBaseUnitQty(unitSymbol, unitSize),
+        gstUqc: deriveUqc(unitSymbol) ?? undefined,
+      });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Unit set on ${data.updated} product${data.updated !== 1 ? 's' : ''}`);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setShowBulkUnitsModal(false);
+    },
+    onError: () => { toast.error('Failed to set units'); },
   });
 
   function setViewPersist(v: 'list' | 'card' | 'compact') {
@@ -2362,6 +2381,15 @@ export default function ProductsPage() {
           {/* Divider */}
           <div className="w-px h-5 bg-gray-600" />
 
+          {/* Set units */}
+          <button
+            onClick={() => setShowBulkUnitsModal(true)}
+            className="flex items-center gap-1.5 bg-indigo-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl hover:bg-indigo-700 transition-colors whitespace-nowrap"
+            title="Set the same pack size on all selected products"
+          >
+            <Ruler className="w-3 h-3" /> Set Units
+          </button>
+
           {/* Label print */}
           <button
             onClick={() => router.push(`/dashboard/products/labels?ids=${Array.from(selectedIds).join(',')}`)}
@@ -2379,6 +2407,17 @@ export default function ProductsPage() {
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {showBulkUnitsModal && (
+        <BulkUnitsModal
+          count={selectedIds.size}
+          saving={bulkSetUnitsMutation.isPending}
+          onClose={() => setShowBulkUnitsModal(false)}
+          onSave={(measureType, unitSymbol, unitSize) =>
+            bulkSetUnitsMutation.mutate({ productIds: Array.from(selectedIds), measureType, unitSymbol, unitSize })
+          }
+        />
       )}
 
       {/* ── PLU Quick-View Panel ── */}
@@ -2616,6 +2655,61 @@ function SectionDivider({ label }: { label: string }) {
     <div className="col-span-2 lg:col-span-4 flex items-center gap-3 pt-2">
       <span className="text-xs font-bold text-gray-500 uppercase tracking-widest whitespace-nowrap">{label}</span>
       <div className="flex-1 h-px bg-gray-200" />
+    </div>
+  );
+}
+
+function BulkUnitsModal({ count, saving, onClose, onSave }: {
+  count: number; saving: boolean; onClose: () => void;
+  onSave: (measureType: string, unitSymbol: string, unitSize: number) => void;
+}) {
+  const [measureType, setMeasureType] = useState('');
+  const [unitSymbol, setUnitSymbol]   = useState('');
+  const [unitSize, setUnitSize]       = useState('');
+
+  function save() {
+    const size = parseFloat(unitSize);
+    if (!measureType || !unitSymbol || !size || size <= 0) { toast.error('Choose a measure, unit and size'); return; }
+    onSave(measureType, unitSymbol, size);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4">
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-bold text-gray-900">Set unit for {count} product{count !== 1 ? 's' : ''}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            The same unit is applied to every selected product's default PLU. Only select products you know share the same pack size.
+          </p>
+          <select value={measureType} onChange={e => { setMeasureType(e.target.value); setUnitSymbol(''); }}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="">— Measure type —</option>
+            <option value="WEIGHT">Weight</option>
+            <option value="VOLUME">Volume</option>
+            <option value="COUNT">Count</option>
+          </select>
+          <div className="flex gap-2">
+            <select value={unitSymbol} onChange={e => setUnitSymbol(e.target.value)}
+              disabled={!measureType} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50">
+              <option value="">Unit</option>
+              {(UNIT_SYMBOLS[measureType] ?? []).map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+            <input type="number" min="0" value={unitSize} onChange={e => setUnitSize(e.target.value)}
+              disabled={!unitSymbol} placeholder="Size"
+              className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50" />
+          </div>
+        </div>
+        <div className="flex gap-3 px-5 pb-5">
+          <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button onClick={save} disabled={saving}
+            className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60 font-medium">
+            {saving ? 'Saving…' : 'Apply to Selected'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

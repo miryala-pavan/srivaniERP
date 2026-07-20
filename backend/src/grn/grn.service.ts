@@ -880,6 +880,13 @@ export class GrnService {
               receivedQty:  { increment: acceptedQty },
               isActive:     true,
               isDefault:    makeDefault,
+              // Only write unit info this PLU didn't already have, and only when this GRN
+              // line actually supplied it — never overwrite an existing value with nothing.
+              ...((item as any).measureType !== undefined ? { measureType: (item as any).measureType } : {}),
+              ...((item as any).unitSymbol  !== undefined ? { unitSymbol:  (item as any).unitSymbol }  : {}),
+              ...((item as any).unitSize    !== undefined ? { unitSize:    (item as any).unitSize }    : {}),
+              ...((item as any).baseUnitQty !== undefined ? { baseUnitQty: (item as any).baseUnitQty } : {}),
+              ...((item as any).gstUqc      !== undefined ? { gstUqc:      (item as any).gstUqc }      : {}),
             },
           });
           await tx.pluPriceHistory.create({
@@ -922,6 +929,15 @@ export class GrnService {
             });
           }
 
+          // Unit info: prefer what was entered on this GRN line; otherwise fall back to a
+          // sibling PLU of the same product that already has it set (existingDefault, then
+          // activePlu — both already queried above, no extra query needed).
+          const resolvedMeasureType = (item as any).measureType ?? existingDefault?.measureType ?? activePlu?.measureType ?? null;
+          const resolvedUnitSymbol  = (item as any).unitSymbol  ?? existingDefault?.unitSymbol  ?? activePlu?.unitSymbol  ?? null;
+          const resolvedUnitSize    = (item as any).unitSize    ?? existingDefault?.unitSize    ?? activePlu?.unitSize    ?? null;
+          const resolvedBaseUnitQty = (item as any).baseUnitQty ?? existingDefault?.baseUnitQty ?? activePlu?.baseUnitQty ?? null;
+          const resolvedGstUqc      = (item as any).gstUqc      ?? existingDefault?.gstUqc      ?? activePlu?.gstUqc      ?? null;
+
           const newPlu = await tx.productPlu.create({
             data: {
               businessId,
@@ -952,6 +968,11 @@ export class GrnService {
               manufacturingDate:  (item as any).manufacturingDate  ?? null,
               expiryDate:         (item as any).expiryDate         ?? null,
               createdByName:  approverName,
+              measureType: resolvedMeasureType,
+              unitSymbol:  resolvedUnitSymbol,
+              unitSize:    resolvedUnitSize,
+              baseUnitQty: resolvedBaseUnitQty,
+              gstUqc:      resolvedGstUqc,
             },
           });
           await tx.pluPriceHistory.create({
