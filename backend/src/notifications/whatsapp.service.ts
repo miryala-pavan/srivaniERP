@@ -1442,7 +1442,7 @@ export class WhatsAppService implements OnModuleInit {
   }): Promise<void> {
     const to = this.e164(customer.customerPhone);
     if (!to) return;
-    await this.sendTemplate(businessId, to, 'svn_welcome_customer', [
+    await this.sendTemplate(businessId, to, 'svn_welcome_v2', [
       customer.customerName,
     ]);
   }
@@ -1459,7 +1459,7 @@ export class WhatsAppService implements OnModuleInit {
   }): Promise<void> {
     const to = this.e164(customer.customerPhone);
     if (!to) return;
-    await this.sendTemplate(businessId, to, 'svn_credit_reminder', [
+    await this.sendTemplate(businessId, to, 'svn_credit_v2', [
       customer.customerName,
       customer.amountDue.toFixed(0),
     ]);
@@ -1477,7 +1477,7 @@ export class WhatsAppService implements OnModuleInit {
   }): Promise<void> {
     const to = this.e164(customer.customerPhone);
     if (!to) return;
-    await this.sendTemplate(businessId, to, 'svn_reorder_reminder', [
+    await this.sendTemplate(businessId, to, 'svn_reorder_v2', [
       customer.customerName,
     ]);
   }
@@ -1528,11 +1528,11 @@ export class WhatsAppService implements OnModuleInit {
     const msg = messages[order.status];
     if (!msg) return; // skip PENDING_PAYMENT, PENDING_COD
 
-    await this.sendTemplate(businessId, to, 'svn_order_update', [
+    await this.sendTemplate(businessId, to, 'svn_order_update_v2', [
       order.customerName,
       order.orderNumber,
       msg,
-    ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber });
+    ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber }, [], order.orderNumber);
   }
 
   /**
@@ -1548,7 +1548,7 @@ export class WhatsAppService implements OnModuleInit {
     const to = this.e164(order.customerPhone);
     if (!to) return;
     await this.sendTemplate(
-      businessId, to, 'post_delivery_feedback',
+      businessId, to, 'post_delivery_feedback_v2',
       [order.customerName, order.orderNumber],
       { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber },
       [
@@ -1569,23 +1569,21 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   /**
-   * Template: svn_back_in_stock
-   * Body: Hi {{1}}, {{2}} ({{3}}) is back in stock! Order now: {{4}}
+   * Template: svn_back_in_stock_v2
+   * Body: Hello {{1}} garu! *{{2}}* is back in stock! — static "Order Now" URL button
    */
   async sendBackInStock(businessId: string, data: {
     customerPhone: string;
     customerName: string;
     productName: string;
-    packLabel: string;
-    productUrl: string;
+    packLabel?: string;
+    productUrl?: string;
   }): Promise<void> {
     const to = this.e164(data.customerPhone);
     if (!to) return;
-    await this.sendTemplate(businessId, to, 'svn_back_in_stock', [
+    await this.sendTemplate(businessId, to, 'svn_back_in_stock_v2', [
       data.customerName,
       data.productName,
-      data.packLabel,
-      data.productUrl,
     ], { relatedType: 'PRODUCT', relatedId: data.productName });
   }
 
