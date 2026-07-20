@@ -361,6 +361,16 @@ export default function CustomerDetailPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to generate history link'),
   });
 
+  const sendCreditReminder = useMutation({
+    mutationFn: () => api.post('/notifications/whatsapp/send-credit-reminder', {
+      phone: customer?.phone,
+      customerName: customer?.name,
+      amountDue: customer?.outstandingBalance,
+    }),
+    onSuccess: () => toast.success('Credit reminder sent via WhatsApp!'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to send reminder'),
+  });
+
   const toggleActive = useMutation({
     mutationFn: (active: boolean) =>
       active ? api.patch(`/customers/${id}/activate`) : api.patch(`/customers/${id}/deactivate`),
@@ -516,6 +526,17 @@ export default function CustomerDetailPage() {
                 >
                   <History className="w-4 h-4" />
                   {sendHistory.isPending ? 'Sending…' : 'Send History'}
+                </button>
+              )}
+              {customer?.phone && customer?.outstandingBalance > 0 && (
+                <button
+                  onClick={() => sendCreditReminder.mutate()}
+                  disabled={sendCreditReminder.isPending}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm border border-red-200 text-red-700 bg-red-50 rounded-lg hover:bg-red-100 font-medium transition-colors disabled:opacity-60"
+                  title={`Send ₹${customer.outstandingBalance.toFixed(0)} credit reminder via WhatsApp`}
+                >
+                  <Wallet className="w-4 h-4" />
+                  {sendCreditReminder.isPending ? 'Sending…' : `Remind ₹${customer.outstandingBalance.toFixed(0)}`}
                 </button>
               )}
               <button

@@ -445,6 +445,26 @@ export class NotificationsController {
     });
   }
 
+  // ── Customer notification shortcuts (triggered from Customer 360) ───────────
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('whatsapp/send-credit-reminder')
+  sendCreditReminder(@Request() req: any, @Body() body: { phone: string; customerName: string; amountDue: number }) {
+    return this.whatsapp.sendCreditReminder(req.user.businessId, { customerPhone: body.phone, customerName: body.customerName, amountDue: body.amountDue });
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('whatsapp/send-reorder-reminder')
+  sendReorderReminder(@Request() req: any, @Body() body: { phone: string; customerName: string }) {
+    return this.whatsapp.sendReorderReminder(req.user.businessId, { customerPhone: body.phone, customerName: body.customerName });
+  }
+
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
+  @Post('whatsapp/send-welcome')
+  sendWelcomeCustomer(@Request() req: any, @Body() body: { phone: string; customerName: string }) {
+    return this.whatsapp.sendWelcomeCustomer(req.user.businessId, { customerPhone: body.phone, customerName: body.customerName });
+  }
+
   // ── Auto-reply settings ─────────────────────────────────────────────────────
 
   @Roles('SUPER_ADMIN')

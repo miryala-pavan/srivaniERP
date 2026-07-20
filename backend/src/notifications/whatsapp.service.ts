@@ -1401,24 +1401,74 @@ export class WhatsAppService implements OnModuleInit {
    * Template: svn_payment_done
    * Send to CUSTOMER after Razorpay payment is verified.
    *
-   * Body text to submit to Meta:
-   *   Hello {{1}}, payment of ₹{{2}} received! ✅
-   *   Order *{{3}}* is confirmed. We will start preparing it now.
-   *   - Srivani Stores
+   * Body params: {{1}}=name, {{2}}=order#, {{3}}=amount, {{4}}=payment method
    */
   async sendCustomerPaymentConfirmed(businessId: string, order: {
     customerName: string;
     customerPhone: string;
     orderNumber: string;
     total: number;
+    paymentMethod?: string;
   }): Promise<void> {
     const to = this.e164(order.customerPhone);
     if (!to) return;
     await this.sendTemplate(businessId, to, 'svn_payment_done', [
       order.customerName,
-      order.total.toFixed(0),
       order.orderNumber,
+      order.total.toFixed(0),
+      order.paymentMethod ?? 'Online Payment',
     ], { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber });
+  }
+
+  /**
+   * Template: svn_welcome_customer
+   * Send to a new customer (first opt-in or manual trigger from Customer 360).
+   * Body params: {{1}}=name
+   */
+  async sendWelcomeCustomer(businessId: string, customer: {
+    customerName: string;
+    customerPhone: string;
+  }): Promise<void> {
+    const to = this.e164(customer.customerPhone);
+    if (!to) return;
+    await this.sendTemplate(businessId, to, 'svn_welcome_customer', [
+      customer.customerName,
+    ]);
+  }
+
+  /**
+   * Template: svn_credit_reminder
+   * Send to a customer with an outstanding balance. Triggered manually from Customer 360.
+   * Body params: {{1}}=name, {{2}}=amount due
+   */
+  async sendCreditReminder(businessId: string, customer: {
+    customerName: string;
+    customerPhone: string;
+    amountDue: number;
+  }): Promise<void> {
+    const to = this.e164(customer.customerPhone);
+    if (!to) return;
+    await this.sendTemplate(businessId, to, 'svn_credit_reminder', [
+      customer.customerName,
+      customer.amountDue.toFixed(0),
+    ]);
+  }
+
+  /**
+   * Template: svn_reorder_reminder
+   * Send to a customer who hasn't ordered recently. Can be triggered from Customer 360
+   * or via the Campaigns tab (WIN_BACK_30D segment).
+   * Body params: {{1}}=name
+   */
+  async sendReorderReminder(businessId: string, customer: {
+    customerName: string;
+    customerPhone: string;
+  }): Promise<void> {
+    const to = this.e164(customer.customerPhone);
+    if (!to) return;
+    await this.sendTemplate(businessId, to, 'svn_reorder_reminder', [
+      customer.customerName,
+    ]);
   }
 
   /**
@@ -1550,16 +1600,49 @@ export class WhatsAppService implements OnModuleInit {
 
   // ── Template management (Meta Graph API) ────────────────────────────────────
 
+  /** Resolve WABA ID: use saved value if set, otherwise look it up from the phone number. */
+  private async resolveWabaId(): Promise<string | null> {
+    if (this.wabaId) return this.wabaId;
+    if (!this.token || !this.phoneId) return null;
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/${API_VERSION}/${this.phoneId}?fields=whatsapp_business_account`,
+        { headers: { Authorization: `Bearer ${this.token}` } },
+      );
+      const data = await res.json() as any;
+      const discovered = data?.whatsapp_business_account?.id as string | undefined;
+      if (discovered) {
+        this._wabaId = discovered;
+        this.logger.log(`Auto-discovered WABA ID ${discovered} from phone number ${this.phoneId}`);
+      }
+      return discovered ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async listTemplates() {
-    if (!this.token || !this.wabaId) {
-      return { error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
+    if (!this.token || !this.phoneId) {
+      return { error: 'WA_ACCESS_TOKEN or WA_PHONE_NUMBER_ID not configured' };
     }
     try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates?limit=100&fields=name,status,category,language,components,rejected_reason`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${this.token}` },
-      });
-      return await res.json();
+      const wabaId = await this.resolveWabaId();
+      if (!wabaId) return { error: 'Could not determine WhatsApp Business Account ID' };
+
+      // Meta paginates aggressively when `components` is requested — follow all pages.
+      const allTemplates: any[] = [];
+      let url: string | null =
+        `https://graph.facebook.com/${API_VERSION}/${wabaId}/message_templates?limit=20&fields=name,status,category,language,components,rejected_reason`;
+
+      while (url) {
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+        const page = await res.json() as any;
+        if (page?.error) return page;
+        if (Array.isArray(page?.data)) allTemplates.push(...page.data);
+        url = page?.paging?.next ?? null;
+      }
+
+      return { data: allTemplates };
     } catch (err) {
       return { error: String(err) };
     }

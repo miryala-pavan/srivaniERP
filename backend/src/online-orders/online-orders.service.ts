@@ -503,6 +503,7 @@ export class OnlineOrdersService {
       customerPhone: order.customerPhone,
       orderNumber: updated.orderNumber,
       total: Number(order.total),
+      paymentMethod: 'Razorpay',
     }).catch((err) => this.logger.error(`Payment-confirmed WhatsApp failed for ${updated.orderNumber}: ${err instanceof Error ? err.message : err}`));
 
     if (order.customerEmail) {
