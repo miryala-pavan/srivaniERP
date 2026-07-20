@@ -298,6 +298,7 @@ export default function ProductsPage() {
   const [showModal, setShowModal]       = useState(false);
   const [editing, setEditing]           = useState<Product | null>(null);
   const [form, setForm]                 = useState({ ...EMPTY_FORM });
+  const [showAdvancedUnits, setShowAdvancedUnits] = useState(false);
   const isManager = ['SUPER_ADMIN', 'BRANCH_MANAGER'].includes((getUser() as any)?.role ?? '');
   const [saving, setSaving]             = useState(false);
   const [sellingPriceError, setSellingPriceError] = useState('');
@@ -1799,81 +1800,105 @@ export default function ProductsPage() {
                 {/* ── Units & Measurements ── */}
                 <SectionDivider label="Units & Measurements" />
 
-                <Fld label="Unit of Measure">
-                  <select value={form.unitOfMeasure} onChange={(e) => setForm({ ...form, unitOfMeasure: e.target.value })} className="inp">
-                    {[
-                      { v: 'PCS', l: 'PCS — Pieces (default for packaged goods)' },
-                      { v: 'KG',  l: 'KG — Kilograms' },
-                      { v: 'G',   l: 'G — Grams' },
-                      { v: 'LTR', l: 'LTR — Litres' },
-                      { v: 'ML',  l: 'ML — Millilitres' },
-                      { v: 'MTR', l: 'MTR — Metres' },
-                      { v: 'BTL', l: 'BTL — Bottles' },
-                      { v: 'BOX', l: 'BOX — Boxes' },
-                      { v: 'PKT', l: 'PKT — Packets' },
-                      { v: 'BAG', l: 'BAG — Bags' },
-                      { v: 'CAN', l: 'CAN — Cans' },
-                      { v: 'DOZ', l: 'DOZ — Dozen' },
-                      { v: 'SET', l: 'SET — Sets' },
-                    ].map(({ v, l }) => <option key={v} value={v}>{l}</option>)}
-                  </select>
-                  <p className="mt-1 text-[11px] text-gray-400">
-                    Use <b>PCS</b> for all packaged items (500ml bottle, 1kg bag) — the size is in the product name. Use KG/LTR only for loose/bulk items sold by weight or volume at the counter.
-                  </p>
-                </Fld>
-
-                <Fld label="Pack Size / GST Unit (UQC)" help={{
-                  hint: 'The exact pack size and official GST unit code (UQC) for this product\'s default PLU',
-                  title: 'Pack Size & GST UQC',
-                  description: 'Sets the measure type, unit symbol and pack size on this product\'s default PLU — used for Break Bulk wastage math and GST filing (UQC is the government-mandated Unit Quantity Code shown on GSTR-1/e-invoices). Optional — leave blank to set later from Unit Management.',
-                  example: 'Example: Weight / kg / 50 for a 50kg sugar bag',
-                }}>
-                  <div className="flex gap-2">
-                    <select value={(form as any).measureType}
-                      onChange={(e) => setForm({ ...form, measureType: e.target.value, unitSymbol: '', unitSize: '', gstUqc: '' } as any)}
-                      className="inp flex-1">
-                      <option value="">— Measure —</option>
-                      {MEASURE_TYPES.map(mt => <option key={mt} value={mt}>{MEASURE_TYPE_LABELS[mt]}</option>)}
-                    </select>
-                    <select value={(form as any).unitSymbol}
-                      onChange={(e) => setForm({ ...form, unitSymbol: e.target.value, gstUqc: UQC_MAP[e.target.value] ?? '' } as any)}
-                      disabled={!(form as any).measureType} className="inp flex-1 disabled:bg-gray-50">
-                      <option value="">Unit</option>
-                      {(UNIT_SYMBOLS[(form as any).measureType] ?? []).map(s => <option key={s} value={s}>{s} ({UQC_MAP[s]})</option>)}
-                    </select>
-                    <input type="number" min="0" step="any" value={(form as any).unitSize}
-                      onChange={(e) => setForm({ ...form, unitSize: e.target.value } as any)}
-                      disabled={!(form as any).unitSymbol} placeholder="Size"
-                      className="inp w-24 disabled:bg-gray-50" />
+                <div className="col-span-2 lg:col-span-4 bg-indigo-50/60 border border-indigo-100 rounded-xl p-4">
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <label className="text-sm font-semibold text-gray-800">How is this product sold?</label>
+                    <FieldHelp
+                      title="Measure, Unit & Pack Size"
+                      description="Sets the measure type, unit symbol and pack size on this product's default PLU — used for Break Bulk wastage math and GST filing (UQC is the government-mandated Unit Quantity Code shown on GSTR-1/e-invoices). Optional — leave blank to set later from Unit Management."
+                      example="Example: Weight / kg / 50 for a 50kg sugar bag. Weight / kg / 1 for a loose item priced per kg."
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[11px] text-gray-500 block mb-1">Measure</label>
+                      <select value={(form as any).measureType}
+                        onChange={(e) => setForm({ ...form, measureType: e.target.value, unitSymbol: '', unitSize: '', gstUqc: '' } as any)}
+                        className="inp w-full">
+                        <option value="">— Select —</option>
+                        {MEASURE_TYPES.map(mt => <option key={mt} value={mt}>{MEASURE_TYPE_LABELS[mt]}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-500 block mb-1">Unit</label>
+                      <select value={(form as any).unitSymbol}
+                        onChange={(e) => setForm({ ...form, unitSymbol: e.target.value, gstUqc: UQC_MAP[e.target.value] ?? '' } as any)}
+                        disabled={!(form as any).measureType} className="inp w-full disabled:bg-gray-50">
+                        <option value="">— Select —</option>
+                        {(UNIT_SYMBOLS[(form as any).measureType] ?? []).map(s => <option key={s} value={s}>{s} ({UQC_MAP[s]})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-500 block mb-1">Size</label>
+                      <input type="number" min="0" step="any" value={(form as any).unitSize}
+                        onChange={(e) => setForm({ ...form, unitSize: e.target.value } as any)}
+                        disabled={!(form as any).unitSymbol} placeholder="e.g. 50"
+                        className="inp w-full disabled:bg-gray-50" />
+                    </div>
                   </div>
                   {(form as any).unitSymbol && (form as any).unitSize && Number((form as any).unitSize) > 0 && (
-                    <p className="mt-1 text-[11px] text-gray-400">
-                      = {fmtBaseQty((form as any).unitSymbol, calcBaseUnitQty((form as any).unitSymbol, Number((form as any).unitSize)))} · UQC: {(form as any).gstUqc || deriveUqc((form as any).unitSymbol)}
+                    <p className="mt-2 text-[11px] text-gray-500">
+                      = {fmtBaseQty((form as any).unitSymbol, calcBaseUnitQty((form as any).unitSymbol, Number((form as any).unitSize)))} · GST UQC: {(form as any).gstUqc || deriveUqc((form as any).unitSymbol)}
                     </p>
                   )}
-                </Fld>
+                </div>
 
-                <Fld label="Purchase Unit">
-                  <select value={form.purchaseUnit} onChange={(e) => setForm({ ...form, purchaseUnit: e.target.value })} className="inp">
-                    {PURCH_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
-                  </select>
-                </Fld>
+                <div className="col-span-2 lg:col-span-4">
+                  <button type="button" onClick={() => setShowAdvancedUnits(v => !v)}
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700">
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showAdvancedUnits ? 'rotate-180' : ''}`} />
+                    {showAdvancedUnits ? 'Hide' : 'Show'} additional stock labels (rarely needed)
+                  </button>
+                </div>
 
-                <Fld label="Stock Unit">
-                  <select value={form.stockUnit} onChange={(e) => setForm({ ...form, stockUnit: e.target.value })} className="inp">
-                    {STOCK_OPTIONS_UNIT.map((u) => <option key={u} value={u}>{u}</option>)}
-                  </select>
-                </Fld>
+                {showAdvancedUnits && (
+                  <>
+                    <Fld label="Unit of Measure">
+                      <select value={form.unitOfMeasure} onChange={(e) => setForm({ ...form, unitOfMeasure: e.target.value })} className="inp">
+                        {[
+                          { v: 'PCS', l: 'PCS — Pieces (default for packaged goods)' },
+                          { v: 'KG',  l: 'KG — Kilograms' },
+                          { v: 'G',   l: 'G — Grams' },
+                          { v: 'LTR', l: 'LTR — Litres' },
+                          { v: 'ML',  l: 'ML — Millilitres' },
+                          { v: 'MTR', l: 'MTR — Metres' },
+                          { v: 'BTL', l: 'BTL — Bottles' },
+                          { v: 'BOX', l: 'BOX — Boxes' },
+                          { v: 'PKT', l: 'PKT — Packets' },
+                          { v: 'BAG', l: 'BAG — Bags' },
+                          { v: 'CAN', l: 'CAN — Cans' },
+                          { v: 'DOZ', l: 'DOZ — Dozen' },
+                          { v: 'SET', l: 'SET — Sets' },
+                        ].map(({ v, l }) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                      <p className="mt-1 text-[11px] text-gray-400">
+                        Just a display label shown in stock lists — doesn't affect Break Bulk or GST filing. Use PCS for packaged items, KG/LTR for loose/bulk items.
+                      </p>
+                    </Fld>
 
-                <Fld label="Pack Size (Pcs/Case)" help={{
-                  hint: 'How many pieces come in one case/carton',
-                  title: 'Pieces Per Case',
-                  description: 'The standard number of pieces in one carton or case from your supplier. Auto-fills in GRN to calculate quantities quickly.',
-                  example: 'Example: 12 (one case = 12 bottles)',
-                }}>
-                  <input type="number" min={1} value={form.defaultPackSize}
-                    onChange={(e) => setForm({ ...form, defaultPackSize: e.target.value })} className="inp" placeholder="1" />
-                </Fld>
+                    <Fld label="Purchase Unit">
+                      <select value={form.purchaseUnit} onChange={(e) => setForm({ ...form, purchaseUnit: e.target.value })} className="inp">
+                        {PURCH_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </Fld>
+
+                    <Fld label="Stock Unit">
+                      <select value={form.stockUnit} onChange={(e) => setForm({ ...form, stockUnit: e.target.value })} className="inp">
+                        {STOCK_OPTIONS_UNIT.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </Fld>
+
+                    <Fld label="Pack Size (Pcs/Case)" help={{
+                      hint: 'How many pieces come in one case/carton',
+                      title: 'Pieces Per Case',
+                      description: 'The standard number of pieces in one carton or case from your supplier. Auto-fills in GRN to calculate quantities quickly.',
+                      example: 'Example: 12 (one case = 12 bottles)',
+                    }}>
+                      <input type="number" min={1} value={form.defaultPackSize}
+                        onChange={(e) => setForm({ ...form, defaultPackSize: e.target.value })} className="inp" placeholder="1" />
+                    </Fld>
+                  </>
+                )}
 
                 {/* ── Stock Settings ── */}
                 <SectionDivider label="Stock Settings" />
