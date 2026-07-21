@@ -980,6 +980,14 @@ model PurchaseItem {
   priceChangePct          Decimal?  @db.Decimal(5, 2)
   unitOfMeasure           String    @default("PCS")
   lineTotal               Decimal   @db.Decimal(15, 2) @default(0)
+  // Unit-of-measure entered on this GRN line (e.g. COUNT/ctn/144) — persisted here so it
+  // survives from creation to approval, where syncPluOnApproval reads it back to apply/compare
+  // against the receiving PLU. Optional: most lines rely on the PLU's own existing units.
+  measureType             String?
+  unitSymbol              String?
+  unitSize                Decimal?  @db.Decimal(15, 4)
+  baseUnitQty             Decimal?  @db.Decimal(15, 4)
+  gstUqc                  String?
 
   purchase Purchase @relation(fields: [purchaseId], references: [id])
   product  Product  @relation(fields: [productId], references: [id])

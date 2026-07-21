@@ -259,6 +259,13 @@ export class GrnService {
         priceChanged: false,
         lineTotal: c.lineTotal,
         unitOfMeasure: product.unitOfMeasure ?? 'PCS',
+        // Persist the unit info entered on this line so it survives to approval time,
+        // when syncPluOnApproval reads it back off the re-fetched PurchaseItem row.
+        measureType: (item as any).measureType ?? null,
+        unitSymbol:  (item as any).unitSymbol  ?? null,
+        unitSize:    (item as any).unitSize    ?? null,
+        baseUnitQty: (item as any).baseUnitQty ?? null,
+        gstUqc:      (item as any).gstUqc      ?? null,
       };
     });
   }
@@ -803,15 +810,34 @@ export class GrnService {
             where: { productId: item.productId, isArchived: false, isDefault: true },
           });
 
+      // Case-size safety net: if this line targets a Count-type (case/carton/box/etc.)
+      // PLU and the GRN entry supplies a unitSize that differs from the matched PLU's
+      // stored case size, treat it as a different batch even if MRP and cost match —
+      // a supplier can ship 168/case one time and 144/case the next at the same price.
+      // Silently reusing the old PLU here would leave stock counted in cases but
+      // reporting the wrong case size.
+      const submittedUnitSize = (item as any).unitSize;
+      const caseSizeMismatch = !!activePlu
+        && activePlu.measureType === 'COUNT'
+        && (item as any).measureType === 'COUNT'
+        && submittedUnitSize != null
+        && activePlu.unitSize != null
+        && Math.abs(Number(activePlu.unitSize) - Number(submittedUnitSize)) > 0.001;
+
       const priceIsSame = activePlu
-        && Math.abs(Number(activePlu.costPrice) - itemCost) < 0.01;
+        && Math.abs(Number(activePlu.costPrice) - itemCost) < 0.01
+        && !caseSizeMismatch;
 
       // A free line that lands on an existing PLU at the same MRP but a DIFFERENT
       // (paid) cost must never overwrite that PLU's cost basis in place — that would
       // silently blend free (₹0) stock into a paid batch's costing. Force a separate
       // PLU instead. (When priceIsSame is true — e.g. topping up an already-free batch
       // — STEP 2A above already handles it safely, so this only applies in STEP 2B.)
-      const forceSeparateBatch = !!activePlu && !priceIsSame && !!(item as any).isFreeItem;
+      // Kept apart from caseSizeMismatch for the makeDefault decision below: a
+      // mismatched case-size batch is a normal new batch and should still become the
+      // default, unlike a forced free split.
+      const freeItemForcesSplit = !!activePlu && !priceIsSame && !!(item as any).isFreeItem;
+      const forceSeparateBatch = freeItemForcesSplit || caseSizeMismatch;
 
       // Track whether the PLU that ends up receiving stock for this line is the default.
       // Used in STEP 3 to decide whether to sync product master prices.
@@ -858,7 +884,7 @@ export class GrnService {
         // or if it's replacing a same-MRP PLU whose cost changed (price update).
         // A forced-split free batch never becomes/replaces the default — the existing
         // (paid) batch keeps its cost basis and its default status untouched.
-        const makeDefault = forceSeparateBatch
+        const makeDefault = freeItemForcesSplit
           ? false
           : (!existingDefault || !!(activePlu && activePlu.id === existingDefault.id));
         thisLineIsDefault = makeDefault;

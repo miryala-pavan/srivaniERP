@@ -106,6 +106,13 @@ function isoToDMY(iso: string): string {
 const r2 = (x: number) => Math.round(x * 100) / 100;
 const n = (v: unknown) => Number(v) || 0;
 
+// Count-type PLUs whose unit is a variable-size pack (ctn/box/bag/...) rather than a single
+// piece (pcs/nos/unt) — these receive as whole cases, not case×packSize-flattened pieces.
+const PIECE_UNIT_SYMBOLS = ['pcs', 'nos', 'unt'];
+function isCaseLine(it: GrnItem): boolean {
+  return it.measureType === 'COUNT' && !!it.unitSymbol && !PIECE_UNIT_SYMBOLS.includes(it.unitSymbol);
+}
+
 function calcItem(item: GrnItem, taxType: string, isInterState: boolean) {
   const netCostPrice = r2(
     item.basicCostPrice
@@ -548,7 +555,7 @@ export default function NewGrnPage() {
     } catch {}
     if (items.some((i) => i.productId === p.id)) { toast('Product already in list', { icon: 'i' }); return; }
     const existingUnits = await api.get(`/products/${p.id}/default-plu-units`).then(r => r.data).catch(() => null);
-    const suggested = existingUnits ? null : suggestUnitFromName(p.name);
+    const suggested = existingUnits ?? suggestUnitFromName(p.name);
     setItems((prev) => [...prev, {
       productId: p.id, productName: p.name, hsnCode: p.hsnCode ?? '',
       unitOfMeasure: p.unitOfMeasure,
@@ -650,7 +657,7 @@ export default function NewGrnPage() {
       if (!p) { toast.error('Product not found'); return; }
       lastRatesCache.current[id] = ratesRes.data ?? [];
       const lastRate = ratesRes.data?.[0] ?? null;
-      const suggested = unitsRes ? null : (seedUnits ?? suggestUnitFromName(p.name));
+      const suggested = unitsRes ?? seedUnits ?? suggestUnitFromName(p.name);
       setItems((prev) => [...prev, {
         productId: p.id, productName: p.name, hsnCode: p.hsnCode ?? '',
         unitOfMeasure: p.unitOfMeasure,
@@ -1337,36 +1344,66 @@ export default function NewGrnPage() {
                           {/* Row 1: Quantities */}
                           <div>
                             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Quantities</p>
-                            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                              <div className="space-y-1">
-                                <label className="text-xs text-gray-500">Cases</label>
-                                <Num value={it.casesReceived} onChange={(v) => updateItem(idx, { casesReceived: v })} step="1" />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-xs text-gray-500">Pack Size</label>
-                                <Num value={it.packSize} onChange={(v) => updateItem(idx, { packSize: Math.max(1, v) })} step="1" min={1} />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-xs text-gray-500">Loose Qty</label>
-                                <Num value={it.looseQty} onChange={(v) => updateItem(idx, { looseQty: v })} step="0.001" />
-                              </div>
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-0.5">
-                                  <label className="text-xs text-gray-500">Free Cases</label>
-                                  <FieldHelp title="Free Quantity" description="Quantity received free under supplier scheme. Adds to stock but not included in cost calculation." />
+                            {isCaseLine(it) ? (
+                              <>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                  <div className="space-y-1">
+                                    <label className="text-xs text-gray-500">Cases Received</label>
+                                    <Num value={it.casesReceived} onChange={(v) => updateItem(idx, { casesReceived: v })} step="1" />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-0.5">
+                                      <label className="text-xs text-gray-500">Pieces / Case</label>
+                                      <FieldHelp title="Case size" description="How many pieces are in one case for this batch. Case size can vary shipment to shipment — check the actual case/carton, don't assume it matches the last batch." />
+                                    </div>
+                                    <Num value={it.unitSize ?? 0} onChange={(v) => updateItem(idx, { unitSize: v || undefined })} step="1" min={1} />
+                                  </div>
+                                  <div className="space-y-1 col-span-2">
+                                    <label className="text-xs text-gray-500">= Pieces Received</label>
+                                    <div className="finp bg-indigo-50 font-bold text-indigo-700">
+                                      {((it.casesReceived || 0) * (it.unitSize || 0)).toLocaleString('en-IN')} pcs
+                                      <span className="text-gray-400 font-normal"> (at {it.unitSize || '?'}/case)</span>
+                                    </div>
+                                  </div>
                                 </div>
-                                <Num value={it.freeCases} onChange={(v) => updateItem(idx, { freeCases: v })} step="1" />
+                                <p className="text-[11px] text-gray-400 mt-1.5">
+                                  Stock is tracked by case count ({it.casesReceived || 0} case{it.casesReceived === 1 ? '' : 's'}), not pieces.
+                                  Check the pieces total above against the supplier invoice. If they billed you in loose pieces instead
+                                  of cases, remove this line and add the product's Piece PLU instead.
+                                </p>
+                              </>
+                            ) : (
+                              <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                                <div className="space-y-1">
+                                  <label className="text-xs text-gray-500">Cases</label>
+                                  <Num value={it.casesReceived} onChange={(v) => updateItem(idx, { casesReceived: v })} step="1" />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-xs text-gray-500">Pack Size</label>
+                                  <Num value={it.packSize} onChange={(v) => updateItem(idx, { packSize: Math.max(1, v) })} step="1" min={1} />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-xs text-gray-500">Loose Qty</label>
+                                  <Num value={it.looseQty} onChange={(v) => updateItem(idx, { looseQty: v })} step="0.001" />
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-0.5">
+                                    <label className="text-xs text-gray-500">Free Cases</label>
+                                    <FieldHelp title="Free Quantity" description="Quantity received free under supplier scheme. Adds to stock but not included in cost calculation." />
+                                  </div>
+                                  <Num value={it.freeCases} onChange={(v) => updateItem(idx, { freeCases: v })} step="1" />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-xs text-gray-500">Free Loose</label>
+                                  <Num value={it.freeLoose} onChange={(v) => updateItem(idx, { freeLoose: v })} step="0.001" />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-xs text-gray-500">Rcvd Qty</label>
+                                  <div className="finp bg-gray-50 font-bold text-gray-700">{c.totalReceivedQty}</div>
+                                </div>
                               </div>
-                              <div className="space-y-1">
-                                <label className="text-xs text-gray-500">Free Loose</label>
-                                <Num value={it.freeLoose} onChange={(v) => updateItem(idx, { freeLoose: v })} step="0.001" />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-xs text-gray-500">Rcvd Qty</label>
-                                <div className="finp bg-gray-50 font-bold text-gray-700">{c.totalReceivedQty}</div>
-                              </div>
-                            </div>
-                            {!it.hasExistingUnitInfo && (
+                            )}
+                            {!isCaseLine(it) && !it.hasExistingUnitInfo && (
                               <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
                                 <div className="flex items-center gap-1.5 mb-1.5">
                                   <span className="text-xs font-medium text-amber-700">Unit size not set</span>
