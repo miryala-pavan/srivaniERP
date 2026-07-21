@@ -153,6 +153,11 @@ export class ProductsController {
     return this.productsService.bulkSetUnits(req.user.businessId, body);
   }
 
+  @Patch('unit-audit/set-loose')
+  setLooseFlag(@Request() req: any, @Body() body: { pluIds: string[]; isLoose: boolean }) {
+    return this.productsService.setLooseFlag(req.user.businessId, body.pluIds, body.isLoose);
+  }
+
   // ─── SEARCH (before :id) ─────────────────────────────
   @Get('search')
   search(@Request() req: any, @Query('q') q: string) {

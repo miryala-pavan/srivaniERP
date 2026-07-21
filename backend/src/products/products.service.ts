@@ -2113,6 +2113,7 @@ export class ProductsService {
           select: {
             id: true, pluCode: true, displayName: true, stockOnHand: true,
             measureType: true, unitSymbol: true, unitSize: true, baseUnitQty: true, gstUqc: true,
+            isLoose: true,
           },
         },
       },
@@ -2135,6 +2136,7 @@ export class ProductsService {
         unitSize:    plu.unitSize != null ? Number(plu.unitSize) : null,
         baseUnitQty: plu.baseUnitQty != null ? Number(plu.baseUnitQty) : null,
         gstUqc:      plu.gstUqc,
+        isLoose:     plu.isLoose,
         flags,
       };
     }));
@@ -2148,6 +2150,7 @@ export class ProductsService {
         case 'LENGTH':         return rows.filter(r => r.measureType === 'LENGTH');
         case 'AREA':           return rows.filter(r => r.measureType === 'AREA');
         case 'COUNT':          return rows.filter(r => r.measureType === 'COUNT');
+        case 'LOOSE':           return rows.filter(r => r.isLoose);
         default:                return rows;
       }
     })();
@@ -2161,9 +2164,21 @@ export class ProductsService {
       length:       rows.filter(r => r.measureType === 'LENGTH').length,
       area:         rows.filter(r => r.measureType === 'AREA').length,
       count:        rows.filter(r => r.measureType === 'COUNT').length,
+      loose:        rows.filter(r => r.isLoose).length,
     };
 
     return { summary, data: filtered };
+  }
+
+  // Toggles the Loose/Weigh flag on one or more PLUs directly — independent of the unit-set
+  // modal, since you often want to flag a PLU as loose-weigh without changing its unit fields.
+  async setLooseFlag(businessId: string, pluIds: string[], isLoose: boolean) {
+    if (!pluIds?.length) return { updated: 0 };
+    const result = await this.prisma.productPlu.updateMany({
+      where: { id: { in: pluIds }, businessId },
+      data: { isLoose },
+    });
+    return { updated: result.count };
   }
 
   // Applies the SAME unit setting to every targeted PLU at once — either by direct PLU ids

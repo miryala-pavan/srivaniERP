@@ -1,15 +1,20 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
 import {
   SplitSquareHorizontal, Search, Package, Plus, Trash2,
   History, AlertTriangle, CheckCircle2, X, Clock, User,
-  Undo2, AlertCircle, ChevronRight, Zap,
+  Undo2, AlertCircle, ChevronRight, Zap, Weight,
 } from 'lucide-react';
 import { SetUnitModal, type SavedUnitValues } from '@/components/shared/SetUnitModal';
+import { calcBaseUnitQty, deriveUqc } from '@/lib/units';
+
+// Loose/Weigh products are always priced "per common unit" (1 kg, 1 L, ...), never a fraction —
+// matches the PLU-level convention already used for counter items sold by arbitrary weight.
+const LOOSE_UNIT_BY_MEASURE: Record<string, string> = { WEIGHT: 'kg', VOLUME: 'L', COUNT: 'pcs', LENGTH: 'm', AREA: 'sqft' };
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -158,6 +163,115 @@ function PluSearchBox({ placeholder, searchFn, onSelect, autoFocus }: {
   );
 }
 
+// ─── CREATE LOOSE MODAL — spin up a Loose/Weigh product inline when breaking a bulk item
+// into leftover weight that isn't a fixed pack size (e.g. remainder of a 50kg bag) ──────────
+
+function CreateLooseModal({ sourcePlu, onClose, onCreated }: {
+  sourcePlu: Plu; onClose: () => void; onCreated: (plu: Plu) => void;
+}) {
+  const [name, setName]     = useState(`Loose ${sourcePlu.product.name}`);
+  const [mrp, setMrp]       = useState('');
+  const [sp, setSp]         = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loadingDefaults, setLoadingDefaults] = useState(true);
+  const defaultsRef = useRef<{ hsnCode: string; taxId: string; categoryId?: string; departmentId?: string } | null>(null);
+
+  useEffect(() => {
+    api.get(`/products/${sourcePlu.product.id}`)
+      .then(r => {
+        const p = r.data;
+        defaultsRef.current = { hsnCode: p.hsnCode, taxId: p.taxId, categoryId: p.categoryId ?? undefined, departmentId: p.departmentId ?? undefined };
+      })
+      .catch(() => toast.error('Could not load source product details'))
+      .finally(() => setLoadingDefaults(false));
+  }, [sourcePlu.product.id]);
+
+  const measureType = sourcePlu.measureType ?? 'WEIGHT';
+  const unitSymbol   = LOOSE_UNIT_BY_MEASURE[measureType] ?? 'kg';
+
+  async function save() {
+    if (!defaultsRef.current) { toast.error('Still loading source product — try again in a moment'); return; }
+    const mrpNum = parseFloat(mrp), spNum = parseFloat(sp);
+    if (!name.trim()) { toast.error('Name required'); return; }
+    if (!mrpNum || !spNum) { toast.error(`Enter MRP and Selling Price per ${unitSymbol}`); return; }
+    setSaving(true);
+    try {
+      const unitSize    = 1;
+      const baseUnitQty = calcBaseUnitQty(unitSymbol, unitSize);
+      const gstUqc      = deriveUqc(unitSymbol) ?? undefined;
+      const created = await api.post('/products', {
+        name: name.trim().toUpperCase(),
+        hsnCode: defaultsRef.current.hsnCode,
+        taxId: defaultsRef.current.taxId,
+        categoryId: defaultsRef.current.categoryId,
+        departmentId: defaultsRef.current.departmentId,
+        mrp: mrpNum, sellingPrice: spNum,
+        measureType, unitSymbol, unitSize, baseUnitQty, gstUqc,
+      }).then(r => r.data);
+      // isLoose isn't settable at product-creation time — flip it on the auto-created default
+      // PLU right after, same as the PLU-edit-form path.
+      const plus = await api.get(`/products/${created.id}/plus`).then(r => r.data as any[]);
+      const defaultPlu = plus.find(p => p.isDefault) ?? plus[0];
+      if (defaultPlu) {
+        await api.patch('/products/unit-audit/set-loose', { pluIds: [defaultPlu.id], isLoose: true });
+      }
+      toast.success(`"${created.name}" created as a Loose/Weigh product`);
+      onCreated({
+        id: defaultPlu?.id ?? created.id,
+        pluCode: defaultPlu?.pluCode ?? created.pluCode,
+        displayName: defaultPlu?.displayName ?? null,
+        stockOnHand: 0,
+        product: { id: created.id, name: created.name },
+        measureType, unitSymbol, unitSize, baseUnitQty,
+      });
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to create Loose product');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-bold text-gray-900 flex items-center gap-1.5"><Weight className="w-4 h-4 text-amber-500" /> Create Loose/Weigh Product</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Sold loose at the counter, weighed to any amount — priced per {unitSymbol}. Shares {sourcePlu.product.name}'s HSN code and GST rate.
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">Product Name</label>
+            <input value={name} onChange={e => setName(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-500">MRP (Rs./{unitSymbol})</label>
+              <input type="number" min="0" value={mrp} onChange={e => setMrp(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-500">Selling Price (Rs./{unitSymbol})</label>
+              <input type="number" min="0" value={sp} onChange={e => setSp(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-3 px-5 pb-5">
+          <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button onClick={save} disabled={saving || loadingDefaults}
+            className="flex-1 py-2.5 text-sm bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-60 font-medium">
+            {saving ? 'Creating…' : loadingDefaults ? 'Loading…' : 'Create & Use'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── NEW SESSION TAB — one flow for every kind of break: pick source, pick packs, confirm ──
 
 type Phase = 'search' | 'lines' | 'confirm';
@@ -170,6 +284,7 @@ function NewSessionTab({ qc }: { qc: any }) {
   const [wastageNote, setWastageNote] = useState('');
   const [notes, setNotes]         = useState('');
   const [fixUnitPlu, setFixUnitPlu] = useState<Plu | null>(null);
+  const [looseModalKey, setLooseModalKey] = useState<string | null>(null);
 
   const { data: recentPairs = [] } = useQuery({ queryKey: ['repack-recent-pairs'], queryFn: fetchRecentPairs });
 
@@ -375,11 +490,17 @@ function NewSessionTab({ qc }: { qc: any }) {
                     </button>
                   </div>
                 ) : (
-                  <PluSearchBox
-                    placeholder="Search output pack PLU…"
-                    searchFn={(q) => searchTarget(q, sourcePlu.id)}
-                    onSelect={(plu) => setLinePlu(line.key, plu)}
-                  />
+                  <>
+                    <PluSearchBox
+                      placeholder="Search output pack PLU…"
+                      searchFn={(q) => searchTarget(q, sourcePlu.id)}
+                      onSelect={(plu) => setLinePlu(line.key, plu)}
+                    />
+                    <button onClick={() => setLooseModalKey(line.key)}
+                      className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium">
+                      <Weight className="w-3 h-3" /> Selling the rest loose/by weight? Create Loose product →
+                    </button>
+                  </>
                 )}
                 <div>
                   <label className="text-xs text-gray-500 block mb-0.5">Qty produced</label>
@@ -496,6 +617,14 @@ function NewSessionTab({ qc }: { qc: any }) {
           title={`Set unit for ${productName(fixUnitPlu)}`}
           onClose={() => setFixUnitPlu(null)}
           onSaved={(values) => applyUnitPatch(fixUnitPlu.id, values)}
+        />
+      )}
+
+      {looseModalKey && sourcePlu && (
+        <CreateLooseModal
+          sourcePlu={sourcePlu}
+          onClose={() => setLooseModalKey(null)}
+          onCreated={(plu) => { setLinePlu(looseModalKey, plu); setLooseModalKey(null); }}
         />
       )}
     </div>

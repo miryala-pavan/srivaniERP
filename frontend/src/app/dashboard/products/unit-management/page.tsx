@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Ruler, CheckCircle, XCircle, RefreshCw, Package, Scale,
-  Search, ChevronDown,
+  Search, ChevronDown, Weight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -26,12 +26,13 @@ interface AuditPlu {
   unitSize: number | null;
   baseUnitQty: number | null;
   gstUqc: string | null;
+  isLoose: boolean;
   flags: string[];
 }
 
 interface Summary {
   total: number; noUnitInfo: number; hasUnitInfo: number;
-  weight: number; volume: number; length: number; area: number; count: number;
+  weight: number; volume: number; length: number; area: number; count: number; loose: number;
 }
 
 // ─── Filter tabs ─────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ const FILTERS = [
   { key: 'LENGTH',        label: 'Length',         icon: Scale,        color: 'gray'   },
   { key: 'AREA',          label: 'Area',           icon: Scale,        color: 'gray'   },
   { key: 'COUNT',         label: 'Count',          icon: Scale,        color: 'gray'   },
+  { key: 'LOOSE',         label: 'Loose / Weigh',  icon: Weight,       color: 'amber'  },
 ];
 
 function colorClass(color: string) {
@@ -52,6 +54,7 @@ function colorClass(color: string) {
     gray:  'bg-gray-100 text-gray-700 border-gray-200',
     green: 'bg-green-100 text-green-700 border-green-200',
     red:   'bg-red-100 text-red-700 border-red-200',
+    amber: 'bg-amber-100 text-amber-700 border-amber-200',
   };
   return map[color] ?? map.gray;
 }
@@ -71,6 +74,7 @@ export default function UnitManagementPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [unitModalIds, setUnitModalIds] = useState<string[] | null>(null);
+  const [togglingLoose, setTogglingLoose] = useState<Set<string>>(new Set());
 
   const load = useCallback(async (f = filter, s = search) => {
     setLoading(true);
@@ -103,6 +107,19 @@ export default function UnitManagementPage() {
   }
   function toggleAll() {
     setSelected(selected.size === plus.length ? new Set() : new Set(plus.map(p => p.pluId)));
+  }
+
+  async function toggleLoose(pluIds: string[], next: boolean) {
+    setTogglingLoose(prev => new Set([...Array.from(prev), ...pluIds]));
+    try {
+      await api.patch('/products/unit-audit/set-loose', { pluIds, isLoose: next });
+      setPlus(prev => prev.map(p => pluIds.includes(p.pluId) ? { ...p, isLoose: next } : p));
+      toast.success(`${next ? 'Marked' : 'Unmarked'} ${pluIds.length} PLU${pluIds.length !== 1 ? 's' : ''} as Loose/Weigh`);
+    } catch {
+      toast.error('Failed to update Loose/Weigh flag');
+    } finally {
+      setTogglingLoose(prev => { const rest = new Set(prev); pluIds.forEach(id => rest.delete(id)); return rest; });
+    }
   }
 
   const summaryCards = summary ? [
@@ -173,6 +190,7 @@ export default function UnitManagementPage() {
               const count = summary ? ({
                 ALL: summary.total, NO_UNIT_INFO: summary.noUnitInfo, HAS_UNIT_INFO: summary.hasUnitInfo,
                 WEIGHT: summary.weight, VOLUME: summary.volume, LENGTH: summary.length, AREA: summary.area, COUNT: summary.count,
+                LOOSE: summary.loose,
               } as Record<string, number>)[f.key] ?? 0 : 0;
               const isActive = filter === f.key;
               return (
@@ -211,6 +229,14 @@ export default function UnitManagementPage() {
               className="flex items-center gap-1.5 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold">
               <Ruler className="w-3.5 h-3.5" /> Set Unit for Selected
             </button>
+            <button onClick={() => toggleLoose(Array.from(selected), true)}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-semibold">
+              <Weight className="w-3.5 h-3.5" /> Mark Loose/Weigh
+            </button>
+            <button onClick={() => toggleLoose(Array.from(selected), false)}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 font-semibold">
+              Unmark
+            </button>
           </div>
         )}
       </div>
@@ -238,12 +264,14 @@ export default function UnitManagementPage() {
                   <th className="px-4 py-3 text-left text-gray-600 font-semibold">Product</th>
                   <th className="px-4 py-3 text-right text-gray-600 font-semibold">Stock</th>
                   <th className="px-4 py-3 text-left text-gray-600 font-semibold">Unit</th>
+                  <th className="px-4 py-3 text-center text-gray-600 font-semibold">Loose / Weigh</th>
                   <th className="px-4 py-3 text-center text-gray-600 font-semibold">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {plus.map(p => {
                   const hasUnit = p.flags.includes('HAS_UNIT_INFO');
+                  const busy = togglingLoose.has(p.pluId);
                   return (
                     <tr key={p.pluId} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3">
@@ -265,6 +293,18 @@ export default function UnitManagementPage() {
                             Not set
                           </span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => toggleLoose([p.pluId], !p.isLoose)}
+                          disabled={busy}
+                          title="Sold loose/by weight at the counter (e.g. scooped from a bin, weighed to any amount)"
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-50 ${
+                            p.isLoose ? 'bg-amber-500' : 'bg-gray-200'
+                          }`}>
+                          <span className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform"
+                            style={{ transform: p.isLoose ? 'translateX(18px)' : 'translateX(4px)' }} />
+                        </button>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button onClick={() => setUnitModalIds([p.pluId])}
