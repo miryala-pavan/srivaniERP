@@ -360,9 +360,28 @@ export default function OrderStatusClient({
               borderTop: '1px solid var(--line)', paddingTop: '10px',
               fontSize: '16px', fontWeight: 800,
             }}>
-              <span>Total Paid</span>
+              <span>{order.paymentStatus === 'PAID' ? 'Total' : 'Total to Pay'}</span>
               <span>₹{fmt(order.total)}</span>
             </div>
+            {(order.settlement?.walletCredited ?? 0) > 0 && (
+              <div style={{
+                display: 'flex', justifyContent: 'space-between',
+                fontSize: '13px', color: '#7c3aed', fontWeight: 600,
+              }}>
+                <span>💜 Credited to your store wallet</span>
+                <span>₹{fmt(order.settlement!.walletCredited)}</span>
+              </div>
+            )}
+            {order.paymentStatus === 'PAID' && (order.settlement?.dueAmount ?? 0) > 0 && (
+              <div style={{
+                display: 'flex', justifyContent: 'space-between',
+                fontSize: '13px', color: '#b45309', fontWeight: 600,
+                background: '#fef3c7', borderRadius: '8px', padding: '6px 10px',
+              }}>
+                <span>Pay at delivery (items added)</span>
+                <span>₹{fmt(order.settlement!.dueAmount)}</span>
+              </div>
+            )}
           </div>
         </div>
 

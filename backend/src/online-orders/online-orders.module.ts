@@ -5,9 +5,10 @@ import { EventsModule } from '../events/events.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ServiceablePincodesModule } from '../serviceable-pincodes/serviceable-pincodes.module';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [EventsModule, AuditLogModule, NotificationsModule, ServiceablePincodesModule],
+  imports: [EventsModule, AuditLogModule, NotificationsModule, ServiceablePincodesModule, WalletModule],
   controllers: [OnlineOrdersController],
   providers: [OnlineOrdersService],
   exports: [OnlineOrdersService],

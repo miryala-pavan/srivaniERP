@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShoppingBag, Search, RefreshCw, Eye,
   Clock, CheckCircle2, Truck, XCircle, Package, RotateCw, Printer, CalendarRange,
+  ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Tabs } from '@/components/shared/Tabs';
@@ -144,6 +145,8 @@ function printOrderSlip(order: OnlineOrder) {
   setTimeout(() => { w.print(); w.close(); }, 300);
 }
 
+type SortKey = 'orderNumber' | 'customerName' | 'total' | 'status' | 'createdAt';
+
 export default function OnlineOrdersPage() {
   const router = useRouter();
   const qc = useQueryClient();
@@ -152,6 +155,17 @@ export default function OnlineOrdersPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo,   setDateTo]   = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('createdAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'createdAt' || key === 'total' ? 'desc' : 'asc');
+    }
+  }
 
   const { data: orders = [], isLoading, isError, refetch } = useQuery<OnlineOrder[]>({
     queryKey: ['online-orders-admin', dateFrom, dateTo],
@@ -217,8 +231,34 @@ export default function OnlineOrdersPage() {
         o.customerPhone.includes(s),
       );
     }
-    return list;
-  }, [orders, tab, search]);
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+      switch (sortKey) {
+        case 'total':      return (toNum(a.total) - toNum(b.total)) * dir;
+        case 'createdAt':  return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
+        case 'status':     return a.status.localeCompare(b.status) * dir;
+        case 'customerName': return a.customerName.localeCompare(b.customerName) * dir;
+        default:           return a.orderNumber.localeCompare(b.orderNumber) * dir;
+      }
+    });
+  }, [orders, tab, search, sortKey, sortDir]);
+
+  const SortTh = ({ label, k, className = '', align = 'left' }: { label: string; k: SortKey; className?: string; align?: 'left' | 'right' }) => (
+    <th className={`px-4 py-3 ${className}`}>
+      <button
+        onClick={() => toggleSort(k)}
+        className={`flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors ${
+          sortKey === k ? 'text-[#1B4F8A]' : 'text-gray-500 hover:text-gray-700'
+        } ${align === 'right' ? 'ml-auto' : ''}`}
+        title={`Sort by ${label.toLowerCase()}`}
+      >
+        {label}
+        {sortKey === k
+          ? (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)
+          : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+      </button>
+    </th>
+  );
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -304,14 +344,14 @@ export default function OnlineOrdersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Order #</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Customer</th>
+                    <SortTh label="Order #" k="orderNumber" />
+                    <SortTh label="Customer" k="customerName" />
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Phone</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Delivery</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Payment</th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Date</th>
+                    <SortTh label="Total" k="total" align="right" />
+                    <SortTh label="Status" k="status" />
+                    <SortTh label="Date" k="createdAt" className="hidden lg:table-cell" />
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>

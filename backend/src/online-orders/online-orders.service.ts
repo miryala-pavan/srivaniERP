@@ -11,6 +11,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { WhatsAppService } from '../notifications/whatsapp.service';
 import { EmailService } from '../notifications/email.service';
 import { ServiceablePincodesService } from '../serviceable-pincodes/serviceable-pincodes.service';
+import { WalletService } from '../wallet/wallet.service';
 import { Events } from '../events/event-types';
 import { lockPluById } from '../common/helpers/stock-lock.util';
 import {
@@ -45,6 +46,7 @@ export class OnlineOrdersService {
     private readonly whatsapp: WhatsAppService,
     private readonly email: EmailService,
     private readonly serviceablePincodes: ServiceablePincodesService,
+    private readonly wallet: WalletService,
   ) {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -494,6 +496,9 @@ export class OnlineOrdersService {
         razorpaySignature: dto.razorpaySignature,
         paymentStatus: OnlinePaymentStatus.PAID,
         status: OnlineOrderStatus.CONFIRMED,
+        // Snapshot what was actually collected — order edits later compare
+        // against this to settle differences into the customer's wallet.
+        amountPaid: order.total,
       },
     });
 
@@ -719,7 +724,10 @@ export class OnlineOrdersService {
     if (!order || !this.samePhone(order.customerPhone, customerPhone)) {
       throw new NotFoundException('Order not found');
     }
-    return order;
+    // Settlement lets the tracking page show "₹X credited to your wallet"
+    // after a staff edit reduced a paid order's total, or the balance to
+    // pay at delivery if items were added.
+    return { ...order, settlement: this.computeSettlement(order) };
   }
 
   async listOrders(phone?: string, email?: string) {
@@ -809,13 +817,26 @@ export class OnlineOrdersService {
     }
 
     // Stock was reserved at order creation — give it back on cancellation.
+    // Paid orders (Razorpay, cancellable while CONFIRMED) also get their
+    // money returned to the customer's store wallet.
     await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT status FROM "online_order" WHERE id = ${order.id} FOR UPDATE
+      `;
+      if (rows[0]?.status === OnlineOrderStatus.CANCELLED) {
+        throw new BadRequestException('Order is already cancelled');
+      }
       await this.releaseStockForOrder(tx, order.id);
+      const settlement = await this.creditWalletOnCancel(tx, order);
       await tx.onlineOrder.update({
         where: { orderNumber },
-        data: { status: OnlineOrderStatus.CANCELLED },
+        data: { status: OnlineOrderStatus.CANCELLED, ...settlement },
       });
-    }, { timeout: 15000 });
+      await this.logEvent(
+        tx, order, 'STATUS_CHANGE',
+        `Cancelled by customer${reason ? `: ${reason}` : ''}`,
+      );
+    }, { timeout: 20000 });
 
     if (order.customerPhone) {
       this.whatsapp.sendCustomerOrderUpdate(order.businessId, {
@@ -872,6 +893,13 @@ export class OnlineOrdersService {
 
     await this.prisma.onlineOrder.update({ where: { orderNumber }, data });
 
+    this.prisma.onlineOrderEvent.create({
+      data: {
+        orderId: order.id, businessId: order.businessId,
+        type: 'STATUS_CHANGE', description: 'Delivery confirmed by customer',
+      },
+    }).catch((err) => this.logger.error(`Order event log failed for ${orderNumber}: ${err instanceof Error ? err.message : err}`));
+
     this.events.emitToBusiness(order.businessId, Events.ONLINE_ORDER_STATUS_CHANGED, {
       orderNumber, status: 'DELIVERED', customerName: order.customerName,
     });
@@ -900,6 +928,56 @@ export class OnlineOrdersService {
     return { success: true, orderNumber };
   }
 
+  /**
+   * On cancellation of a PAID order, returns the money still held (paid −
+   * already wallet-credited) to the customer's store wallet — the store's
+   * no-Razorpay-refund policy. Returns the field updates for the order row;
+   * empty object when nothing was collected (COD / unpaid).
+   */
+  private async creditWalletOnCancel(
+    tx: Prisma.TransactionClient,
+    order: {
+      id: string; businessId: string; orderNumber: string;
+      customerPhone: string; customerName: string; customerEmail: string | null;
+      paymentStatus: OnlinePaymentStatus;
+      total: Prisma.Decimal | number;
+      amountPaid: Prisma.Decimal | number;
+      walletCredited: Prisma.Decimal | number;
+    },
+    actorName?: string,
+  ): Promise<{ amountPaid?: number; walletCredited?: number }> {
+    if (order.paymentStatus !== OnlinePaymentStatus.PAID) return {};
+
+    let amountPaid = Number(order.amountPaid);
+    if (amountPaid <= 0) amountPaid = Number(order.total); // pre-feature paid orders
+    const netPaid = this.round2(amountPaid - Number(order.walletCredited));
+    if (netPaid <= 0.009) return { amountPaid };
+
+    const customerId = await this.upsertCustomer(
+      order.businessId, order.customerPhone, order.customerName, order.customerEmail,
+    );
+    if (!customerId) {
+      await this.logEvent(
+        tx, order, 'NOTE',
+        `Order cancelled but ₹${netPaid.toFixed(2)} could not be auto-credited — no customer record for this phone number. Settle manually.`,
+        undefined, actorName,
+      );
+      return { amountPaid };
+    }
+
+    await this.wallet.creditTx(
+      tx, order.businessId, customerId, netPaid,
+      `Order ${order.orderNumber} cancelled — paid amount returned as store credit`,
+      { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber, createdByName: actorName ?? 'System' },
+    );
+    await this.logEvent(
+      tx, order, 'WALLET_CREDIT',
+      `₹${netPaid.toFixed(2)} returned to customer's wallet (order cancelled after payment)`,
+      { netPaid }, actorName,
+    );
+    return { amountPaid, walletCredited: this.round2(Number(order.walletCredited) + netPaid) };
+  }
+
   async updateOrderStatus(orderNumber: string, status: OnlineOrderStatus, actor?: { userId: string; userName: string; userRole: string }) {
     const order = await this.prisma.onlineOrder.findUnique({
       where: { orderNumber },
@@ -915,11 +993,52 @@ export class OnlineOrdersService {
       data.paymentStatus = OnlinePaymentStatus.PAID;
     }
 
-    const updated = await this.prisma.onlineOrder.update({
-      where: { orderNumber },
-      data,
-      include: { items: true },
-    });
+    let updated;
+    if (status === OnlineOrderStatus.CANCELLED) {
+      // Cancellation must give the reserved stock back and settle any money
+      // already collected — a bare status flip silently leaked both.
+      if (order.status === OnlineOrderStatus.DELIVERED) {
+        throw new BadRequestException('Delivered orders cannot be cancelled — record a return instead');
+      }
+      updated = await this.prisma.$transaction(async (tx) => {
+        // Row-lock + re-check so two concurrent cancels can't double-release
+        // stock or double-credit the wallet.
+        const rows = await tx.$queryRaw<Array<{ status: string }>>`
+          SELECT status FROM "online_order" WHERE id = ${order.id} FOR UPDATE
+        `;
+        const current = rows[0]?.status as OnlineOrderStatus | undefined;
+        if (!current || current === OnlineOrderStatus.CANCELLED) {
+          throw new BadRequestException('Order is already cancelled');
+        }
+        // PAYMENT_FAILED already released its stock in verifyPayment.
+        if (current !== OnlineOrderStatus.PAYMENT_FAILED) {
+          await this.releaseStockForOrder(tx, order.id);
+        }
+        const settlement = await this.creditWalletOnCancel(tx, order, actor?.userName);
+        return tx.onlineOrder.update({
+          where: { id: order.id },
+          data: { ...data, ...settlement },
+          include: { items: true },
+        });
+      }, { timeout: 20000 });
+    } else {
+      updated = await this.prisma.onlineOrder.update({
+        where: { orderNumber },
+        data,
+        include: { items: true },
+      });
+    }
+
+    // Timeline event — powers the status history in the admin detail view.
+    this.prisma.onlineOrderEvent.create({
+      data: {
+        orderId: order.id,
+        businessId: order.businessId,
+        type: 'STATUS_CHANGE',
+        description: `Status changed: ${order.status.replace(/_/g, ' ')} → ${status.replace(/_/g, ' ')}`,
+        userName: actor?.userName,
+      },
+    }).catch((err) => this.logger.error(`Order event log failed for ${orderNumber}: ${err instanceof Error ? err.message : err}`));
 
     this.events.emitToBusiness(order.businessId, Events.ONLINE_ORDER_STATUS_CHANGED, {
       orderNumber,
@@ -970,6 +1089,451 @@ export class OnlineOrdersService {
     }
 
     return updated;
+  }
+
+  // ─── Admin order detail + item editing ─────────────────────────────────────
+
+  private static readonly EDITABLE_STATUSES: OnlineOrderStatus[] = [
+    OnlineOrderStatus.PENDING_COD,
+    OnlineOrderStatus.CONFIRMED,
+    OnlineOrderStatus.PROCESSING,
+    OnlineOrderStatus.READY,
+  ];
+
+  private round2(n: number): number {
+    return Math.round(n * 100) / 100;
+  }
+
+  /**
+   * Pack-level product search for the admin add-item flow — returns only
+   * packs the storefront itself could sell (active, for-sale), priced the
+   * way checkout would price them.
+   */
+  async searchPacksForAdmin(q: string) {
+    if (!q?.trim()) return [];
+    const businessId = await this.getBusinessId();
+    const term = q.trim();
+
+    const plus = await this.prisma.productPlu.findMany({
+      where: {
+        businessId,
+        isActive: true,
+        isArchived: false,
+        product: { isActive: true, isForSale: true },
+        OR: [
+          { pluCode: { equals: term } },
+          { eanCode: { equals: term } },
+          { product: { name: { contains: term, mode: 'insensitive' } } },
+          { product: { productCode: { contains: term } } },
+        ],
+      },
+      take: 20,
+      orderBy: { stockOnHand: 'desc' },
+      include: { product: { select: { name: true, productCode: true } } },
+    });
+
+    return plus.map((p) => ({
+      pluBarcode: p.pluCode,
+      productName: p.product.name,
+      packLabel:
+        p.displayName ??
+        (p.unitSize && p.unitSymbol ? `${Number(p.unitSize)}${p.unitSymbol}` : p.pluCode),
+      price: Number(p.onlinePrice ?? p.sellingPrice),
+      mrp: p.mrp !== null && p.mrp !== undefined ? Number(p.mrp) : null,
+      stockOnHand: Number(p.stockOnHand),
+    }));
+  }
+
+  /**
+   * Payment reconciliation summary for an order. For paid orders created
+   * before amountPaid existed, what was collected equals the current total
+   * (they've never been edited).
+   */
+  private computeSettlement(order: {
+    status: OnlineOrderStatus;
+    paymentStatus: OnlinePaymentStatus;
+    total: Prisma.Decimal | number;
+    amountPaid: Prisma.Decimal | number;
+    walletCredited: Prisma.Decimal | number;
+  }) {
+    const amountPaid =
+      Number(order.amountPaid) > 0
+        ? Number(order.amountPaid)
+        : order.paymentStatus === OnlinePaymentStatus.PAID
+          ? Number(order.total)
+          : 0;
+    const walletCredited = Number(order.walletCredited);
+    const netPaid = this.round2(amountPaid - walletCredited);
+    const dueAmount = Math.max(0, this.round2(Number(order.total) - Math.max(0, netPaid)));
+    return {
+      amountPaid,
+      walletCredited,
+      dueAmount,
+      isEditable: OnlineOrdersService.EDITABLE_STATUSES.includes(order.status),
+    };
+  }
+
+  /** Full order for the admin detail view: items, event timeline, settlement summary. */
+  async getAdminOrder(orderNumber: string) {
+    const order = await this.prisma.onlineOrder.findUnique({
+      where: { orderNumber },
+      include: {
+        items: {
+          orderBy: { id: 'asc' },
+          include: {
+            // Shelf location for the picking list — where each item lives in the store.
+            plu: {
+              select: {
+                product: { select: { aisle: true, rackNumber: true, binCode: true, category: { select: { name: true } } } },
+              },
+            },
+          },
+        },
+        events: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    return {
+      ...order,
+      items: order.items.map(({ plu, ...item }) => ({
+        ...item,
+        aisle: plu?.product?.aisle ?? null,
+        rackNumber: plu?.product?.rackNumber ?? null,
+        binCode: plu?.product?.binCode ?? null,
+        category: plu?.product?.category?.name ?? null,
+      })),
+      settlement: this.computeSettlement(order),
+    };
+  }
+
+  /** Staff assignment + delivery-slot changes, each logged to the timeline. */
+  async updateOrderMeta(
+    orderNumber: string,
+    dto: { assignedToName?: string | null; deliverySlot?: string | null },
+    actorName: string,
+  ) {
+    const order = await this.prisma.onlineOrder.findUnique({ where: { orderNumber } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.status === OnlineOrderStatus.DELIVERED || order.status === OnlineOrderStatus.CANCELLED) {
+      throw new BadRequestException('Delivered or cancelled orders cannot be changed');
+    }
+
+    const data: Prisma.OnlineOrderUpdateInput = {};
+    const events: { type: string; description: string }[] = [];
+
+    if (dto.assignedToName !== undefined && (dto.assignedToName ?? null) !== order.assignedToName) {
+      data.assignedToName = dto.assignedToName?.trim() || null;
+      events.push({
+        type: 'ASSIGNED',
+        description: data.assignedToName
+          ? `Assigned to ${data.assignedToName}`
+          : 'Assignment cleared',
+      });
+    }
+    if (dto.deliverySlot !== undefined && (dto.deliverySlot ?? null) !== order.deliverySlot) {
+      data.deliverySlot = dto.deliverySlot?.trim() || null;
+      events.push({
+        type: 'SLOT_CHANGED',
+        description: data.deliverySlot
+          ? `Delivery slot changed to "${data.deliverySlot}"${order.deliverySlot ? ` (was "${order.deliverySlot}")` : ''}`
+          : 'Delivery slot cleared',
+      });
+    }
+
+    if (events.length > 0) {
+      await this.prisma.$transaction([
+        this.prisma.onlineOrder.update({ where: { id: order.id }, data }),
+        this.prisma.onlineOrderEvent.createMany({
+          data: events.map((e) => ({
+            orderId: order.id, businessId: order.businessId,
+            type: e.type, description: e.description, userName: actorName,
+          })),
+        }),
+      ]);
+    }
+
+    return this.getAdminOrder(orderNumber);
+  }
+
+  private async logEvent(
+    tx: Prisma.TransactionClient,
+    order: { id: string; businessId: string },
+    type: string,
+    description: string,
+    meta?: Prisma.InputJsonValue,
+    userName?: string,
+  ) {
+    await tx.onlineOrderEvent.create({
+      data: { orderId: order.id, businessId: order.businessId, type, description, meta, userName },
+    });
+  }
+
+  /**
+   * Shared frame for every item edit: row-locks the order (serializing
+   * concurrent edits), guards editable statuses, runs the mutation,
+   * recomputes totals from the surviving items, and settles the payment
+   * difference — for paid orders whose total went DOWN, the difference is
+   * credited to the customer's store wallet (instead of a Razorpay refund);
+   * if the total went UP, the admin view shows "collect ₹X at delivery".
+   * Every step writes an OnlineOrderEvent row — financial records are never
+   * silently mutated.
+   */
+  private async runOrderEdit(
+    orderNumber: string,
+    actorName: string,
+    mutate: (
+      tx: Prisma.TransactionClient,
+      order: Prisma.OnlineOrderGetPayload<{ include: { items: true } }>,
+    ) => Promise<void>,
+  ) {
+    const settled = await this.prisma.$transaction(async (tx) => {
+      // Serialize concurrent edits of the same order (same FOR UPDATE
+      // pattern as retryPayment) — two staff members editing at once
+      // queue up instead of double-adjusting stock.
+      await tx.$queryRaw`SELECT id FROM "online_order" WHERE "orderNumber" = ${orderNumber} FOR UPDATE`;
+
+      const order = await tx.onlineOrder.findUnique({
+        where: { orderNumber },
+        include: { items: true },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+      if (!OnlineOrdersService.EDITABLE_STATUSES.includes(order.status)) {
+        throw new BadRequestException(
+          `Order cannot be edited while it is ${order.status.toLowerCase().replace(/_/g, ' ')}`,
+        );
+      }
+
+      await mutate(tx, order);
+
+      // Recompute totals from what's actually left on the order.
+      const items = await tx.onlineOrderItem.findMany({ where: { orderId: order.id } });
+      if (items.length === 0) {
+        throw new BadRequestException(
+          'An order must keep at least one item — cancel the order instead of removing everything.',
+        );
+      }
+      const subtotal = this.round2(items.reduce((s, i) => s + Number(i.total), 0));
+      const total = this.round2(subtotal + Number(order.deliveryFee));
+
+      // Settle the payment difference for already-paid orders.
+      let amountPaid = Number(order.amountPaid);
+      let walletCredited = Number(order.walletCredited);
+      let creditIssued = 0;
+      if (order.paymentStatus === OnlinePaymentStatus.PAID) {
+        // Lazy backfill for orders paid before amountPaid existed: what was
+        // collected equals the pre-edit total.
+        if (amountPaid <= 0) amountPaid = Number(order.total);
+
+        const netPaid = this.round2(amountPaid - walletCredited);
+        if (netPaid - total > 0.009) {
+          creditIssued = this.round2(netPaid - total);
+          const customerId = await this.upsertCustomer(
+            order.businessId, order.customerPhone, order.customerName, order.customerEmail,
+          );
+          if (customerId) {
+            await this.wallet.creditTx(
+              tx, order.businessId, customerId, creditIssued,
+              `Order ${order.orderNumber} edited — total reduced from what was paid`,
+              { relatedType: 'ONLINE_ORDER', relatedId: order.orderNumber, createdByName: actorName },
+            );
+            walletCredited = this.round2(walletCredited + creditIssued);
+            await this.logEvent(
+              tx, order, 'WALLET_CREDIT',
+              `₹${creditIssued.toFixed(2)} credited to customer's wallet (paid ₹${amountPaid.toFixed(2)}, new total ₹${total.toFixed(2)})`,
+              { creditIssued, amountPaid, newTotal: total }, actorName,
+            );
+          } else {
+            creditIssued = 0;
+            await this.logEvent(
+              tx, order, 'NOTE',
+              'Wallet credit skipped — no customer record could be matched or created for this phone number',
+              undefined, actorName,
+            );
+          }
+        }
+      }
+
+      await tx.onlineOrder.update({
+        where: { id: order.id },
+        data: { subtotal, total, amountPaid, walletCredited },
+      });
+
+      return { order, total, creditIssued };
+    }, { timeout: 20000 });
+
+    // Tell the customer their order changed — fire-and-forget, template-based
+    // so it works outside the 24h session window.
+    this.notifyOrderEdited(settled.order, settled.total, settled.creditIssued)
+      .catch((err) => this.logger.error(`Order-edited WhatsApp failed for ${orderNumber}: ${err instanceof Error ? err.message : err}`));
+
+    this.events.emitToBusiness(settled.order.businessId, Events.ONLINE_ORDER_STATUS_CHANGED, {
+      orderNumber,
+      status: settled.order.status,
+      customerName: settled.order.customerName,
+    });
+
+    return this.getAdminOrder(orderNumber);
+  }
+
+  private async notifyOrderEdited(
+    order: { businessId: string; customerPhone: string; customerName: string; orderNumber: string },
+    newTotal: number,
+    creditIssued: number,
+  ) {
+    if (!order.customerPhone) return;
+    let msg = `The store updated your order. New total: ₹${newTotal.toFixed(0)}.`;
+    if (creditIssued > 0) {
+      msg += ` ₹${creditIssued.toFixed(0)} has been credited to your store wallet — use it on your next purchase.`;
+    }
+    await this.whatsapp.sendTemplateToNumber(
+      order.businessId, order.customerPhone, 'svn_order_update_v2', 'en',
+      [order.customerName, order.orderNumber, msg],
+      order.orderNumber,
+    );
+  }
+
+  /**
+   * Adds a product pack to the order (or bumps quantity if that pack is
+   * already on it). Price is resolved server-side from the PLU — never
+   * client-supplied — using the same online-price + volume-tier logic as
+   * storefront checkout. Stock is reserved immediately.
+   */
+  async addOrderItem(
+    orderNumber: string,
+    dto: { pluBarcode: string; quantity: number },
+    actorName: string,
+  ) {
+    return this.runOrderEdit(orderNumber, actorName, async (tx, order) => {
+      const plu = await tx.productPlu.findFirst({
+        where: {
+          businessId: order.businessId,
+          pluCode: dto.pluBarcode,
+          isActive: true,
+          product: { isActive: true, isForSale: true },
+        },
+        include: { product: { select: { name: true, productCode: true } } },
+      });
+      if (!plu) {
+        throw new BadRequestException('This pack was not found or is not for sale — check the barcode/PLU.');
+      }
+
+      const unitLabel =
+        plu.unitSize && plu.unitSymbol ? `${Number(plu.unitSize)}${plu.unitSymbol}` : null;
+      const packLabel = plu.displayName ?? unitLabel ?? plu.pluCode;
+      const productName = plu.product.name;
+
+      const existing = order.items.find((i) => i.pluBarcode === dto.pluBarcode);
+      const addQty = dto.quantity;
+
+      // Reserve stock for just the added units (row-locked, cap-aware).
+      await this.reserveStockForItems(tx, order.businessId, [
+        { pluBarcode: dto.pluBarcode, productName, packLabel, quantity: addQty },
+      ]);
+
+      if (existing) {
+        const newQty = existing.quantity + addQty;
+        const unitPrice = Number(existing.unitPrice); // keep the agreed order-time price
+        await tx.onlineOrderItem.update({
+          where: { id: existing.id },
+          data: { quantity: newQty, total: this.round2(unitPrice * newQty) },
+        });
+        await this.logEvent(
+          tx, order, 'ITEM_UPDATED',
+          `${productName} (${existing.packLabel}): quantity ${existing.quantity} → ${newQty}`,
+          { itemId: existing.id, oldQty: existing.quantity, newQty }, actorName,
+        );
+      } else {
+        // New line: price it like the storefront would (online price /
+        // selling price + volume tiers for this quantity).
+        const [priced] = await this.resolveAuthoritativePrices(order.businessId, [
+          { pluBarcode: dto.pluBarcode, productName, packLabel, quantity: addQty },
+        ]);
+        const created = await tx.onlineOrderItem.create({
+          data: {
+            orderId: order.id,
+            pluId: plu.id,
+            pluBarcode: dto.pluBarcode,
+            productCode: plu.product.productCode ?? plu.pluCode,
+            productName,
+            packLabel,
+            quantity: addQty,
+            unitPrice: priced.unitPrice,
+            total: this.round2(priced.unitPrice * addQty),
+            mrp: priced.mrp,
+          },
+        });
+        await this.logEvent(
+          tx, order, 'ITEM_ADDED',
+          `Added ${productName} (${packLabel}) × ${addQty} @ ₹${priced.unitPrice.toFixed(2)}`,
+          { itemId: created.id, pluBarcode: dto.pluBarcode, quantity: addQty, unitPrice: priced.unitPrice },
+          actorName,
+        );
+      }
+    });
+  }
+
+  /** Changes an item's quantity — reserves or releases only the difference. */
+  async updateOrderItemQty(
+    orderNumber: string,
+    itemId: string,
+    quantity: number,
+    actorName: string,
+  ) {
+    return this.runOrderEdit(orderNumber, actorName, async (tx, order) => {
+      const item = order.items.find((i) => i.id === itemId);
+      if (!item) throw new NotFoundException('Item not found on this order');
+      if (quantity === item.quantity) return;
+
+      const diff = quantity - item.quantity;
+      if (diff > 0) {
+        await this.reserveStockForItems(tx, order.businessId, [
+          { pluBarcode: item.pluBarcode, productName: item.productName, packLabel: item.packLabel, quantity: diff },
+        ]);
+      } else if (item.pluId) {
+        await tx.productPlu.update({
+          where: { id: item.pluId },
+          data: { stockOnHand: { increment: Math.abs(diff) } },
+        });
+      }
+
+      const unitPrice = Number(item.unitPrice); // price agreed at order time stays
+      await tx.onlineOrderItem.update({
+        where: { id: item.id },
+        data: { quantity, total: this.round2(unitPrice * quantity) },
+      });
+      await this.logEvent(
+        tx, order, 'ITEM_UPDATED',
+        `${item.productName} (${item.packLabel}): quantity ${item.quantity} → ${quantity}`,
+        { itemId: item.id, oldQty: item.quantity, newQty: quantity }, actorName,
+      );
+    });
+  }
+
+  /** Removes an item, releasing its reserved stock. The last item can't be removed — cancel instead. */
+  async removeOrderItem(orderNumber: string, itemId: string, actorName: string) {
+    return this.runOrderEdit(orderNumber, actorName, async (tx, order) => {
+      const item = order.items.find((i) => i.id === itemId);
+      if (!item) throw new NotFoundException('Item not found on this order');
+      if (order.items.length <= 1) {
+        throw new BadRequestException(
+          'This is the only item on the order — cancel the whole order instead of removing it.',
+        );
+      }
+
+      if (item.pluId) {
+        await tx.productPlu.update({
+          where: { id: item.pluId },
+          data: { stockOnHand: { increment: item.quantity } },
+        });
+      }
+      await tx.onlineOrderItem.delete({ where: { id: item.id } });
+      await this.logEvent(
+        tx, order, 'ITEM_REMOVED',
+        `Removed ${item.productName} (${item.packLabel}) × ${item.quantity} (₹${Number(item.total).toFixed(2)})`,
+        { itemId: item.id, pluBarcode: item.pluBarcode, quantity: item.quantity }, actorName,
+      );
+    });
   }
 
   // ─── Universal customer upsert ────────────────────────────────────────────

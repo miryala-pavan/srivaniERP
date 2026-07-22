@@ -503,7 +503,7 @@ export const HELP_CONTENT: HelpEntry[] = [
 
   // ── Customers ──────────────────────────────────────────────────────────────
   {
-    id: 'customers', route: '/dashboard/customers', module: 'sales', version: '1.0',
+    id: 'customers', route: '/dashboard/customers', module: 'sales', version: '1.1',
     title: { en: 'Customers', te: 'కస్టమర్లు' },
     summary: {
       en: 'Manage your customer base. Customers can be attached to bills at POS for loyalty tracking, credit sales, and personalised offers. B2B customers with GSTIN get GST-compliant bills. Walk-in customers are billed without a customer record.',
@@ -524,9 +524,16 @@ export const HELP_CONTENT: HelpEntry[] = [
           te: 'ఏ కస్టమర్‌నైనా తెరవండి → లెడ్జర్ ట్యాబ్. ప్రతి క్రెడిట్ బిల్ మరియు స్వీకరించిన ప్రతి చెల్లింపు చూపిస్తుంది. బాకీ = మొత్తం క్రెడిట్ అమ్మకాలు − స్వీకరించిన చెల్లింపులు. గడువు మించిన మొత్తాల కోసం ఫాలో-అప్ చేయడానికి ఇది ఉపయోగించండి.',
         },
       },
+      {
+        title: { en: 'Store Wallet — customer credit balance', te: 'స్టోర్ వాలెట్ — కస్టమర్ క్రెడిట్ బ్యాలెన్స్' },
+        body: {
+          en: 'The Store Wallet (Customer 360 → side panel) holds money the store owes the customer — the opposite of outstanding balance. It fills up automatically when a paid online order is edited down (instead of a bank refund), or manually via "+ Credit" for goodwill or corrections. When the customer wants to use it, press "− Redeem" and give the equivalent discount on their purchase, noting the bill number as the reason. Every credit and debit is logged with who did it and why — the wallet can never go below zero. This is different from Loyalty Points: wallet is real money in rupees; points are a reward converted at the loyalty rate.',
+          te: 'స్టోర్ వాలెట్ (కస్టమర్ 360 → సైడ్ ప్యానెల్) దుకాణం కస్టమర్‌కు బాకీ ఉన్న డబ్బు — బాకీ బ్యాలెన్స్‌కు వ్యతిరేకం. చెల్లించిన ఆన్‌లైన్ ఆర్డర్ సవరణతో తగ్గినప్పుడు (బ్యాంక్ రీఫండ్ బదులు) ఆటోమేటిక్‌గా జమ అవుతుంది, లేదా "+ Credit" తో మాన్యువల్‌గా. కస్టమర్ వాడాలనుకున్నప్పుడు "− Redeem" నొక్కి కొనుగోలుపై సమానమైన తగ్గింపు ఇవ్వండి, బిల్ నంబర్ కారణంగా రాయండి. ప్రతి జమ/ఖర్చు ఎవరు, ఎందుకు చేశారో నమోదు అవుతుంది — వాలెట్ ఎప్పుడూ సున్నా కంటే తక్కువ కాదు. ఇది లాయల్టీ పాయింట్ల కంటే భిన్నం: వాలెట్ నిజమైన రూపాయల డబ్బు.',
+        },
+      },
     ],
-    relatedTopics: ['pos', 'bills', 'payments'],
-    tags: ['customers', 'loyalty', 'credit', 'ledger', 'gstin'],
+    relatedTopics: ['pos', 'bills', 'payments', 'online-orders'],
+    tags: ['customers', 'loyalty', 'credit', 'ledger', 'gstin', 'wallet', 'store-credit'],
   },
 
   // ── Day Closure ────────────────────────────────────────────────────────────
@@ -855,23 +862,54 @@ export const HELP_CONTENT: HelpEntry[] = [
 
   // ── Online Orders ──────────────────────────────────────────────────────────
   {
-    id: 'online-orders', route: '/dashboard/online-orders', module: 'sales', version: '1.0',
+    id: 'online-orders', route: '/dashboard/online-orders', module: 'sales', version: '2.0',
     title: { en: 'Online Orders', te: 'ఆన్‌లైన్ ఆర్డర్లు' },
     summary: {
-      en: 'Orders from your online storefront appear here in real time. Accept, pack, and dispatch. An accepted order can be converted to a POS bill — this deducts stock and creates a sales record. Payment modes: COD, Razorpay (auto-confirmed), or UPI.',
-      te: 'మీ ఆన్‌లైన్ స్టోర్‌ఫ్రంట్ నుండి ఆర్డర్లు ఇక్కడ నిజ సమయంలో కనిపిస్తాయి. అంగీకరించండి, ప్యాక్ చేయండి మరియు పంపండి. అంగీకరించిన ఆర్డర్‌ను POS బిల్‌కు మార్చవచ్చు — ఇది స్టాక్ తీసివేసి అమ్మకాల రికార్డు సృష్టిస్తుంది.',
+      en: 'Orders from your online storefront appear here in real time. Click any order to see full details, edit items, print a picking list, and assign a packer. Stock is reserved the moment an order is placed and released if it is cancelled. Payment modes: COD (collect at door) or Razorpay (already paid online).',
+      te: 'మీ ఆన్‌లైన్ స్టోర్‌ఫ్రంట్ నుండి ఆర్డర్లు ఇక్కడ నిజ సమయంలో కనిపిస్తాయి. పూర్తి వివరాలు చూడటానికి, వస్తువులు సవరించడానికి, పికింగ్ జాబితా ప్రింట్ చేయడానికి ఏదైనా ఆర్డర్‌పై క్లిక్ చేయండి. ఆర్డర్ వచ్చిన వెంటనే స్టాక్ రిజర్వ్ అవుతుంది; రద్దు చేస్తే తిరిగి వస్తుంది.',
     },
     sections: [
       {
         title: { en: 'Order status flow', te: 'ఆర్డర్ స్థితి ప్రవాహం' },
         body: {
-          en: 'NEW → accept or reject (within 30 min for good customer experience). ACCEPTED → print pick list, pack items. If any item out of stock: edit order to reduce qty or remove item and notify customer. PACKED → assign for delivery or mark ready for pickup. DELIVERED → complete. If COD: collect payment at door and record. Razorpay orders: payment already captured online.',
-          te: 'NEW → 30 నిమిషాల్లో అంగీకరించండి లేదా తిరస్కరించండి. ACCEPTED → పిక్ జాబితా ప్రింట్ చేయండి, వస్తువులు ప్యాక్ చేయండి. స్టాక్ అయిపోయిన వస్తువు ఉంటే: ఆర్డర్ సవరించి కస్టమర్‌కు తెలియజేయండి. PACKED → డెలివరీ నియమించండి. DELIVERED → పూర్తి.',
+          en: 'Pending COD → Confirm (call the customer if needed). Confirmed → Mark Processing while packing. Processing/Ready → Mark Delivered once handed over. COD orders: collect the total at the door — it is marked paid automatically on delivery. Razorpay orders arrive already paid and confirmed. Cancelling at any stage before delivery returns the reserved stock to the shelf automatically.',
+          te: 'Pending COD → నిర్ధారించండి (అవసరమైతే కస్టమర్‌కు కాల్ చేయండి). Confirmed → ప్యాక్ చేసేటప్పుడు Processing గుర్తించండి. అందజేసిన తర్వాత Delivered గుర్తించండి. COD ఆర్డర్లు: డోర్ వద్ద మొత్తం వసూలు చేయండి. Razorpay ఆర్డర్లు ముందే చెల్లించబడతాయి. డెలివరీకి ముందు రద్దు చేస్తే స్టాక్ ఆటోమేటిక్‌గా తిరిగి వస్తుంది.',
+        },
+      },
+      {
+        title: { en: 'Editing an order (add / remove / change items)', te: 'ఆర్డర్ సవరించడం (వస్తువులు జోడించడం / తీసివేయడం / మార్చడం)' },
+        body: {
+          en: 'Open the order and use the +/− buttons to change quantities, the trash button to remove an item (tap twice to confirm), or "Add Item" to search and add a product. Stock is adjusted automatically with every change, existing items keep the price agreed when the order was placed, and the customer gets a WhatsApp with the new total. Every edit is recorded in the History panel — nothing changes silently. Orders can be edited from Confirmed until Delivered.',
+          te: 'ఆర్డర్ తెరిచి +/− బటన్లతో పరిమాణం మార్చండి, వస్తువు తీసివేయడానికి ట్రాష్ బటన్ (నిర్ధారించడానికి రెండుసార్లు నొక్కండి), లేదా "Add Item" తో కొత్త వస్తువు జోడించండి. ప్రతి మార్పుతో స్టాక్ ఆటోమేటిక్‌గా సర్దుబాటు అవుతుంది, కస్టమర్‌కు కొత్త మొత్తంతో WhatsApp వెళుతుంది. ప్రతి మార్పు History ప్యానెల్‌లో నమోదు అవుతుంది.',
+        },
+      },
+      {
+        title: { en: 'Wallet settlement on paid orders', te: 'చెల్లించిన ఆర్డర్లలో వాలెట్ సర్దుబాటు' },
+        body: {
+          en: 'If a customer already paid online (Razorpay) and an edit makes the total SMALLER, the difference is automatically credited to their Store Wallet — no bank refund needed. They can use it on any future purchase; you can see and redeem it from their Customer 360 page. If an edit makes the total BIGGER, the order shows "Collect at delivery ₹X" and it prints on the order slip so the delivery person knows to collect it.',
+          te: 'కస్టమర్ ఆన్‌లైన్‌లో (Razorpay) ముందే చెల్లించి, సవరణ వల్ల మొత్తం తగ్గితే — తేడా ఆటోమేటిక్‌గా వారి స్టోర్ వాలెట్‌కు జమ అవుతుంది, బ్యాంక్ రీఫండ్ అవసరం లేదు. భవిష్యత్ కొనుగోళ్లలో వాడుకోవచ్చు. మొత్తం పెరిగితే "Collect at delivery ₹X" ఆర్డర్‌పై చూపబడుతుంది మరియు స్లిప్‌పై ప్రింట్ అవుతుంది.',
+        },
+      },
+      {
+        title: { en: 'Picking list, packer assignment & delivery slot', te: 'పికింగ్ జాబితా, ప్యాకర్ నియామకం & డెలివరీ స్లాట్' },
+        body: {
+          en: '"Picking List" prints a tick-box checklist sorted by shelf location (bin code / aisle-rack), so the packer walks the store in one pass. "Assigned to" records who is packing or delivering — it prints on the picking list. The delivery slot can be edited with the pencil icon if the customer asks for a different time; the change is logged in History.',
+          te: '"Picking List" షెల్ఫ్ స్థానం ప్రకారం క్రమబద్ధీకరించిన చెక్‌లిస్ట్ ప్రింట్ చేస్తుంది — ప్యాకర్ ఒకే రౌండ్‌లో దుకాణం అంతా తిరగవచ్చు. "Assigned to" ఎవరు ప్యాక్/డెలివరీ చేస్తున్నారో నమోదు చేస్తుంది. కస్టమర్ వేరే సమయం అడిగితే పెన్సిల్ ఐకాన్‌తో డెలివరీ స్లాట్ మార్చవచ్చు.',
         },
       },
     ],
+    commonMistakes: [
+      {
+        mistake: { en: 'Refunding a paid order difference by cash or bank transfer after removing an item', te: 'వస్తువు తీసివేసిన తర్వాత నగదు లేదా బ్యాంక్ ద్వారా రీఫండ్ చేయడం' },
+        fix: { en: 'You do not need to — the difference is already credited to the customer\'s Store Wallet automatically. Check the order\'s Payment card: "Wallet credited ₹X". Refunding again would pay the customer twice.', te: 'అవసరం లేదు — తేడా ఆటోమేటిక్‌గా కస్టమర్ స్టోర్ వాలెట్‌కు జమ అయింది. ఆర్డర్ Payment కార్డ్ చూడండి: "Wallet credited ₹X". మళ్లీ రీఫండ్ చేస్తే కస్టమర్‌కు రెండుసార్లు చెల్లించినట్లే.' },
+      },
+      {
+        mistake: { en: 'Removing every item to cancel an order', te: 'ఆర్డర్ రద్దు చేయడానికి అన్ని వస్తువులు తీసివేయడం' },
+        fix: { en: 'The last item cannot be removed. Use the Cancel Order button instead — it releases all reserved stock and notifies the customer properly.', te: 'చివరి వస్తువు తీసివేయలేరు. బదులుగా Cancel Order బటన్ వాడండి — ఇది రిజర్వ్ చేసిన స్టాక్ మొత్తం విడుదల చేసి కస్టమర్‌కు సరిగ్గా తెలియజేస్తుంది.' },
+      },
+    ],
     relatedTopics: ['pos', 'bills', 'customers'],
-    tags: ['online-orders', 'storefront', 'delivery', 'razorpay', 'cod'],
+    tags: ['online-orders', 'storefront', 'delivery', 'razorpay', 'cod', 'wallet', 'picking-list', 'edit-order'],
   },
 
   // ── Estimates ──────────────────────────────────────────────────────────────

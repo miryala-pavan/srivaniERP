@@ -55,6 +55,7 @@ import { GstModule } from './gst/gst.module';
 import { TdsModule } from './tds/tds.module';
 import { LedgerApiModule } from './ledger/ledger-api.module';
 import { HistoryModule } from './history/history.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
   controllers: [AppController],
@@ -100,6 +101,7 @@ import { HistoryModule } from './history/history.module';
     TdsModule,
     LedgerApiModule,
     HistoryModule,
+    WalletModule,
 
     // Platform Core (Phase 0)
     HelpModule,

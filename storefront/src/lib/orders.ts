@@ -76,6 +76,13 @@ export interface OnlineOrder {
     total: number;
     mrp: number | null;
   }[];
+  // Present when the store edited the order after payment: wallet refunds
+  // and any balance still to pay at delivery.
+  settlement?: {
+    amountPaid: number;
+    walletCredited: number;
+    dueAmount: number;
+  };
 }
 
 export async function createOrder(

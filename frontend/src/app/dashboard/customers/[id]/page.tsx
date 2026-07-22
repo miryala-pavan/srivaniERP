@@ -371,6 +371,38 @@ export default function CustomerDetailPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to send reminder'),
   });
 
+  // ── Wallet ───────────────────────────────────────────────────────────────────
+
+  const { data: wallet } = useQuery<{ balance: number }>({
+    queryKey: ['wallet', id],
+    queryFn: () => api.get(`/wallet/${id}`).then(r => r.data),
+    enabled: !!id,
+  });
+
+  const { data: walletTxns } = useQuery<{ items: any[]; total: number }>({
+    queryKey: ['wallet-txns', id],
+    queryFn: () => api.get(`/wallet/${id}/transactions`, { params: { limit: 5 } }).then(r => r.data),
+    enabled: !!id,
+  });
+
+  const [walletModal, setWalletModal] = useState<'CREDIT' | 'DEBIT' | null>(null);
+  const [walletAmount, setWalletAmount] = useState('');
+  const [walletReason, setWalletReason] = useState('');
+
+  const walletAdjust = useMutation({
+    mutationFn: () => api.post(`/wallet/${id}/${walletModal === 'CREDIT' ? 'credit' : 'debit'}`, {
+      amount: parseFloat(walletAmount),
+      reason: walletReason.trim(),
+    }),
+    onSuccess: () => {
+      toast.success(walletModal === 'CREDIT' ? 'Wallet credited' : 'Wallet debited');
+      setWalletModal(null); setWalletAmount(''); setWalletReason('');
+      qc.invalidateQueries({ queryKey: ['wallet', id] });
+      qc.invalidateQueries({ queryKey: ['wallet-txns', id] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Wallet adjustment failed'),
+  });
+
   const toggleActive = useMutation({
     mutationFn: (active: boolean) =>
       active ? api.patch(`/customers/${id}/activate`) : api.patch(`/customers/${id}/deactivate`),
@@ -1237,6 +1269,52 @@ export default function CustomerDetailPage() {
               </dl>
             </div>
 
+            {/* Wallet */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center shrink-0">
+                  <Wallet className="w-3.5 h-3.5 text-purple-500" />
+                </div>
+                <h3 className="text-sm font-semibold text-gray-800">Store Wallet</h3>
+              </div>
+              <p className="text-2xl font-semibold text-gray-800 tracking-tight"
+                 title="Store credit the customer can use on future purchases — built up from order-edit refunds and manual credits">
+                Rs. {inr(wallet?.balance ?? 0)}
+              </p>
+              {(walletTxns?.items?.length ?? 0) > 0 && (
+                <div className="space-y-1.5 pt-1 border-t border-gray-50">
+                  {walletTxns!.items.map((t: any) => (
+                    <div key={t.id} className="flex items-start justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <p className="text-gray-600 truncate" title={t.reason}>{t.reason}</p>
+                        <p className="text-[10px] text-gray-400">{fmtDate(t.createdAt)}</p>
+                      </div>
+                      <span className={`font-semibold shrink-0 ${t.type === 'CREDIT' ? 'text-green-600' : 'text-red-500'}`}>
+                        {t.type === 'CREDIT' ? '+' : '−'}₹{inr(n(t.amount))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setWalletModal('CREDIT')}
+                  title="Add store credit (goodwill, correction, promotion) — managers only"
+                  className="flex-1 px-2 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-100 rounded-lg hover:bg-green-100 transition-colors"
+                >
+                  + Credit
+                </button>
+                <button
+                  onClick={() => setWalletModal('DEBIT')}
+                  disabled={(wallet?.balance ?? 0) <= 0}
+                  title="Deduct wallet balance — e.g. customer used it against a purchase at the counter"
+                  className="flex-1 px-2 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100 disabled:opacity-40 transition-colors"
+                >
+                  − Redeem
+                </button>
+              </div>
+            </div>
+
             {/* B2B details */}
             {customer.customerType === 'B2B' && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 space-y-3">
@@ -1754,6 +1832,73 @@ export default function CustomerDetailPage() {
             >
               Done
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Wallet adjust modal */}
+      {walletModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setWalletModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2 rounded-lg ${walletModal === 'CREDIT' ? 'bg-green-50' : 'bg-red-50'}`}>
+                  <Wallet className={`w-4 h-4 ${walletModal === 'CREDIT' ? 'text-green-600' : 'text-red-500'}`} />
+                </div>
+                <h2 className="text-base font-semibold text-gray-900">
+                  {walletModal === 'CREDIT' ? 'Add Wallet Credit' : 'Redeem from Wallet'}
+                </h2>
+              </div>
+              <button onClick={() => setWalletModal(null)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              {walletModal === 'CREDIT'
+                ? 'Adds store credit the customer can use on future purchases. Use for goodwill, corrections, or promotions. Every entry is logged.'
+                : `Current balance: Rs. ${inr(wallet?.balance ?? 0)}. Use when the customer redeems wallet balance against a purchase at the counter.`}
+            </p>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Amount (₹)</label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={walletAmount}
+                onChange={e => setWalletAmount(e.target.value)}
+                placeholder="0.00"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reason</label>
+              <input
+                value={walletReason}
+                onChange={e => setWalletReason(e.target.value)}
+                placeholder={walletModal === 'CREDIT' ? 'e.g. Goodwill for delayed delivery' : 'e.g. Redeemed against bill GST/2026-27/0123'}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setWalletModal(null)}
+                className="flex-1 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => walletAdjust.mutate()}
+                disabled={walletAdjust.isPending || !(parseFloat(walletAmount) > 0) || !walletReason.trim()}
+                className={`flex-1 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors ${
+                  walletModal === 'CREDIT' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {walletAdjust.isPending ? 'Saving…' : walletModal === 'CREDIT' ? 'Add Credit' : 'Redeem'}
+              </button>
+            </div>
           </div>
         </div>
       )}
