@@ -1344,9 +1344,10 @@ export class WhatsAppService implements OnModuleInit {
   // ── Store notification ──────────────────────────────────────────────────────
 
   /**
-   * Template: svn_new_order (previously "test_order")
-   * Body: Hello! New order {{1}} from {{2}} ({{3}}).
-   *       Items: {{4}} | Total: ₹{{5}} | {{6}} | {{7}}
+   * Template: svn_new_order_v2 — store-owner alert (sent to
+   * WA_STORE_NOTIFY_NUMBER) whenever a new online order is placed.
+   * Body params: {{1}}=order#, {{2}}=customer, {{3}}=phone, {{4}}=item
+   * count, {{5}}=total, {{6}}=payment mode, {{7}}=delivery type.
    */
   async sendOrderAlert(businessId: string, order: {
     orderNumber: string;
@@ -1365,7 +1366,7 @@ export class WhatsAppService implements OnModuleInit {
     }
     const delivery = order.deliveryType === 'HOME_DELIVERY' ? 'Home Delivery' : 'Store Pickup';
     const payment  = order.paymentMethod === 'COD' ? 'Cash on Delivery' : 'Online Paid';
-    await this.sendTemplate(businessId, to, 'test_order', [
+    await this.sendTemplate(businessId, to, 'svn_new_order_v2', [
       order.orderNumber,
       order.customerName,
       order.customerPhone,
