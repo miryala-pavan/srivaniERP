@@ -415,7 +415,7 @@ export default function SupplierDetailPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <button
-                onClick={() => router.push(`/dashboard/grn/new?supplierId=${supplier.id}`)}
+                onClick={() => router.push('/dashboard/grn/v2')}
                 className="px-3 py-1.5 text-sm bg-[#1B4F8A] text-white rounded-lg hover:bg-[#163d6e] font-medium"
               >
                 Create GRN

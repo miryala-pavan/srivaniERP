@@ -9,6 +9,7 @@ import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { openInNewWindow } from '@/lib/new-window';
 import { FieldHelp } from '@/components/ui/FieldHelp';
+import { calcBaseUnitQty, deriveUqc } from '@/lib/units';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,10 @@ interface GrnItem {
   mrp: number; sellingPrice: number; cessRate: number;
   batchNumber: string; expiryDate: string;
   rejectedQty: number; rejectionReason: string;
+  // Unit-of-measure — carried forward from the product's existing default PLU (if any) so
+  // Count-type case products (ctn/box/bag/...) get the simplified Cases-received UI below.
+  hasExistingUnitInfo?: boolean;
+  measureType?: string; unitSymbol?: string; unitSize?: number; baseUnitQty?: number; gstUqc?: string;
 }
 
 interface Adj {
@@ -97,6 +102,13 @@ const r6 = (x: number) => Math.round(x * 1000000) / 1000000;
 const n = (v: unknown) => Number(v) || 0;
 const inr = (v: number) =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+
+// Count-type PLUs whose unit is a variable-size pack (ctn/box/bag/...) rather than a single
+// piece (pcs/nos/unt) — these receive as whole cases, not case×packSize-flattened pieces.
+const PIECE_UNIT_SYMBOLS = ['pcs', 'nos', 'unt'];
+function isCaseLine(it: GrnItem): boolean {
+  return it.measureType === 'COUNT' && !!it.unitSymbol && !PIECE_UNIT_SYMBOLS.includes(it.unitSymbol);
+}
 
 function calcItem(item: GrnItem, taxType: string, isInterState: boolean) {
   const totalReceivedQty = (item.casesReceived || 0) * (item.packSize || 1) + (item.looseQty || 0);
@@ -547,6 +559,12 @@ export default function GrnV2Page() {
             expiryDate:      it.expiryDate ? String(it.expiryDate).split('T')[0] : '',
             rejectedQty:     Number(it.rejectedQty ?? 0),
             rejectionReason: it.rejectionReason ?? '',
+            hasExistingUnitInfo: !!it.measureType,
+            measureType: it.measureType ?? undefined,
+            unitSymbol:  it.unitSymbol  ?? undefined,
+            unitSize:    it.unitSize    != null ? Number(it.unitSize)    : undefined,
+            baseUnitQty: it.baseUnitQty != null ? Number(it.baseUnitQty) : undefined,
+            gstUqc:      it.gstUqc      ?? undefined,
           };
         });
 
@@ -897,6 +915,7 @@ export default function GrnV2Page() {
       lastRatesCache.current[p.id] = r.data ?? [];
       lastRate = r.data?.[0] ?? null;
     } catch {}
+    const existingUnits = await api.get(`/products/${p.id}/default-plu-units`).then(r => r.data).catch(() => null);
     const dbRate = n(p.gstRatePercent);
     setPanelItem({
       productId: p.id,
@@ -917,6 +936,9 @@ export default function GrnV2Page() {
       sellingPrice: lastRate?.sellingPrice ?? n(p.sellingPrice),
       cessRate: lastRate?.cessRate ?? n(p.cessRate),
       batchNumber: '', expiryDate: '', rejectedQty: 0, rejectionReason: '',
+      hasExistingUnitInfo: !!existingUnits,
+      measureType: existingUnits?.measureType, unitSymbol: existingUnits?.unitSymbol,
+      unitSize: existingUnits?.unitSize, baseUnitQty: existingUnits?.baseUnitQty, gstUqc: existingUnits?.gstUqc,
     });
     setPairMaster({ trade: 'pct', scheme: 'pct', cash: 'pct' });
     // Seed the allowed-set if this product is already flagged to skip the margin rule
@@ -1162,6 +1184,11 @@ export default function GrnV2Page() {
           expiryDate:        it.expiryDate        || undefined,
           rejectedQty:       it.rejectedQty       || undefined,
           rejectionReason:   it.rejectionReason   || undefined,
+          measureType: it.measureType || undefined,
+          unitSymbol: it.unitSymbol || undefined,
+          unitSize: it.unitSize || undefined,
+          baseUnitQty: it.unitSymbol && it.unitSize ? calcBaseUnitQty(it.unitSymbol, it.unitSize) : undefined,
+          gstUqc: it.unitSymbol ? (deriveUqc(it.unitSymbol) ?? undefined) : undefined,
         })),
       };
       let savedId = grnId;
@@ -1718,54 +1745,99 @@ export default function GrnV2Page() {
                   <div className="min-w-[920px] space-y-2">
 
                     {/* ROW A: Quantities */}
-                    <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 pt-2 pb-2.5">
-                      <div className="grid grid-cols-6 gap-2 mb-1.5">
-                        {['Cases', 'Pack Size', 'Loose Qty', 'Free Cases', 'Free Loose', 'Rcvd Qty'].map((l) => (
-                          <label key={l} className="text-[11px] font-bold text-blue-700 text-center uppercase tracking-wider">{l}</label>
-                        ))}
+                    {isCaseLine(panelItem) ? (
+                      <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 pt-2 pb-2.5">
+                        <div className="grid grid-cols-4 gap-2 mb-1.5">
+                          {['Cases Received', 'Pieces / Case', 'Free Cases', 'Rcvd Qty (cases)'].map((l) => (
+                            <label key={l} className="text-[11px] font-bold text-blue-700 text-center uppercase tracking-wider">{l}</label>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-4 gap-2">
+                          <input ref={firstPanelInputRef} type="number" min="0" step="1"
+                            value={panelItem.casesReceived === 0 ? '' : panelItem.casesReceived}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              updatePanel({ casesReceived: isNaN(v) ? 0 : Math.max(0, v) });
+                            }}
+                            className={fiCenter}
+                            placeholder="0"
+                          />
+                          <input type="number" min="1" step="1"
+                            value={panelItem.unitSize || ''}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              updatePanel({ unitSize: isNaN(v) || v < 1 ? undefined : v });
+                            }}
+                            className={fiCenter}
+                            placeholder="e.g. 24"
+                          />
+                          <input type="number" min="0" step="1"
+                            value={panelItem.freeCases || ''}
+                            onChange={(e) => updatePanel({ freeCases: Number(e.target.value) || 0 })}
+                            className={fiCenter}
+                            placeholder="0"
+                          />
+                          <div className={`${fiCenter} !bg-blue-100 !border-blue-400 !text-blue-900 font-bold text-base`}>
+                            {panelCalc?.totalReceivedQty ?? 0}
+                          </div>
+                        </div>
+                        <p className="text-xs text-blue-700 mt-1.5 font-medium">
+                          = {((panelItem.casesReceived || 0) * (panelItem.unitSize || 0)).toLocaleString('en-IN')} pcs total (at {panelItem.unitSize || '?'}/case) — check against the supplier invoice
+                        </p>
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          Stock is tracked by case count, not pieces. If the supplier billed you in loose pieces instead of cases, add this product's Piece PLU as a separate line instead.
+                        </p>
                       </div>
-                      <div className="grid grid-cols-6 gap-2">
-                        <input ref={firstPanelInputRef} type="number" min="0" step="1"
-                          value={panelItem.casesReceived === 0 ? '' : panelItem.casesReceived}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            updatePanel({ casesReceived: isNaN(v) ? 0 : Math.max(0, v) });
-                          }}
-                          className={fiCenter}
-                          placeholder="0 = loose only"
-                        />
-                        <input type="number" min="1" step="1"
-                          value={panelItem.packSize === 1 ? '' : panelItem.packSize}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            updatePanel({ packSize: isNaN(v) || v < 1 ? 1 : v });
-                          }}
-                          className={fiCenter}
-                          placeholder="1"
-                        />
-                        <input type="number" min="0" step="0.001"
-                          value={panelItem.looseQty || ''}
-                          onChange={(e) => updatePanel({ looseQty: Number(e.target.value) || 0 })}
-                          className={fiCenter}
-                          placeholder="0"
-                        />
-                        <input type="number" min="0" step="1"
-                          value={panelItem.freeCases || ''}
-                          onChange={(e) => updatePanel({ freeCases: Number(e.target.value) || 0 })}
-                          className={fiCenter}
-                          placeholder="0"
-                        />
-                        <input type="number" min="0" step="0.001"
-                          value={panelItem.freeLoose || ''}
-                          onChange={(e) => updatePanel({ freeLoose: Number(e.target.value) || 0 })}
-                          className={fiCenter}
-                          placeholder="0"
-                        />
-                        <div className={`${fiCenter} !bg-blue-100 !border-blue-400 !text-blue-900 font-bold text-base`}>
-                          {panelCalc?.totalReceivedQty ?? 0}
+                    ) : (
+                      <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 pt-2 pb-2.5">
+                        <div className="grid grid-cols-6 gap-2 mb-1.5">
+                          {['Cases', 'Pack Size', 'Loose Qty', 'Free Cases', 'Free Loose', 'Rcvd Qty'].map((l) => (
+                            <label key={l} className="text-[11px] font-bold text-blue-700 text-center uppercase tracking-wider">{l}</label>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-6 gap-2">
+                          <input ref={firstPanelInputRef} type="number" min="0" step="1"
+                            value={panelItem.casesReceived === 0 ? '' : panelItem.casesReceived}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              updatePanel({ casesReceived: isNaN(v) ? 0 : Math.max(0, v) });
+                            }}
+                            className={fiCenter}
+                            placeholder="0 = loose only"
+                          />
+                          <input type="number" min="1" step="1"
+                            value={panelItem.packSize === 1 ? '' : panelItem.packSize}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              updatePanel({ packSize: isNaN(v) || v < 1 ? 1 : v });
+                            }}
+                            className={fiCenter}
+                            placeholder="1"
+                          />
+                          <input type="number" min="0" step="0.001"
+                            value={panelItem.looseQty || ''}
+                            onChange={(e) => updatePanel({ looseQty: Number(e.target.value) || 0 })}
+                            className={fiCenter}
+                            placeholder="0"
+                          />
+                          <input type="number" min="0" step="1"
+                            value={panelItem.freeCases || ''}
+                            onChange={(e) => updatePanel({ freeCases: Number(e.target.value) || 0 })}
+                            className={fiCenter}
+                            placeholder="0"
+                          />
+                          <input type="number" min="0" step="0.001"
+                            value={panelItem.freeLoose || ''}
+                            onChange={(e) => updatePanel({ freeLoose: Number(e.target.value) || 0 })}
+                            className={fiCenter}
+                            placeholder="0"
+                          />
+                          <div className={`${fiCenter} !bg-blue-100 !border-blue-400 !text-blue-900 font-bold text-base`}>
+                            {panelCalc?.totalReceivedQty ?? 0}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* ROW B: Pricing — 8 equal columns, auto-resize with screen */}
                     <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 pt-2 pb-2.5">

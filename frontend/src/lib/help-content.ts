@@ -230,7 +230,7 @@ export const HELP_CONTENT: HelpEntry[] = [
 
   // ── GRN — New Entry ────────────────────────────────────────────────────────
   {
-    id: 'grn-new', route: '/dashboard/grn/new', module: 'purchasing', version: '2.0',
+    id: 'grn-new', route: '/dashboard/grn/v2', module: 'purchasing', version: '2.0',
     title: { en: 'New GRN — Stock Entry', te: 'కొత్త GRN — స్టాక్ ఎంట్రీ' },
     summary: {
       en: 'Create a GRN when goods arrive directly (no Purchase Order). Enter the supplier invoice details, then add each line item with quantity, cost, and GST. Save as Draft, verify physically, then Approve to push stock into the system.',
