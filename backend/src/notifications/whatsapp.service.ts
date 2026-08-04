@@ -900,6 +900,9 @@ export class WhatsAppService implements OnModuleInit {
     if (selection === 'WA_TALK_STAFF')     return this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
     if (selection === 'WA_BROWSE_STORE')   return this.autoReplyText(businessId, phone, `🛒 Browse and order online here: ${process.env.SHOP_URL ?? 'https://shop.srivani.com'}`);
     if (selection === 'WA_STORE_LOCATION') return this.autoReplyStoreLocation(businessId, phone);
+    // No product name attached to a menu tap — prompt for one, then the reply
+    // arrives as free text and flows through autoReplyProductSearch below.
+    if (selection === 'WA_CHECK_STOCK')    return this.autoReplyText(businessId, phone, 'Sure! Just type the product name (e.g. "Ashirwad Atta") and I\'ll check the price and stock for you. 🔍');
 
     const body = exact;
     if (/order|status|track/.test(body)) return this.autoReplyOrderStatus(businessId, phone);
@@ -925,26 +928,50 @@ export class WhatsAppService implements OnModuleInit {
     'good morning', 'good afternoon', 'good evening', 'good night', 'gm', 'gn',
   ]);
 
+  // Enquiry words stripped out before searching — suggest() does a plain substring
+  // match against the product name, which never contains words like "price" or
+  // "stock", so "ashirwad atta price" has to become "ashirwad atta" first or it
+  // would never match anything despite looking exactly like a product query.
+  private static readonly ENQUIRY_WORDS =
+    /\b(price|prices|pricing|cost|costs|rate|rates|stock|stocks|available|availability|have|got|any|there|is|do|of|for|in|the|a|an)\b/gi;
+
   /**
    * Free-text product search fallback: "do you have X" / "price of Y" style
-   * messages. Reuses ShopService.suggest() — the same online-scoped search
-   * that powers the storefront's own search bar — so results are guaranteed
-   * to be products a customer can actually order. Returns true (and sends a
-   * reply) only when at least one match is found; on zero matches it does
-   * nothing and lets the message fall through to the human inbox, same as
-   * any other unmatched message today — a bot-generated "no results" reply
-   * would just be noise for the many messages that were never product
-   * queries in the first place.
+   * messages. Strips enquiry filler words first (see ENQUIRY_WORDS), then reuses
+   * ShopService.suggest() — the same online-scoped search that powers the
+   * storefront's own search bar — so results are guaranteed to be products a
+   * customer can actually order. Returns true (and sends a reply) only when at
+   * least one match is found; on zero matches it does nothing and lets the
+   * message fall through to the human inbox, same as any other unmatched
+   * message today — a bot-generated "no results" reply would just be noise for
+   * the many messages that were never product queries in the first place.
    */
   private async autoReplyProductSearch(businessId: string, phone: string, query: string): Promise<boolean> {
     const trimmed = query.trim();
     if (trimmed.length < 3 || WhatsAppService.SEARCH_STOPLIST.has(trimmed.toLowerCase())) return false;
 
-    const { products } = await this.shop.suggest(trimmed, 3);
+    const searchTerm = trimmed.replace(WhatsAppService.ENQUIRY_WORDS, ' ').replace(/\s+/g, ' ').trim();
+    if (searchTerm.length < 3) return false;
+
+    const { products } = await this.shop.suggest(searchTerm, 3);
     if (products.length === 0) return false;
 
+    // Stock is deliberately shown as In stock / Out of stock only, never the exact
+    // quantity — suggest() is the shared storefront-autocomplete query and doesn't
+    // expose counts, so this is a separate lookup scoped to just the matched codes.
+    const stockByCode = new Map(
+      (await this.prisma.product.findMany({
+        where: { businessId, productCode: { in: products.map(p => p.code) } },
+        select: { productCode: true, totalStock: true },
+      })).map(p => [p.productCode, Number(p.totalStock) > 0]),
+    );
+
     const shopUrl = process.env.SHOP_URL ?? 'https://shop.srivani.com';
-    const lines = products.map(p => `🛍️ *${p.name}* — ₹${p.sellingPrice}\n${shopUrl}/product/${p.code}`);
+    const lines = products.map(p => {
+      const inStock = stockByCode.get(p.code);
+      const stockLine = inStock === undefined ? '' : inStock ? '✅ In stock' : '❌ Out of stock';
+      return `🛍️ *${p.name}* — ₹${p.sellingPrice}\n${stockLine}\n${shopUrl}/product/${p.code}`;
+    });
     const header = products.length === 1 ? "Here's what we found:" : `Found ${products.length} matching products:`;
     await this.autoReplyText(businessId, phone, `${header}\n\n${lines.join('\n\n')}`);
     return true;
@@ -986,6 +1013,7 @@ export class WhatsAppService implements OnModuleInit {
       'Menu',
       [
         { id: 'WA_TRACK_ORDER',  title: 'Track Order',   description: 'Check the status of your latest order' },
+        { id: 'WA_CHECK_STOCK',   title: 'Price / Stock',  description: 'Check a product\'s price and availability' },
         { id: 'WA_BROWSE_STORE',   title: 'Browse Store',   description: `Shop online at ${shopHost}` },
         { id: 'WA_STORE_HOURS',    title: 'Store Hours',    description: 'When we\'re open' },
         { id: 'WA_STORE_LOCATION', title: 'Store Location', description: 'Get directions to our store' },
