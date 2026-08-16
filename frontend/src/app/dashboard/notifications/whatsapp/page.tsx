@@ -24,7 +24,10 @@ interface WaTemplate {
   category: string;
   language: string;
   rejected_reason?: string;
-  components: Array<{ type: string; text?: string; format?: string }>;
+  components: Array<{
+    type: string; text?: string; format?: string;
+    buttons?: Array<{ type: string; text?: string; url?: string }>;
+  }>;
 }
 
 const CATEGORIES = ['UTILITY', 'MARKETING', 'AUTHENTICATION'] as const;
@@ -198,7 +201,7 @@ export default function WhatsAppTemplatesPage() {
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [syncingGoogle, setSyncingGoogle] = useState(false);
   const [sendModal, setSendModal]     = useState<({
-    template: WaTemplate; params: string[]; sending: boolean;
+    template: WaTemplate; params: string[]; urlButtonParam: string; sending: boolean;
   } & ({ mode: 'single'; phone: string } | { mode: 'bulk'; ids: string[] })) | null>(null);
 
   // Message log
@@ -701,8 +704,19 @@ export default function WhatsAppTemplatesPage() {
     return nums.length ? Math.max(...nums) : 0;
   }
 
+  // Some templates (e.g. svn_history_link) have a URL button with its own
+  // dynamic {{1}} suffix — a separate variable slot from the body's, on a
+  // different Meta API component entirely. Sending the body param alone
+  // (what varCount/params covers) is not enough for these; Meta rejects the
+  // whole send with "(#131008) Required parameter is missing" if this one
+  // is left out. Detect it so the modal can ask for it too.
+  function hasDynamicUrlButton(t: WaTemplate): boolean {
+    const buttons = t.components.find(c => c.type === 'BUTTONS')?.buttons ?? [];
+    return buttons.some(b => b.type === 'URL' && /\{\{\d+\}\}/.test(b.url ?? ''));
+  }
+
   function openSendModal(t: WaTemplate) {
-    setSendModal({ mode: 'single', template: t, phone: testPhone || '', params: Array(varCount(t)).fill(''), sending: false });
+    setSendModal({ mode: 'single', template: t, phone: testPhone || '', params: Array(varCount(t)).fill(''), urlButtonParam: '', sending: false });
   }
 
   function openSendModalForPhone(t: WaTemplate, phone: string, prefillName?: string) {
@@ -712,7 +726,7 @@ export default function WhatsAppTemplatesPage() {
     // just saves re-typing a name the chat already knows, it's not assumed
     // correct for every template.
     if (prefillName && params.length > 0) params[0] = prefillName;
-    setSendModal({ mode: 'single', template: t, phone, params, sending: false });
+    setSendModal({ mode: 'single', template: t, phone, params, urlButtonParam: '', sending: false });
   }
 
   // Contacts tab bulk action: same shared modal, template picked automatically
@@ -724,7 +738,7 @@ export default function WhatsAppTemplatesPage() {
       toast.error('No approved templates yet — add one in Settings → Templates first');
       return;
     }
-    setSendModal({ mode: 'bulk', template: approved[0], ids, params: Array(varCount(approved[0])).fill(''), sending: false });
+    setSendModal({ mode: 'bulk', template: approved[0], ids, params: Array(varCount(approved[0])).fill(''), urlButtonParam: '', sending: false });
   }
 
   // New Chat (Chat tab): a number with no message history has no open 24h
@@ -756,6 +770,12 @@ export default function WhatsAppTemplatesPage() {
   async function sendFromModal() {
     if (!sendModal) return;
     if (sendModal.mode === 'single' && !sendModal.phone.trim()) return toast.error('Enter a phone number');
+    if (hasDynamicUrlButton(sendModal.template) && sendModal.mode === 'bulk') {
+      return toast.error(`"${sendModal.template.name}" has a per-recipient link (e.g. a unique token) — bulk-send doesn't support that yet. Send it one contact at a time instead.`);
+    }
+    if (hasDynamicUrlButton(sendModal.template) && !sendModal.urlButtonParam.trim()) {
+      return toast.error('This template\'s button needs a link value too — Meta will reject the send without it.');
+    }
     setSendModal(m => m ? { ...m, sending: true } : null);
     try {
       if (sendModal.mode === 'bulk') {
@@ -774,6 +794,7 @@ export default function WhatsAppTemplatesPage() {
         template: sendModal.template.name,
         language: sendModal.template.language,
         params:   sendModal.params,
+        urlButtonParam: sendModal.urlButtonParam.trim() || undefined,
       });
       if (data?.ok) {
         toast.success(`"${sendModal.template.name}" sent to ${data.to}`);
@@ -1901,7 +1922,7 @@ export default function WhatsAppTemplatesPage() {
                     if (!m) return null;
                     const params = Array(varCount(t)).fill('');
                     if (params.length > 0 && m.params[0]) params[0] = m.params[0];
-                    return { ...m, template: t, params };
+                    return { ...m, template: t, params, urlButtonParam: '' };
                   });
                 }}
               >
@@ -1936,6 +1957,16 @@ export default function WhatsAppTemplatesPage() {
               </>
             )}
           </div>
+
+          {hasDynamicUrlButton(sendModal.template) && (
+            <div>
+              <label className="label text-sm">Link value (goes into the button's URL)</label>
+              <input className="input text-sm" placeholder="e.g. a customer's unique token/ID"
+                value={sendModal.urlButtonParam}
+                onChange={e => setSendModal(m => m ? { ...m, urlButtonParam: e.target.value } : null)} />
+              <p className="text-xs text-gray-400 mt-1">This template's button links to a per-recipient page — Meta requires this value or the whole send is rejected.</p>
+            </div>
+          )}
 
           {sendModal.params.length > 0 && (
             <div className="space-y-2">

@@ -139,13 +139,14 @@ export class NotificationsController {
 
   @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Post('whatsapp/send-template')
-  sendTemplate(@Request() req: any, @Body() body: { phone: string; template: string; language?: string; params?: string[] }) {
+  sendTemplate(@Request() req: any, @Body() body: { phone: string; template: string; language?: string; params?: string[]; urlButtonParam?: string }) {
     return this.whatsapp.sendTemplateToNumber(
       req.user.businessId,
       body.phone,
       body.template,
       body.language ?? 'en',
       body.params ?? [],
+      body.urlButtonParam,
     );
   }
 
