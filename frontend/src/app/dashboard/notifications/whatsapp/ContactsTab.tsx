@@ -21,7 +21,7 @@ interface Conversation {
 }
 
 interface ContactsTabProps {
-  onOpenContact: (phone: string, hasThread: boolean) => void;
+  onOpenContact: (phone: string, hasThread: boolean, name?: string) => void;
   onBulkSend: (ids: string[]) => void;
 }
 
@@ -233,7 +233,7 @@ export default function ContactsTab({ onOpenContact, onBulkSend }: ContactsTabPr
                     <RefreshCw size={12} />
                   </button>
                   <button
-                    onClick={() => c.phone && onOpenContact(c.phone, hasThread)}
+                    onClick={() => c.phone && onOpenContact(c.phone, hasThread, c.name)}
                     disabled={!c.phone}
                     className="shrink-0 flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-green-200 text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >

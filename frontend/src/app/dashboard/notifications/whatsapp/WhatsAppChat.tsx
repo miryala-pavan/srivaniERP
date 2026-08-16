@@ -181,7 +181,7 @@ interface WhatsAppChatProps {
    * an approved template for a number with no open session) pre-filled with
    * the given phone, then selects that conversation here so the existing
    * wa.message.sent listener below picks up the send once it lands. */
-  onStartNewChat?: (phone: string) => void;
+  onStartNewChat?: (phone: string, name?: string) => void;
 }
 
 export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
@@ -1060,7 +1060,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                     <>
                       <p className="text-xs mt-1 max-w-xs mx-auto">This number hasn't messaged you, so Meta requires an approved template to start the conversation.</p>
                       <button
-                        onClick={() => onStartNewChat?.(selectedPhone!)}
+                        onClick={() => onStartNewChat?.(selectedPhone!, contact?.name ?? selectedConv?.customerName ?? undefined)}
                         className="btn-primary text-xs px-3 py-1.5 mt-3 inline-flex items-center gap-1.5"
                       >
                         <MessageSquarePlus size={13} /> Send a Template
@@ -1153,7 +1153,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                   Session closed — the customer hasn't messaged in 24h. Send an approved template to reopen the conversation.
                 </p>
                 <button
-                  onClick={() => onStartNewChat?.(selectedPhone!)}
+                  onClick={() => onStartNewChat?.(selectedPhone!, contact?.name ?? selectedConv?.customerName ?? undefined)}
                   className="btn-primary text-xs px-3 py-1.5 inline-flex items-center gap-1.5 shrink-0"
                 >
                   <MessageSquarePlus size={13} /> Send a Template

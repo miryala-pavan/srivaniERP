@@ -705,8 +705,14 @@ export default function WhatsAppTemplatesPage() {
     setSendModal({ mode: 'single', template: t, phone: testPhone || '', params: Array(varCount(t)).fill(''), sending: false });
   }
 
-  function openSendModalForPhone(t: WaTemplate, phone: string) {
-    setSendModal({ mode: 'single', template: t, phone, params: Array(varCount(t)).fill(''), sending: false });
+  function openSendModalForPhone(t: WaTemplate, phone: string, prefillName?: string) {
+    const params = Array(varCount(t)).fill('');
+    // Best-effort default: most customer-facing templates address the
+    // recipient by name in the first variable. Still fully editable — this
+    // just saves re-typing a name the chat already knows, it's not assumed
+    // correct for every template.
+    if (prefillName && params.length > 0) params[0] = prefillName;
+    setSendModal({ mode: 'single', template: t, phone, params, sending: false });
   }
 
   // Contacts tab bulk action: same shared modal, template picked automatically
@@ -725,25 +731,25 @@ export default function WhatsAppTemplatesPage() {
   // session, so Meta only allows an approved template as the first message —
   // reuses the exact same send-template modal/endpoint the Campaigns tab
   // already uses, just opened with one phone instead of a whole segment.
-  function startNewChat(phone: string) {
+  function startNewChat(phone: string, name?: string) {
     const approved = templates.filter(t => t.status === 'APPROVED');
     if (approved.length === 0) {
       toast.error('No approved templates yet — add one in Settings → Templates first');
       return;
     }
-    openSendModalForPhone(approved[0], phone);
+    openSendModalForPhone(approved[0], phone, name);
   }
 
   // Contacts tab action: an existing thread just needs the Chat tab focused
   // on that phone (same ?phone= deep-link WhatsAppChat already reads on
   // mount for push-notification click-through); no thread yet reuses the
   // New Chat flow directly.
-  function openContact(phone: string, hasThread: boolean) {
+  function openContact(phone: string, hasThread: boolean, name?: string) {
     if (hasThread) {
       router.push(`/dashboard/notifications/whatsapp?phone=91${phone}`);
       setTab('chat');
     } else {
-      startNewChat(phone);
+      startNewChat(phone, name);
     }
   }
 
@@ -1891,7 +1897,12 @@ export default function WhatsAppTemplatesPage() {
                 value={sendModal.template.name}
                 onChange={e => {
                   const t = templates.find(x => x.name === e.target.value);
-                  if (t) setSendModal(m => m ? { ...m, template: t, params: Array(varCount(t)).fill('') } : null);
+                  if (t) setSendModal(m => {
+                    if (!m) return null;
+                    const params = Array(varCount(t)).fill('');
+                    if (params.length > 0 && m.params[0]) params[0] = m.params[0];
+                    return { ...m, template: t, params };
+                  });
                 }}
               >
                 {templates.filter(t => t.status === 'APPROVED').map(t => (
