@@ -715,6 +715,15 @@ export default function WhatsAppTemplatesPage() {
     return buttons.some(b => b.type === 'URL' && /\{\{\d+\}\}/.test(b.url ?? ''));
   }
 
+  // For flows that auto-pick a template (New Chat, Contacts bulk send),
+  // prefer one that "just works" out of the box — no dynamic URL button
+  // needing a value only the dedicated per-feature flow (e.g. Send History)
+  // actually knows. Falls back to the first approved template if every
+  // approved one happens to need one.
+  function pickDefaultTemplate(approved: WaTemplate[]): WaTemplate {
+    return approved.find(t => !hasDynamicUrlButton(t)) ?? approved[0];
+  }
+
   function openSendModal(t: WaTemplate) {
     setSendModal({ mode: 'single', template: t, phone: testPhone || '', params: Array(varCount(t)).fill(''), urlButtonParam: '', sending: false });
   }
@@ -730,15 +739,16 @@ export default function WhatsAppTemplatesPage() {
   }
 
   // Contacts tab bulk action: same shared modal, template picked automatically
-  // (first approved one, matching startNewChat's own default) since most
-  // selected address-book contacts have no open session.
+  // (a "safe" one — see pickDefaultTemplate — matching startNewChat's own
+  // default) since most selected address-book contacts have no open session.
   function openBulkSendModal(ids: string[]) {
     const approved = templates.filter(t => t.status === 'APPROVED');
     if (approved.length === 0) {
       toast.error('No approved templates yet — add one in Settings → Templates first');
       return;
     }
-    setSendModal({ mode: 'bulk', template: approved[0], ids, params: Array(varCount(approved[0])).fill(''), urlButtonParam: '', sending: false });
+    const t = pickDefaultTemplate(approved);
+    setSendModal({ mode: 'bulk', template: t, ids, params: Array(varCount(t)).fill(''), urlButtonParam: '', sending: false });
   }
 
   // New Chat (Chat tab): a number with no message history has no open 24h
@@ -751,7 +761,7 @@ export default function WhatsAppTemplatesPage() {
       toast.error('No approved templates yet — add one in Settings → Templates first');
       return;
     }
-    openSendModalForPhone(approved[0], phone, name);
+    openSendModalForPhone(pickDefaultTemplate(approved), phone, name);
   }
 
   // Contacts tab action: an existing thread just needs the Chat tab focused
