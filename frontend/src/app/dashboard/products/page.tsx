@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Plus, Search, Edit2, X, Check, Package, List, LayoutGrid,
   AlignJustify, ChevronDown, AlertCircle, Ban, Loader2, Info,
-  Tag, Layers, Lock, Globe, GlobeLock, Printer, Ruler,
+  Tag, Layers, Lock, Globe, GlobeLock, Printer, Ruler, History,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
@@ -1059,6 +1059,13 @@ export default function ProductsPage() {
                     <div className="flex items-center gap-1 justify-end">
                       <ToggleBtn product={p} />
                       <button
+                        onClick={() => router.push(`/dashboard/products/${p.id}`)}
+                        title="View history — stock, sales, purchases, price changes"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors"
+                      >
+                        <History className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => router.push(`/dashboard/products/${p.id}/plu`)}
                         title="Manage PLU"
                         className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
@@ -1134,6 +1141,7 @@ export default function ProductsPage() {
                   <td className="px-2 py-1.5">
                     <div className="flex gap-1 justify-end">
                       <ToggleBtn product={p} />
+                      <button onClick={() => router.push(`/dashboard/products/${p.id}`)} title="View history" className="text-gray-400 hover:text-teal-600"><History className="w-3 h-3" /></button>
                       <button onClick={() => router.push(`/dashboard/products/${p.id}/plu`)} title="Manage PLU" className="text-gray-400 hover:text-indigo-600"><Layers className="w-3 h-3" /></button>
                       <button onClick={() => router.push(`/dashboard/products/labels?id=${p.id}`)} title="Print Label" className="text-gray-400 hover:text-purple-600"><Printer className="w-3 h-3" /></button>
                       <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-[#1B4F8A]"><Edit2 className="w-3 h-3" /></button>
@@ -1218,9 +1226,16 @@ export default function ProductsPage() {
               <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
                 <ToggleBtn product={p} />
                 <button
+                  onClick={() => router.push(`/dashboard/products/${p.id}`)}
+                  title="View history — stock, sales, purchases, price changes"
+                  className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors"
+                >
+                  <History className="w-4 h-4" />
+                </button>
+                <button
                   onClick={() => router.push(`/dashboard/products/${p.id}/plu`)}
                   title="Manage PLU"
-                  className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
                 >
                   <Layers className="w-4 h-4" />
                 </button>
