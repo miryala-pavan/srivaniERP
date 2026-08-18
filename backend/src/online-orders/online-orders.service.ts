@@ -65,6 +65,11 @@ export class OnlineOrdersService {
     return biz.id;
   }
 
+  /** Public preview of the same delivery-fee rule createOrder/whatsappCheckout charge — lets the WhatsApp quick-reorder flow show a fee before final confirmation without duplicating the ₹40/₹500 constants. */
+  previewDeliveryFee(subtotal: number, deliveryType: DeliveryType): number {
+    return this.calcDeliveryFee(subtotal, deliveryType);
+  }
+
   private calcDeliveryFee(subtotal: number, deliveryType: DeliveryType): number {
     if (deliveryType === DeliveryType.STORE_PICKUP) return 0;
     return subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FEE;
@@ -602,14 +607,24 @@ export class OnlineOrdersService {
     if (!dto.items.length) {
       throw new BadRequestException('Order must have at least one item');
     }
+    if (dto.deliveryType === DeliveryType.HOME_DELIVERY && !dto.deliveryAddress) {
+      throw new BadRequestException('Delivery address is required for home delivery');
+    }
 
     const businessId = await this.getBusinessId();
+
+    if (dto.deliveryType === DeliveryType.HOME_DELIVERY && dto.deliveryAddress) {
+      const serviceable = await this.serviceablePincodes.isServiceable(businessId, dto.deliveryAddress.pincode);
+      if (!serviceable) {
+        throw new BadRequestException(`Sorry, we don't currently deliver to pincode ${dto.deliveryAddress.pincode}. Please choose store pickup instead.`);
+      }
+    }
 
     // Never trust client-submitted prices — resolve from the actual PLU record.
     const resolvedItems = await this.resolveAuthoritativePrices(businessId, dto.items);
 
     const subtotal = resolvedItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
-    const deliveryFee = subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FEE;
+    const deliveryFee = this.calcDeliveryFee(subtotal, dto.deliveryType);
     const total = subtotal + deliveryFee;
     let orderNumber = await this.generateOrderNumber(businessId);
 
@@ -630,7 +645,10 @@ export class OnlineOrdersService {
               customerName: dto.customerName,
               customerPhone: dto.customerPhone,
               customerEmail: dto.customerEmail ?? null,
-              deliveryType: DeliveryType.STORE_PICKUP,
+              deliveryType: dto.deliveryType,
+              deliveryAddress: dto.deliveryAddress
+                ? JSON.parse(JSON.stringify(dto.deliveryAddress))
+                : undefined,
               paymentMethod: PaymentMethod.COD,
               paymentStatus: OnlinePaymentStatus.PENDING,
               status: OnlineOrderStatus.PENDING_COD,
@@ -679,9 +697,17 @@ export class OnlineOrdersService {
       customerPhone: dto.customerPhone,
       total,
       paymentMethod: PaymentMethod.COD,
-      deliveryType: DeliveryType.STORE_PICKUP,
+      deliveryType: dto.deliveryType,
       itemCount: resolvedItems.length,
     }).catch((err) => this.logger.error(`Store order-alert WhatsApp failed for ${orderNumber}: ${err instanceof Error ? err.message : err}`));
+
+    this.whatsapp.sendCustomerOrderPlaced(businessId, {
+      customerName: dto.customerName,
+      customerPhone: dto.customerPhone,
+      orderNumber,
+      total,
+      deliveryType: dto.deliveryType,
+    }).catch((err) => this.logger.error(`Customer order-placed WhatsApp failed for ${orderNumber}: ${err instanceof Error ? err.message : err}`));
 
     this.events.emitToBusiness(businessId, Events.ONLINE_ORDER_PLACED, {
       orderNumber,
@@ -689,7 +715,7 @@ export class OnlineOrdersService {
       customerPhone: dto.customerPhone,
       total,
       paymentMethod: PaymentMethod.COD,
-      deliveryType: DeliveryType.STORE_PICKUP,
+      deliveryType: dto.deliveryType,
       itemCount: resolvedItems.length,
     });
 

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { useAuth } from '@/context/AuthContext';
-import { sendOTP, verifyOTP, resetOTP } from '@/lib/phone-auth';
+import { requestOtp, verifyOtp } from '@/lib/storefront-auth';
 import { useVerifiedPhone } from '@/hooks/useVerifiedPhone';
 
 const inp: React.CSSProperties = {
@@ -20,22 +20,6 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box',
   letterSpacing: '0.05em',
 };
-
-function friendlyError(e: unknown): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const code = (e as any)?.code ?? '';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const msg  = (e as any)?.message ?? String(e);
-  if (code === 'auth/quota-exceeded')         return 'Daily SMS limit reached. Try again tomorrow.';
-  if (code === 'auth/too-many-requests')       return 'Too many attempts. Please wait a few minutes and try again.';
-  if (code === 'auth/invalid-phone-number')    return 'Invalid phone number. Please check and try again.';
-  if (code === 'auth/code-expired')            return 'OTP expired. Please request a new one.';
-  if (code === 'auth/invalid-verification-code') return 'Incorrect OTP. Please check and try again.';
-  if (code === 'auth/missing-phone-number')    return 'Phone number is required.';
-  if (code === 'auth/captcha-check-failed')    return 'Security check failed. Please refresh the page and try again.';
-  if (msg.includes('reCAPTCHA'))               return 'Security check failed. Please refresh and try again.';
-  return msg || 'Something went wrong. Please try again.';
-}
 
 function VerifyPhoneContent() {
   const router       = useRouter();
@@ -62,8 +46,6 @@ function VerifyPhoneContent() {
     if (phoneReady && verifiedPhone) router.replace(redirect);
   }, [verifiedPhone, phoneReady, redirect, router]);
 
-  useEffect(() => () => { resetOTP(); }, []);
-
   function startCooldown() {
     setResendCooldown(60);
     timerRef.current = setInterval(() => {
@@ -83,11 +65,11 @@ function VerifyPhoneContent() {
     setError('');
     setLoading(true);
     try {
-      await sendOTP(digits, 'recaptcha-container');
+      await requestOtp(digits);
       setStep('otp');
       startCooldown();
     } catch (e) {
-      setError(friendlyError(e));
+      setError(e instanceof Error ? e.message : 'Failed to send code. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -95,15 +77,15 @@ function VerifyPhoneContent() {
 
   async function handleVerifyOTP() {
     const digits = otp.replace(/\D/g, '');
-    if (digits.length !== 6) { setError('Enter the 6-digit OTP'); return; }
+    if (digits.length !== 6) { setError('Enter the 6-digit code'); return; }
     setError('');
     setLoading(true);
     try {
-      await verifyOTP(digits);
+      await verifyOtp(phone.replace(/\D/g, ''), digits);
       refreshPhone();
       router.push(redirect);
     } catch (e) {
-      setError(friendlyError(e));
+      setError(e instanceof Error ? e.message : 'Incorrect code. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -113,7 +95,6 @@ function VerifyPhoneContent() {
     if (resendCooldown > 0) return;
     setOtp('');
     setError('');
-    resetOTP();
     setStep('phone');
   }
 
@@ -129,9 +110,6 @@ function VerifyPhoneContent() {
 
   return (
     <>
-      {/* Invisible reCAPTCHA mounts here — not visible to user */}
-      <div id="recaptcha-container" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden', visibility: 'hidden' }} />
-
       <div style={{
         width: 56, height: 56, borderRadius: '50%',
         background: 'rgba(217,131,36,0.1)',
@@ -151,7 +129,7 @@ function VerifyPhoneContent() {
       <p style={{ color: 'var(--ink-soft)', fontSize: '13px', textAlign: 'center', marginBottom: '28px', lineHeight: 1.5 }}>
         {step === 'phone'
           ? 'We need your mobile number for delivery and order updates.'
-          : `OTP sent to +91 ${phone.replace(/\D/g, '')}. Check your messages.`}
+          : `Code sent via WhatsApp to +91 ${phone.replace(/\D/g, '')}.`}
       </p>
 
       {step === 'phone' ? (
@@ -199,7 +177,7 @@ function VerifyPhoneContent() {
                 </svg>
                 Sending…
               </>
-            ) : 'Send OTP'}
+            ) : 'Send Code via WhatsApp'}
           </button>
         </div>
       ) : (
@@ -217,7 +195,7 @@ function VerifyPhoneContent() {
               onKeyDown={e => e.key === 'Enter' && handleVerifyOTP()}
             />
             <p style={{ fontSize: '11px', color: 'var(--ink-soft)', textAlign: 'center', marginTop: '6px' }}>
-              6-digit code sent via SMS
+              6-digit code sent via WhatsApp
             </p>
           </div>
 
@@ -258,7 +236,7 @@ function VerifyPhoneContent() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <button
-              onClick={() => { setStep('phone'); setOtp(''); setError(''); resetOTP(); }}
+              onClick={() => { setStep('phone'); setOtp(''); setError(''); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-soft)', fontSize: '13px' }}
             >
               ← Change number
@@ -273,14 +251,14 @@ function VerifyPhoneContent() {
                 fontSize: '13px', fontWeight: 600,
               }}
             >
-              {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend OTP'}
+              {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
             </button>
           </div>
         </div>
       )}
 
       <p style={{ fontSize: '11px', color: 'var(--ink-soft)', textAlign: 'center', marginTop: '20px', lineHeight: 1.6 }}>
-        Standard SMS rates apply. Your number is used only for delivery and order updates.
+        Sent via WhatsApp. Your number is used only for delivery and order updates.
       </p>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

@@ -205,7 +205,7 @@ export default function CheckoutClient() {
 
   useEffect(() => {
     if (verifiedPhone) {
-      fetchAddresses(verifiedPhone).then(list => {
+      fetchAddresses().then(list => {
         setSavedAddresses(list);
         const def = list.find(a => a.isDefault);
         if (def) {
@@ -328,7 +328,7 @@ export default function CheckoutClient() {
 
       if (saveAddress && deliveryType === 'HOME_DELIVERY' && verifiedPhone) {
         createAddress({
-          phone: verifiedPhone, line1: addrLine1.trim(),
+          line1: addrLine1.trim(),
           line2: addrLine2.trim() || undefined,
           city: addrCity.trim(), pincode: addrPincode.trim(), state: addrState.trim(),
           isDefault: savedAddresses.length === 0,
@@ -442,14 +442,14 @@ export default function CheckoutClient() {
                     autoComplete="name"
                   />
                 </Field>
-                <Field label="Mobile Number" required hint="10-digit Indian mobile number">
+                <Field label="Mobile Number" required hint="Verified via WhatsApp — used for order updates">
                   <input
-                    style={inp}
+                    style={{ ...inp, color: 'var(--ink-soft)', background: 'var(--line)' }}
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    placeholder="9XXXXXXXXX"
+                    readOnly
+                    disabled
                     inputMode="numeric"
-                    title="Your 10-digit mobile number"
+                    title="Your verified mobile number"
                     autoComplete="tel"
                   />
                 </Field>

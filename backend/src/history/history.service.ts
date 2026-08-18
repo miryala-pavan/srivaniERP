@@ -204,6 +204,36 @@ export class HistoryService {
     };
   }
 
+  /**
+   * Server-side batch version of sendHistoryLink — runs the loop here instead
+   * of the browser tab, so it survives a closed tab/dropped connection and
+   * gives per-customer detail (not just an ok/fail count). Each customer
+   * still gets their own token via the same per-customer call; one failure
+   * doesn't stop the rest of the batch.
+   */
+  async sendHistoryLinkBulk(customerIds: string[], businessId: string) {
+    const results: { customerId: string; name: string; waSent: boolean; waError?: string }[] = [];
+    for (const customerId of customerIds) {
+      try {
+        const r = await this.sendHistoryLink(customerId, businessId);
+        results.push({ customerId, name: r.customer.name, waSent: r.waSent, waError: r.waError });
+      } catch (err) {
+        results.push({
+          customerId,
+          name: '',
+          waSent: false,
+          waError: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return {
+      total: results.length,
+      sent: results.filter(r => r.waSent).length,
+      failed: results.filter(r => !r.waSent).length,
+      results,
+    };
+  }
+
   /** One-time: register the svn_history_link template with Meta for approval. */
   async registerHistoryTemplate() {
     const shopUrl = (process.env.SHOP_URL ?? 'https://srivani.com').replace(/\/$/, '');

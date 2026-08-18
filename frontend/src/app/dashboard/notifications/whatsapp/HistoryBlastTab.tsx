@@ -183,26 +183,30 @@ export default function HistoryBlastTab() {
     )) return;
 
     setSending(true);
-    let ok = 0, fail = 0;
     const ids = Array.from(selected);
 
-    for (const id of ids) {
-      try {
-        await api.post(`/history/customers/${id}/send`);
-        ok++;
-        setJustSent(prev => new Set(Array.from(prev).concat(id)));
-      } catch {
-        fail++;
+    try {
+      // Runs server-side in one request instead of one round-trip per
+      // customer from this tab — survives the tab closing mid-batch and
+      // returns exactly which customers failed, not just a count.
+      const { data } = await api.post('/history/customers/bulk-send', { customerIds: ids });
+      const sentIds = (data.results as { customerId: string; waSent: boolean }[])
+        .filter(r => r.waSent).map(r => r.customerId);
+      setJustSent(prev => new Set(Array.from(prev).concat(sentIds)));
+
+      if (data.failed === 0) {
+        toast.success(`✅ Sent to ${data.sent} customer${data.sent !== 1 ? 's' : ''}`);
+      } else {
+        const failedNames = (data.results as { name: string; waSent: boolean }[])
+          .filter(r => !r.waSent).map(r => r.name || 'unknown').join(', ');
+        toast.error(`Sent ${data.sent}, failed ${data.failed}: ${failedNames}`);
       }
-      await new Promise(r => setTimeout(r, 300));
+    } catch {
+      toast.error('Bulk send failed — check Chat tab for errors');
     }
 
     setSending(false);
     setSelected(new Set());
-
-    if (fail === 0) toast.success(`✅ Sent to ${ok} customer${ok !== 1 ? 's' : ''}`);
-    else toast.error(`Sent ${ok}, failed ${fail} — check Chat tab for errors`);
-
     load();
   }
 

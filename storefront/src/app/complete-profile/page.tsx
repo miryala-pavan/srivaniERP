@@ -25,10 +25,9 @@ function CompleteProfileContent() {
   const searchParams  = useSearchParams();
   const redirect      = searchParams.get('redirect') ?? '/';
   const { user, isLoggedIn, isLoading } = useAuth();
-  const { profile, phoneReady } = useVerifiedPhone();
+  const { profile, phoneReady, verifiedPhone } = useVerifiedPhone();
 
   const [name,    setName]    = useState('');
-  const [phone,   setPhone]   = useState('');
   const [altPhone, setAltPhone] = useState('');
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState('');
@@ -40,12 +39,21 @@ function CompleteProfileContent() {
     }
   }, [isLoggedIn, isLoading, redirect, router]);
 
-  // If profile already has phone, skip this page
+  // Phone must be verified via WhatsApp OTP before this page can save
+  // anything — the backend now requires it and won't accept a phone that
+  // doesn't match what was actually verified.
   useEffect(() => {
-    if (phoneReady && profile?.phone) {
+    if (phoneReady && !verifiedPhone) {
+      router.replace(`/verify-phone?redirect=${encodeURIComponent(`/complete-profile?redirect=${redirect}`)}`);
+    }
+  }, [phoneReady, verifiedPhone, redirect, router]);
+
+  // Already has a saved profile matching the verified phone — skip this page
+  useEffect(() => {
+    if (phoneReady && verifiedPhone && profile?.phone === verifiedPhone) {
       router.replace(redirect);
     }
-  }, [phoneReady, profile, redirect, router]);
+  }, [phoneReady, verifiedPhone, profile, redirect, router]);
 
   // Pre-fill name from Google session
   useEffect(() => {
@@ -53,11 +61,7 @@ function CompleteProfileContent() {
   }, [user?.name]);
 
   async function handleSave() {
-    const digits = phone.replace(/\D/g, '');
-    if (!/^[6-9]\d{9}$/.test(digits)) {
-      setError('Enter a valid 10-digit Indian mobile number (starting with 6-9)');
-      return;
-    }
+    if (!verifiedPhone) return; // guarded by the redirect effect above
     if (!name.trim() || name.trim().length < 2) {
       setError('Please enter your full name');
       return;
@@ -73,7 +77,7 @@ function CompleteProfileContent() {
       await upsertProfile({
         email:          user!.email,
         name:           name.trim(),
-        phone:          digits,
+        phone:          verifiedPhone,
         alternatePhone: altDigits || undefined,
         photoUrl:       user?.image ?? undefined,
       });
@@ -85,7 +89,7 @@ function CompleteProfileContent() {
     }
   }
 
-  if (isLoading || !phoneReady) return (
+  if (isLoading || !phoneReady || !verifiedPhone) return (
     <div style={{ textAlign: 'center', padding: '60px', color: 'var(--ink-soft)' }}>
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--saffron)" strokeWidth="2"
         style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>
@@ -127,10 +131,10 @@ function CompleteProfileContent() {
           />
         </div>
 
-        {/* Phone */}
+        {/* Phone — read-only, this is the number that was just verified via OTP */}
         <div>
           <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: '5px' }}>
-            Mobile Number <span style={{ color: '#ef4444' }}>*</span>
+            Mobile Number <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ Verified</span>
           </label>
           <div style={{ position: 'relative' }}>
             <span style={{
@@ -138,18 +142,15 @@ function CompleteProfileContent() {
               fontSize: '14px', color: 'var(--ink-soft)', fontWeight: 600, pointerEvents: 'none',
             }}>+91</span>
             <input
-              style={{ ...inp, paddingLeft: '46px' }}
+              style={{ ...inp, paddingLeft: '46px', color: 'var(--ink-soft)', background: 'var(--line)' }}
               type="tel"
-              inputMode="numeric"
-              value={phone}
-              onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-              placeholder="98765 43210"
-              autoComplete="tel"
-              onKeyDown={e => e.key === 'Enter' && !saving && handleSave()}
+              value={verifiedPhone ?? ''}
+              readOnly
+              disabled
             />
           </div>
           <p style={{ fontSize: '11px', color: 'var(--ink-soft)', marginTop: '4px' }}>
-            Used for order updates and delivery. No verification needed.
+            Used for order updates and delivery.
           </p>
         </div>
 

@@ -61,6 +61,70 @@ interface RequiredTemplate {
   ctaWebText?: string; ctaWebUrl?: string;
 }
 
+interface TemplatePreset extends RequiredTemplate {
+  category: 'UTILITY' | 'MARKETING';
+  description: string;
+  emoji: string;
+}
+
+// A broader, always-browsable catalog of starting points beyond the required
+// checklist below — pick one anytime, not just during initial setup. Meta
+// doesn't expose its own template gallery via API, so this is a hand-written
+// substitute living in our own dashboard.
+const TEMPLATE_PRESETS: TemplatePreset[] = [
+  {
+    name: 'svn_out_for_delivery', category: 'UTILITY', emoji: '🚚',
+    description: "Sent when a customer's order leaves for delivery",
+    body: 'Hi {{1}}, good news — your order *{{2}}* is out for delivery and should arrive today. Please keep your phone handy in case our delivery partner needs to reach you.',
+    footer: '',
+  },
+  {
+    name: 'svn_cart_reminder', category: 'UTILITY', emoji: '🛒',
+    description: 'Nudges a customer who left items in their online cart',
+    body: 'Hi {{1}}, you left {{2}} in your cart! Complete your order before it sells out.',
+    footer: '',
+    buttonMode: 'cta', ctaWebText: 'Complete Order', ctaWebUrl: '',
+  },
+  {
+    name: 'svn_loyalty_points_earned', category: 'UTILITY', emoji: '⭐',
+    description: 'Lets a customer know they earned loyalty points on a purchase',
+    body: 'Hi {{1}}, you just earned *{{2}} loyalty points* on your last purchase! Your total balance is now {{3}} points.',
+    footer: 'Redeem points on your next visit',
+  },
+  {
+    name: 'svn_sale_announcement', category: 'MARKETING', emoji: '🎉',
+    description: 'Announces a seasonal or festival sale',
+    body: 'Hi {{1}}, {{2}} is here! Enjoy special prices this week only. Visit us or shop online.',
+    footer: '',
+    buttonMode: 'cta', ctaWebText: 'Shop Now', ctaWebUrl: '',
+  },
+  {
+    name: 'svn_new_arrival', category: 'MARKETING', emoji: '✨',
+    description: 'Alerts customers to new products in stock',
+    body: "Hi {{1}}, new arrivals just landed — including {{2}}! Check them out before they're gone.",
+    footer: '',
+    buttonMode: 'cta', ctaWebText: 'Browse New Arrivals', ctaWebUrl: '',
+  },
+  {
+    name: 'svn_thank_you_loyal_customer', category: 'UTILITY', emoji: '🙏',
+    description: 'A simple appreciation message for a repeat customer',
+    body: 'Hi {{1}}, thank you for being a valued customer! We appreciate your continued support and look forward to serving you again.',
+    footer: '',
+  },
+  {
+    name: 'svn_refund_processed', category: 'UTILITY', emoji: '💳',
+    description: 'Confirms a refund has been processed for an order',
+    body: 'Hi {{1}}, your refund of ₹{{2}} for order *{{3}}* has been processed and should reflect in your account within 3-5 business days.',
+    footer: '',
+  },
+  {
+    name: 'svn_store_closure_notice', category: 'UTILITY', emoji: '🔔',
+    description: 'Notifies customers of a holiday or closure',
+    body: "Hi {{1}}, please note we'll be closed on {{2}}. We'll be back to serve you on {{3}}. Thank you for your understanding.",
+    footer: '',
+  },
+];
+
 const REQUIRED_TEMPLATES: RequiredTemplate[] = [
   { name: 'test_order',       body: 'Hello! New order {{1}} from {{2}} ({{3}}). Items: {{4}} | Total: ₹{{5}} | {{6}} | {{7}}',                                                                   footer: '- Srivani Stores' },
   { name: 'svn_order_placed', body: 'Hello {{1}}, your order *{{2}}* has been placed at Srivani Stores! Total: ₹{{3}} | {{4}}. Thank you for shopping with us!',                               footer: '- Srivani Stores' },
@@ -81,7 +145,7 @@ const REQUIRED_TEMPLATES: RequiredTemplate[] = [
 ];
 
 const BLANK_FORM  = {
-  name: '', category: 'UTILITY' as const, language: 'en', headerText: '', bodyText: '', footerText: '',
+  name: '', category: 'UTILITY' as 'UTILITY' | 'MARKETING' | 'AUTHENTICATION', language: 'en', headerText: '', bodyText: '', footerText: '',
   buttonMode: 'none' as 'none' | 'quick_reply' | 'cta',
   quickReplies: ['', '', ''],
   ctaCallText: '', ctaCallPhone: '', ctaWebText: '', ctaWebUrl: '',
@@ -1552,6 +1616,45 @@ export default function WhatsAppTemplatesPage() {
               );
             })}
           </div>
+        </div>
+      </div>
+
+      {/* ── Template gallery — browsable starting points, pick anytime ── */}
+      <div>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Template Gallery</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {TEMPLATE_PRESETS.map(preset => (
+            <div key={preset.name} className="rounded-2xl border border-gray-200 bg-white shadow-sm p-4 flex flex-col">
+              <div className="flex items-start justify-between gap-2 mb-1.5">
+                <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                  <span>{preset.emoji}</span> {preset.name}
+                </p>
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                  preset.category === 'MARKETING' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                }`}>
+                  {preset.category}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 flex-1 mb-3">{preset.description}</p>
+              <button
+                onClick={() => {
+                  setForm({
+                    ...BLANK_FORM,
+                    name: preset.name, category: preset.category, language: 'en',
+                    headerText: preset.headerText ?? '',
+                    bodyText: preset.body, footerText: preset.footer ?? '',
+                    buttonMode: preset.buttonMode ?? 'none',
+                    quickReplies: preset.quickReplies ?? ['', '', ''],
+                    ctaWebText: preset.ctaWebText ?? '', ctaWebUrl: preset.ctaWebUrl ?? '',
+                  });
+                  setShowForm(true);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="flex items-center justify-center gap-1 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg px-2.5 py-1.5 font-medium transition-colors">
+                <Plus size={11} /> Use this template
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 

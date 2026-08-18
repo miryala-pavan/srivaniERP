@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { StorefrontProfileController } from './storefront-profile.controller';
 import { StorefrontProfileService } from './storefront-profile.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { StorefrontAuthModule } from '../storefront-auth/storefront-auth.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, StorefrontAuthModule],
   controllers: [StorefrontProfileController],
   providers: [StorefrontProfileService],
 })

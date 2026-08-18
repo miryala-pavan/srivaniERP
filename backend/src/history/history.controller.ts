@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
 import { HistoryService } from './history.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { BulkSendHistoryDto } from './dto/bulk-send-history.dto';
 
 const STAFF_ROLES = [
   'SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON',
@@ -45,6 +46,16 @@ export class HistoryController {
   @Post('customers/:id/send')
   sendHistoryLink(@Param('id') id: string, @Request() req: any) {
     return this.historyService.sendHistoryLink(id, req.user.businessId);
+  }
+
+  // Runs the send loop server-side (not in the browser tab) so a closed tab
+  // or dropped connection can't silently strand part of the batch, and gives
+  // per-customer detail instead of just an ok/fail count.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF_ROLES)
+  @Post('customers/bulk-send')
+  sendHistoryLinkBulk(@Body() dto: BulkSendHistoryDto, @Request() req: any) {
+    return this.historyService.sendHistoryLinkBulk(dto.customerIds, req.user.businessId);
   }
 
   /** One-time: submit svn_history_link template to Meta for approval. SUPER_ADMIN only. */

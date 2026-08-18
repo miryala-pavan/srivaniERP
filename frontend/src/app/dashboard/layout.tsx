@@ -12,6 +12,7 @@ import { CommandPalette } from '@/components/shared/CommandPalette';
 import { FYProvider } from '@/context/FYContext';
 import FYSwitcher from '@/components/layout/FYSwitcher';
 import OnlineOrderAlert from '@/components/layout/OnlineOrderAlert';
+import WaSoundAlert from '@/components/layout/WaSoundAlert';
 import ServiceWorkerRegister from '@/components/layout/ServiceWorkerRegister';
 import { GstHealthBanner } from '@/components/layout/GstHealthBanner';
 import { GstToast } from '@/components/layout/GstToast';
@@ -252,6 +253,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {updateAvailable && <UpdateBanner onDismiss={dismiss} />}
               <CommandPalette />
               <OnlineOrderAlert />
+              <WaSoundAlert />
               <GstToast />
               <AssistantDrawer />
               <PopupShell />

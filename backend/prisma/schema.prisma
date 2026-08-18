@@ -11,11 +11,11 @@ datasource db {
 
 // ─── BUSINESS ───────────────────────────────────────
 model Business {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   name         String
   gstin        String?
-  stateCode    String   @default("36")
-  stateName    String   @default("Telangana")
+  stateCode    String    @default("36")
+  stateName    String    @default("Telangana")
   address      String?
   phone        String?
   email        String?
@@ -98,17 +98,17 @@ model Business {
   purchaseOrders      PurchaseOrder[]
 
   // IT Accounting Module
-  itProfile           ItProfile?
-  fixedAssets         FixedAsset[]
-  capitalAccounts     CapitalAccount[]
-  businessLoans       BusinessLoan[]
-  tdsEntries          TdsEntry[]
-  advanceTaxPayments  AdvanceTaxPayment[]
-  itReturns           ItReturn[]
-  itFilingRecords     ItFilingRecord[]
+  itProfile          ItProfile?
+  fixedAssets        FixedAsset[]
+  capitalAccounts    CapitalAccount[]
+  businessLoans      BusinessLoan[]
+  tdsEntries         TdsEntry[]
+  advanceTaxPayments AdvanceTaxPayment[]
+  itReturns          ItReturn[]
+  itFilingRecords    ItFilingRecord[]
 
   // Phase 0 Platform
-  tenant              Tenant?
+  tenant Tenant?
 
   @@map("business")
 }
@@ -146,15 +146,15 @@ model FinancialYear {
   closedAt   DateTime?
 
   // Snapshot captured at year-end close (for year comparison report)
-  closingTotalSales       Decimal? @db.Decimal(15,2)
-  closingTotalPurchases   Decimal? @db.Decimal(15,2)
-  closingSupplierDues     Decimal? @db.Decimal(15,2)
-  closingStockValue       Decimal? @db.Decimal(15,2)
-  closingBankBalance      Decimal? @db.Decimal(15,2)
+  closingTotalSales     Decimal? @db.Decimal(15, 2)
+  closingTotalPurchases Decimal? @db.Decimal(15, 2)
+  closingSupplierDues   Decimal? @db.Decimal(15, 2)
+  closingStockValue     Decimal? @db.Decimal(15, 2)
+  closingBankBalance    Decimal? @db.Decimal(15, 2)
 
-  createdAt  DateTime  @default(now())
+  createdAt DateTime @default(now())
 
-  business   Business    @relation(fields: [businessId], references: [id])
+  business   Business     @relation(fields: [businessId], references: [id])
   billSeries BillSeries[]
   salesBills SalesBill[]
 
@@ -187,14 +187,14 @@ model User {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
-  business              Business                 @relation(fields: [businessId], references: [id])
-  posShifts             PosShift[]
-  salesBills            SalesBill[]
-  memberships           UserBusinessMembership[]
-  assignedConversations WaConversation[]
-  waInternalNotes       WaInternalNote[]
+  business                    Business                 @relation(fields: [businessId], references: [id])
+  posShifts                   PosShift[]
+  salesBills                  SalesBill[]
+  memberships                 UserBusinessMembership[]
+  assignedConversations       WaConversation[]
+  waInternalNotes             WaInternalNote[]
   assignedSocialConversations SocialConversation[]
-  pushSubscriptions     PushSubscription[]
+  pushSubscriptions           PushSubscription[]
 
   @@unique([businessId, username])
   @@map("user")
@@ -242,18 +242,18 @@ model Tax {
 
 // ─── DEPARTMENT ──────────────────────────────────────
 model Department {
-  id          String     @id @default(cuid())
-  businessId  String
-  name        String
-  code        String
-  sortOrder   Int        @default(0)
-  isActive    Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  code       String
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  business    Business   @relation(fields: [businessId], references: [id])
-  categories  Category[]
-  products    Product[]
+  business   Business   @relation(fields: [businessId], references: [id])
+  categories Category[]
+  products   Product[]
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -262,19 +262,19 @@ model Department {
 
 // ─── CATEGORY ────────────────────────────────────────
 model Category {
-  id           String   @id @default(cuid())
-  businessId   String
-  departmentId String?
-  name         String
-  code         String
-  label        String
-  parentId     String?
-  hsnCode      String?
-  sortOrder    Int      @default(0)
-  isActive     Boolean  @default(true)
-  isReturnableDefault Boolean @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  businessId          String
+  departmentId        String?
+  name                String
+  code                String
+  label               String
+  parentId            String?
+  hsnCode             String?
+  sortOrder           Int      @default(0)
+  isActive            Boolean  @default(true)
+  isReturnableDefault Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   business   Business    @relation(fields: [businessId], references: [id])
   department Department? @relation(fields: [departmentId], references: [id])
@@ -308,65 +308,65 @@ model Brand {
 
 // ─── PRODUCT ─────────────────────────────────────────
 model Product {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   businessId          String
   departmentId        String?
   categoryId          String?
   brandId             String?
   taxId               String
-  productCode         String?           // 000001 — auto-generated, never changes
+  productCode         String? // 000001 — auto-generated, never changes
   name                String
-  shortName           String?           // Fortune Oil 1L
-  barcode             String?           // primary barcode (backward compat)
+  shortName           String? // Fortune Oil 1L
+  barcode             String? // primary barcode (backward compat)
   hsnCode             String
-  unitOfMeasure       String   @default("PCS")
-  productType         String   @default("STANDARD") // STANDARD/LOOSE/REPACKED/RAW_MATERIAL/PACKAGING
-  mrp                 Decimal  @db.Decimal(15, 2)
-  sellingPrice        Decimal  @db.Decimal(15, 2)
-  costPrice           Decimal? @db.Decimal(15, 2)
-  gstRatePercent      Decimal? @db.Decimal(5, 2)
-  reorderLevel        Decimal  @db.Decimal(15, 3) @default(10)
-  minimumStockLevel   Decimal  @db.Decimal(15, 3) @default(0)
-  reorderQuantity     Decimal  @db.Decimal(15, 3) @default(0)
-  maximumStockLevel   Decimal  @db.Decimal(15, 3) @default(0)
-  leadTimeDays        Int      @default(2)
-  minSellingQty       Decimal  @db.Decimal(15, 3) @default(1)
-  moqFromSupplier     Decimal  @db.Decimal(15, 3) @default(1)
-  allowDecimalQty     Boolean  @default(false)
-  allowNegativeStock  Boolean  @default(false)
-  allowBelowMargin    Boolean  @default(false)
-  isForSale           Boolean  @default(true)
-  isForPurchase       Boolean  @default(true)
-  isRepackingItem     Boolean  @default(false)
-  isRepackedProduct   Boolean  @default(false)
-  repackYieldPct      Decimal  @db.Decimal(5, 2) @default(98)
-  isRawMaterial       Boolean  @default(false)
-  isPackagingMaterial Boolean  @default(false)
-  isPerishable        Boolean  @default(false)
-  expiryTracking      Boolean  @default(false)
+  unitOfMeasure       String    @default("PCS")
+  productType         String    @default("STANDARD") // STANDARD/LOOSE/REPACKED/RAW_MATERIAL/PACKAGING
+  mrp                 Decimal   @db.Decimal(15, 2)
+  sellingPrice        Decimal   @db.Decimal(15, 2)
+  costPrice           Decimal?  @db.Decimal(15, 2)
+  gstRatePercent      Decimal?  @db.Decimal(5, 2)
+  reorderLevel        Decimal   @default(10) @db.Decimal(15, 3)
+  minimumStockLevel   Decimal   @default(0) @db.Decimal(15, 3)
+  reorderQuantity     Decimal   @default(0) @db.Decimal(15, 3)
+  maximumStockLevel   Decimal   @default(0) @db.Decimal(15, 3)
+  leadTimeDays        Int       @default(2)
+  minSellingQty       Decimal   @default(1) @db.Decimal(15, 3)
+  moqFromSupplier     Decimal   @default(1) @db.Decimal(15, 3)
+  allowDecimalQty     Boolean   @default(false)
+  allowNegativeStock  Boolean   @default(false)
+  allowBelowMargin    Boolean   @default(false)
+  isForSale           Boolean   @default(true)
+  isForPurchase       Boolean   @default(true)
+  isRepackingItem     Boolean   @default(false)
+  isRepackedProduct   Boolean   @default(false)
+  repackYieldPct      Decimal   @default(98) @db.Decimal(5, 2)
+  isRawMaterial       Boolean   @default(false)
+  isPackagingMaterial Boolean   @default(false)
+  isPerishable        Boolean   @default(false)
+  expiryTracking      Boolean   @default(false)
   shelfLifeDays       Int?
   nearExpiryAlertDays Int?
-  stockValuation      String   @default("FIFO") // FIFO/LIFO/WEIGHTED_AVG
+  stockValuation      String    @default("FIFO") // FIFO/LIFO/WEIGHTED_AVG
   preferredSupplierId String?
   aisle               String?
   rackNumber          String?
-  shelfPosition       String?  // TOP/MIDDLE/BOTTOM
-  binCode             String?  // auto: aisle-rack-shelf
-  isReturnable         Boolean  @default(true)
-  returnPeriodDays     Int      @default(7)
-  nonReturnableReason  String?
-  availableOnline      Boolean  @default(false)
-  imageUrl             String?
-  description          String?
-  keywords             String?
-  defaultPackSize      Int      @default(1)
-  brandName            String?
-  pluAutoBarcode       Boolean  @default(false)
-  purchaseUnit         String   @default("PCS")
-  stockUnit            String   @default("PCS")
-  cessRate             Decimal  @db.Decimal(5, 2) @default(0)
-  totalStock           Decimal  @db.Decimal(15, 3) @default(0)
-  isActive             Boolean  @default(true)
+  shelfPosition       String? // TOP/MIDDLE/BOTTOM
+  binCode             String? // auto: aisle-rack-shelf
+  isReturnable        Boolean   @default(true)
+  returnPeriodDays    Int       @default(7)
+  nonReturnableReason String?
+  availableOnline     Boolean   @default(false)
+  imageUrl            String?
+  description         String?
+  keywords            String?
+  defaultPackSize     Int       @default(1)
+  brandName           String?
+  pluAutoBarcode      Boolean   @default(false)
+  purchaseUnit        String    @default("PCS")
+  stockUnit           String    @default("PCS")
+  cessRate            Decimal   @default(0) @db.Decimal(5, 2)
+  totalStock          Decimal   @default(0) @db.Decimal(15, 3)
+  isActive            Boolean   @default(true)
   isManuallyDisabled  Boolean   @default(false)
   disabledById        String?
   disabledAt          DateTime?
@@ -375,22 +375,22 @@ model Product {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  business        Business           @relation(fields: [businessId], references: [id])
-  department      Department?        @relation(fields: [departmentId], references: [id])
-  category        Category?          @relation(fields: [categoryId], references: [id])
-  brand           Brand?             @relation(fields: [brandId], references: [id])
-  tax             Tax                @relation(fields: [taxId], references: [id])
-  salesItems      SalesItem[]
-  purchaseItems   PurchaseItem[]
-  stockLedger     StockLedger[]
-  barcodes        ProductBarcode[]
-  prices          ProductPrice[]
-  batches         ProductBatch[]
-  plusList        ProductPlu[]
-  supplierAliases SupplierItemAlias[]
-  productImages   ProductImage[]
-  groupMemberships    ProductGroupMember[]
-  purchaseOrderItems  PurchaseOrderItem[]
+  business           Business             @relation(fields: [businessId], references: [id])
+  department         Department?          @relation(fields: [departmentId], references: [id])
+  category           Category?            @relation(fields: [categoryId], references: [id])
+  brand              Brand?               @relation(fields: [brandId], references: [id])
+  tax                Tax                  @relation(fields: [taxId], references: [id])
+  salesItems         SalesItem[]
+  purchaseItems      PurchaseItem[]
+  stockLedger        StockLedger[]
+  barcodes           ProductBarcode[]
+  prices             ProductPrice[]
+  batches            ProductBatch[]
+  plusList           ProductPlu[]
+  supplierAliases    SupplierItemAlias[]
+  productImages      ProductImage[]
+  groupMemberships   ProductGroupMember[]
+  purchaseOrderItems PurchaseOrderItem[]
 
   @@unique([businessId, barcode])
   @@unique([businessId, productCode])
@@ -405,23 +405,25 @@ model Product {
 
 // ─── PRODUCT GROUPS (storefront size/variant picker) ─
 model ProductGroup {
-  id         String   @id @default(cuid())
+  id         String               @id @default(cuid())
   businessId String
   name       String
-  createdAt  DateTime @default(now())
+  createdAt  DateTime             @default(now())
   members    ProductGroupMember[]
+
   @@index([businessId])
   @@map("product_group")
 }
 
 model ProductGroupMember {
-  id           String   @id @default(cuid())
+  id           String       @id @default(cuid())
   groupId      String
   productId    String
   displayLabel String
-  sortOrder    Int      @default(0)
-  group   ProductGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  product Product      @relation(fields: [productId], references: [id])
+  sortOrder    Int          @default(0)
+  group        ProductGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id])
+
   @@unique([groupId, productId])
   @@index([productId])
   @@map("product_group_member")
@@ -468,11 +470,11 @@ model ProductPrice {
   productId       String
   businessId      String
   priceListType   String    @default("RETAIL") // RETAIL/WHOLESALE/ONLINE/STAFF
-  costPrice       Decimal   @db.Decimal(15, 2) @default(0)
+  costPrice       Decimal   @default(0) @db.Decimal(15, 2)
   sellingPrice    Decimal   @db.Decimal(15, 2)
   mrp             Decimal   @db.Decimal(15, 2)
-  minSellingPrice Decimal   @db.Decimal(15, 2) @default(0)
-  maxDiscountPct  Decimal   @db.Decimal(5, 2)  @default(5)
+  minSellingPrice Decimal   @default(0) @db.Decimal(15, 2)
+  maxDiscountPct  Decimal   @default(5) @db.Decimal(5, 2)
   effectiveFrom   DateTime  @default(now())
   effectiveTo     DateTime?
   createdAt       DateTime  @default(now())
@@ -495,7 +497,7 @@ model ProductBatch {
   expiryDate      DateTime?
   purchaseDate    DateTime  @default(now())
   quantityIn      Decimal   @db.Decimal(15, 3)
-  quantityOut     Decimal   @db.Decimal(15, 3) @default(0)
+  quantityOut     Decimal   @default(0) @db.Decimal(15, 3)
   remainingQty    Decimal   @db.Decimal(15, 3)
   costPrice       Decimal   @db.Decimal(15, 2)
   rackLocation    String?
@@ -512,45 +514,45 @@ model ProductBatch {
 
 // ─── SUPPLIER ─────────────────────────────────────────
 model Supplier {
-  id                 String   @id @default(cuid())
-  businessId         String
-  name               String
-  gstin              String?
-  phone              String?
-  email              String?
-  address            String?
-  stateCode          String?
-  paymentTermsDays   Int      @default(0)
-  creditLimit        Decimal  @db.Decimal(15, 2) @default(0)
-  isGstRegistered    Boolean  @default(true)
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id               String   @id @default(cuid())
+  businessId       String
+  name             String
+  gstin            String?
+  phone            String?
+  email            String?
+  address          String?
+  stateCode        String?
+  paymentTermsDays Int      @default(0)
+  creditLimit      Decimal  @default(0) @db.Decimal(15, 2)
+  isGstRegistered  Boolean  @default(true)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  openingBalance     Decimal   @db.Decimal(12, 2) @default(0)
+  openingBalance     Decimal   @default(0) @db.Decimal(12, 2)
   openingBalanceDate DateTime?
   openingBalanceType String    @default("DEBIT")
   openingBalanceNote String?
 
   // Alternate names as they appear in bank statements — used for auto-matching
-  bankAliases        String[]  @default([])
+  bankAliases String[] @default([])
 
   // Payee type — distinguishes trade suppliers from rent/loan/other payees
-  supplierType       String    @default("SUPPLIER") // SUPPLIER | RENT | LOAN | OTHER
+  supplierType String @default("SUPPLIER") // SUPPLIER | RENT | LOAN | OTHER
 
   // TDS fields — set when supplier payments attract TDS deduction
-  pan                String?   // PAN mandatory for TDS; 20% flat rate applies without PAN (Sec 206AA)
-  isTdsApplicable    Boolean   @default(false)
-  tdsSection         String?   // 194C | 194J | 194I | 194H | 194D | 194IB | etc.
-  udyamRegistration  String?   // this supplier's own MSME registration — drives the 45-day payment rule (Sec 43B(h)) and Payables-MSME GL account selection
+  pan               String? // PAN mandatory for TDS; 20% flat rate applies without PAN (Sec 206AA)
+  isTdsApplicable   Boolean @default(false)
+  tdsSection        String? // 194C | 194J | 194I | 194H | 194D | 194IB | etc.
+  udyamRegistration String? // this supplier's own MSME registration — drives the 45-day payment rule (Sec 43B(h)) and Payables-MSME GL account selection
 
   // Legacy single bank account fields (kept for backwards compat)
-  bankAccountNumber  String?
-  bankIfscCode       String?
-  bankBankName       String?
-  bankBranchName     String?
+  bankAccountNumber String?
+  bankIfscCode      String?
+  bankBankName      String?
+  bankBranchName    String?
 
-  business       Business             @relation(fields: [businessId], references: [id])
+  business       Business              @relation(fields: [businessId], references: [id])
   purchases      Purchase[]
   itemAliases    SupplierItemAlias[]
   advances       SupplierAdvance[]
@@ -578,7 +580,7 @@ model SupplierBankAccount {
   notes         String?
   createdAt     DateTime @default(now())
 
-  supplier  Supplier @relation(fields: [supplierId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
 
   @@index([supplierId])
   @@index([businessId])
@@ -596,10 +598,10 @@ model Customer {
   address            String?
   stateCode          String?
   customerType       String          @default("REGULAR")
-  creditLimit        Decimal         @db.Decimal(15, 2) @default(0)
-  outstandingBalance Decimal         @db.Decimal(15, 2) @default(0)
+  creditLimit        Decimal         @default(0) @db.Decimal(15, 2)
+  outstandingBalance Decimal         @default(0) @db.Decimal(15, 2)
   loyaltyPoints      Int             @default(0)
-  walletBalance      Decimal         @db.Decimal(15, 2) @default(0)
+  walletBalance      Decimal         @default(0) @db.Decimal(15, 2)
   isActive           Boolean         @default(true)
   // Extended fields
   customerCode       String?
@@ -608,7 +610,7 @@ model Customer {
   status             CustomerStatus  @default(ACTIVE)
   companyName        String?
   billingAddress     String?
-  openingBalance     Decimal         @db.Decimal(15, 2) @default(0)
+  openingBalance     Decimal         @default(0) @db.Decimal(15, 2)
   whatsappOptIn      Boolean         @default(false)
   smsOptIn           Boolean         @default(false)
   emailOptIn         Boolean         @default(false)
@@ -623,13 +625,13 @@ model Customer {
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
-  business      Business             @relation(fields: [businessId], references: [id])
-  salesBills    SalesBill[]
-  addresses     CustomerAddress[]
-  payments      CustomerPayment[]
-  googleSync    CustomerGoogleSync?
-  listEntries   CustomerListEntry[]
-  walletTxns    WalletTransaction[]
+  business    Business            @relation(fields: [businessId], references: [id])
+  salesBills  SalesBill[]
+  addresses   CustomerAddress[]
+  payments    CustomerPayment[]
+  googleSync  CustomerGoogleSync?
+  listEntries CustomerListEntry[]
+  walletTxns  WalletTransaction[]
 
   @@unique([businessId, customerCode])
   @@index([businessId, phone])
@@ -651,17 +653,17 @@ enum CustomerChannel {
 // (at delivery / POS) — customer self-serve redemption is deliberately
 // deferred until storefront customer auth (OTP) exists.
 model WalletTransaction {
-  id           String   @id @default(cuid())
-  businessId   String
-  customerId   String
-  type         WalletTxnType
-  amount       Decimal  @db.Decimal(15, 2) // always positive; type carries direction
-  balanceAfter Decimal  @db.Decimal(15, 2)
-  reason       String
-  relatedType  String?  // e.g. ONLINE_ORDER, POS_BILL, MANUAL
-  relatedId    String?  // e.g. order number / bill number
+  id            String        @id @default(cuid())
+  businessId    String
+  customerId    String
+  type          WalletTxnType
+  amount        Decimal       @db.Decimal(15, 2) // always positive; type carries direction
+  balanceAfter  Decimal       @db.Decimal(15, 2)
+  reason        String
+  relatedType   String? // e.g. ONLINE_ORDER, POS_BILL, MANUAL
+  relatedId     String? // e.g. order number / bill number
   createdByName String? // staff user, or "System" for automatic settlements
-  createdAt    DateTime @default(now())
+  createdAt     DateTime      @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id])
 
@@ -702,85 +704,85 @@ model BillSeries {
 
 // ─── SALES BILL ───────────────────────────────────────
 model SalesBill {
-  id              String      @id @default(cuid())
-  businessId      String
-  branchId        String
-  financialYearId String
-  billSeriesId    String?
-  billNumber      String?
-  billDate        DateTime    @default(now())
-  customerId      String?
-  customerName    String?
-  customerPhone   String?
-  customerGstin   String?
-  supplyStateCode String?
-  saleType        SaleType    @default(CASH)
-  paymentMode     PaymentMode @default(CASH)
-  subtotalAmount  Decimal     @db.Decimal(15, 2) @default(0)
-  discountAmount  Decimal     @db.Decimal(15, 2) @default(0)
-  taxableAmount   Decimal     @db.Decimal(15, 2) @default(0)
-  cgstTotal       Decimal     @db.Decimal(15, 2) @default(0)
-  sgstTotal       Decimal     @db.Decimal(15, 2) @default(0)
-  igstTotal       Decimal     @db.Decimal(15, 2) @default(0)
-  totalTaxAmount  Decimal     @db.Decimal(15, 2) @default(0)
-  grandTotal      Decimal     @db.Decimal(15, 2) @default(0)
-  paidAmount      Decimal     @db.Decimal(15, 2) @default(0)
-  balanceAmount   Decimal     @db.Decimal(15, 2) @default(0)
-  billType          String      @default("TAX_INVOICE") // TAX_INVOICE / RETAIL_INVOICE / ESTIMATE
-  isB2B             Boolean     @default(false)
-  estimateStatus    String?     // OPEN / CONVERTED / EXPIRED / CANCELLED
-  validityDate      DateTime?
-  convertedToBillId String?
-  convertedAt       DateTime?
-  status          BillStatus  @default(DRAFT)
-  counterId       String?
-  shiftId         String?
-  createdById     String?
-  notes           String?
+  id                      String      @id @default(cuid())
+  businessId              String
+  branchId                String
+  financialYearId         String
+  billSeriesId            String?
+  billNumber              String?
+  billDate                DateTime    @default(now())
+  customerId              String?
+  customerName            String?
+  customerPhone           String?
+  customerGstin           String?
+  supplyStateCode         String?
+  saleType                SaleType    @default(CASH)
+  paymentMode             PaymentMode @default(CASH)
+  subtotalAmount          Decimal     @default(0) @db.Decimal(15, 2)
+  discountAmount          Decimal     @default(0) @db.Decimal(15, 2)
+  taxableAmount           Decimal     @default(0) @db.Decimal(15, 2)
+  cgstTotal               Decimal     @default(0) @db.Decimal(15, 2)
+  sgstTotal               Decimal     @default(0) @db.Decimal(15, 2)
+  igstTotal               Decimal     @default(0) @db.Decimal(15, 2)
+  totalTaxAmount          Decimal     @default(0) @db.Decimal(15, 2)
+  grandTotal              Decimal     @default(0) @db.Decimal(15, 2)
+  paidAmount              Decimal     @default(0) @db.Decimal(15, 2)
+  balanceAmount           Decimal     @default(0) @db.Decimal(15, 2)
+  billType                String      @default("TAX_INVOICE") // TAX_INVOICE / RETAIL_INVOICE / ESTIMATE
+  isB2B                   Boolean     @default(false)
+  estimateStatus          String? // OPEN / CONVERTED / EXPIRED / CANCELLED
+  validityDate            DateTime?
+  convertedToBillId       String?
+  convertedAt             DateTime?
+  status                  BillStatus  @default(DRAFT)
+  counterId               String?
+  shiftId                 String?
+  createdById             String?
+  notes                   String?
   // Multi-payment breakdown
-  cashAmount      Decimal?    @db.Decimal(15, 2)
-  upiAmount       Decimal?    @db.Decimal(15, 2)
-  cardAmount      Decimal?    @db.Decimal(15, 2)
+  cashAmount              Decimal?    @db.Decimal(15, 2)
+  upiAmount               Decimal?    @db.Decimal(15, 2)
+  cardAmount              Decimal?    @db.Decimal(15, 2)
   // Void
-  isVoided        Boolean     @default(false)
-  voidedAt        DateTime?
-  voidedById      String?
-  voidedByName    String?
-  voidReason      String?
-  replacedByBillId String?
+  isVoided                Boolean     @default(false)
+  voidedAt                DateTime?
+  voidedById              String?
+  voidedByName            String?
+  voidReason              String?
+  replacedByBillId        String?
   // Bill-time snapshots — immutable after creation
-  cashierName       String?
-  counterName       String?
-  businessName      String?
-  businessGstin     String?
-  businessAddress   String?
-  financialYearCode String?
-  cessTotal               Decimal @db.Decimal(15, 2) @default(0)
-  isHistorical            Boolean @default(false)
-  loyaltyPointsEarned     Int     @default(0)
-  loyaltyPointsRedeemed   Int     @default(0)
-  loyaltyDiscount         Decimal @db.Decimal(10, 2) @default(0)
+  cashierName             String?
+  counterName             String?
+  businessName            String?
+  businessGstin           String?
+  businessAddress         String?
+  financialYearCode       String?
+  cessTotal               Decimal     @default(0) @db.Decimal(15, 2)
+  isHistorical            Boolean     @default(false)
+  loyaltyPointsEarned     Int         @default(0)
+  loyaltyPointsRedeemed   Int         @default(0)
+  loyaltyDiscount         Decimal     @default(0) @db.Decimal(10, 2)
   // ── GST Compliance stubs (feature-ready) ─────────────────────────────────
   // irnNumber: e-Invoice Reference Number from IRP (mandatory >₹5Cr turnover)
   irnNumber               String?
   // eWayBillNumber: required for goods movement >₹50,000
   eWayBillNumber          String?
   // reverseChargeApplicable: Section 9(3) / 9(4) supplies
-  reverseChargeApplicable Boolean @default(false)
+  reverseChargeApplicable Boolean     @default(false)
   // Buyer structured address — needed for GSTR-1 B2B table
   buyerAddress            String?
   buyerPincode            String?
   buyerStateCode          String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
 
-  branch           Branch           @relation(fields: [branchId], references: [id])
-  financialYear    FinancialYear    @relation(fields: [financialYearId], references: [id])
-  customer         Customer?        @relation(fields: [customerId], references: [id])
-  createdBy        User?            @relation(fields: [createdById], references: [id])
-  billSeries       BillSeries?      @relation(fields: [billSeriesId], references: [id])
-  posCounter       PosCounter?      @relation(fields: [counterId], references: [id])
-  posShift         PosShift?        @relation(fields: [shiftId], references: [id])
+  branch           Branch            @relation(fields: [branchId], references: [id])
+  financialYear    FinancialYear     @relation(fields: [financialYearId], references: [id])
+  customer         Customer?         @relation(fields: [customerId], references: [id])
+  createdBy        User?             @relation(fields: [createdById], references: [id])
+  billSeries       BillSeries?       @relation(fields: [billSeriesId], references: [id])
+  posCounter       PosCounter?       @relation(fields: [counterId], references: [id])
+  posShift         PosShift?         @relation(fields: [shiftId], references: [id])
   items            SalesItem[]
   customerPayments CustomerPayment[]
 
@@ -811,30 +813,30 @@ enum BillStatus {
 
 // ─── SALES ITEM ───────────────────────────────────────
 model SalesItem {
-  id              String  @id @default(cuid())
-  billId          String
-  productId       String
-  pluId           String?
-  taxId           String
-  productName     String
-  hsnCode         String?
-  quantity        Decimal @db.Decimal(15, 3)
-  unitPrice       Decimal @db.Decimal(15, 2)
-  discountPercent Decimal @db.Decimal(5, 2)  @default(0)
-  discountAmount  Decimal @db.Decimal(15, 2) @default(0)
-  taxableAmount   Decimal @db.Decimal(15, 2) @default(0)
-  gstRatePercent  Decimal @db.Decimal(5, 2)  @default(0)
-  cgstAmount      Decimal @db.Decimal(15, 2) @default(0)
-  sgstAmount      Decimal @db.Decimal(15, 2) @default(0)
-  igstAmount      Decimal @db.Decimal(15, 2) @default(0)
-  totalAmount     Decimal  @db.Decimal(15, 2)
-  unitOfMeasure   String?
-  mrp             Decimal? @db.Decimal(15, 2)   // snapshot at time of sale
+  id                String   @id @default(cuid())
+  billId            String
+  productId         String
+  pluId             String?
+  taxId             String
+  productName       String
+  hsnCode           String?
+  quantity          Decimal  @db.Decimal(15, 3)
+  unitPrice         Decimal  @db.Decimal(15, 2)
+  discountPercent   Decimal  @default(0) @db.Decimal(5, 2)
+  discountAmount    Decimal  @default(0) @db.Decimal(15, 2)
+  taxableAmount     Decimal  @default(0) @db.Decimal(15, 2)
+  gstRatePercent    Decimal  @default(0) @db.Decimal(5, 2)
+  cgstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  sgstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  igstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  totalAmount       Decimal  @db.Decimal(15, 2)
+  unitOfMeasure     String?
+  mrp               Decimal? @db.Decimal(15, 2) // snapshot at time of sale
   // Price override
-  isPriceOverridden Boolean @default(false)
-  originalPrice   Decimal? @db.Decimal(15, 2)
-  overrideReason  String?
-  cessAmount      Decimal  @db.Decimal(15, 2) @default(0)
+  isPriceOverridden Boolean  @default(false)
+  originalPrice     Decimal? @db.Decimal(15, 2)
+  overrideReason    String?
+  cessAmount        Decimal  @default(0) @db.Decimal(15, 2)
 
   bill    SalesBill @relation(fields: [billId], references: [id])
   product Product   @relation(fields: [productId], references: [id])
@@ -845,22 +847,22 @@ model SalesItem {
 
 // ─── PURCHASE / GRN ───────────────────────────────────
 model Purchase {
-  id              String         @id @default(cuid())
-  businessId      String
-  branchId        String
-  supplierId      String
-  supplierName    String
-  supplierGstin   String?
-  grnNumber       String?
-  invoiceNumber   String
-  invoiceDate     DateTime
-  taxableAmount   Decimal        @db.Decimal(15, 2) @default(0)
-  totalTaxAmount  Decimal        @db.Decimal(15, 2) @default(0)
-  cgstTotal       Decimal        @db.Decimal(15, 2) @default(0)
-  sgstTotal       Decimal        @db.Decimal(15, 2) @default(0)
-  igstTotal       Decimal        @db.Decimal(15, 2) @default(0)
-  grandTotal      Decimal        @db.Decimal(15, 2) @default(0)
-  paidAmount           Decimal        @db.Decimal(15, 2) @default(0)
+  id                   String         @id @default(cuid())
+  businessId           String
+  branchId             String
+  supplierId           String
+  supplierName         String
+  supplierGstin        String?
+  grnNumber            String?
+  invoiceNumber        String
+  invoiceDate          DateTime
+  taxableAmount        Decimal        @default(0) @db.Decimal(15, 2)
+  totalTaxAmount       Decimal        @default(0) @db.Decimal(15, 2)
+  cgstTotal            Decimal        @default(0) @db.Decimal(15, 2)
+  sgstTotal            Decimal        @default(0) @db.Decimal(15, 2)
+  igstTotal            Decimal        @default(0) @db.Decimal(15, 2)
+  grandTotal           Decimal        @default(0) @db.Decimal(15, 2)
+  paidAmount           Decimal        @default(0) @db.Decimal(15, 2)
   status               PurchaseStatus @default(DRAFT)
   approvedById         String?
   approvedAt           DateTime?
@@ -875,18 +877,18 @@ model Purchase {
   placeOfSupply        String?
   isInterState         Boolean        @default(false)
   poNumber             String?
-  billDiscountPercent  Decimal        @db.Decimal(5, 2)  @default(0)
-  billDiscountAmount   Decimal        @db.Decimal(15, 2) @default(0)
-  cashDiscountPercent  Decimal        @db.Decimal(5, 2)  @default(0)
-  cashDiscountAmount   Decimal        @db.Decimal(15, 2) @default(0)
-  freightCharges       Decimal        @db.Decimal(15, 2) @default(0)
-  hamaliCharges        Decimal        @db.Decimal(15, 2) @default(0)
-  otherCharges         Decimal        @db.Decimal(15, 2) @default(0)
-  roundingAmount       Decimal        @db.Decimal(15, 2) @default(0)
-  cessTotal            Decimal        @db.Decimal(15, 2) @default(0)
-  advanceAdjusted      Decimal        @db.Decimal(15, 2) @default(0)
-  amountPayable        Decimal        @db.Decimal(15, 2) @default(0)
-  balanceAmount        Decimal        @db.Decimal(15, 2) @default(0)
+  billDiscountPercent  Decimal        @default(0) @db.Decimal(5, 2)
+  billDiscountAmount   Decimal        @default(0) @db.Decimal(15, 2)
+  cashDiscountPercent  Decimal        @default(0) @db.Decimal(5, 2)
+  cashDiscountAmount   Decimal        @default(0) @db.Decimal(15, 2)
+  freightCharges       Decimal        @default(0) @db.Decimal(15, 2)
+  hamaliCharges        Decimal        @default(0) @db.Decimal(15, 2)
+  otherCharges         Decimal        @default(0) @db.Decimal(15, 2)
+  roundingAmount       Decimal        @default(0) @db.Decimal(15, 2)
+  cessTotal            Decimal        @default(0) @db.Decimal(15, 2)
+  advanceAdjusted      Decimal        @default(0) @db.Decimal(15, 2)
+  amountPayable        Decimal        @default(0) @db.Decimal(15, 2)
+  balanceAmount        Decimal        @default(0) @db.Decimal(15, 2)
   paymentDueDate       DateTime?
   paymentMode          String?
   paymentReference     String?
@@ -906,18 +908,18 @@ model Purchase {
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
-  branch       Branch               @relation(fields: [branchId], references: [id])
-  supplier     Supplier             @relation(fields: [supplierId], references: [id])
-  items        PurchaseItem[]
-  payments     SupplierPayment[]
-  allocations  PaymentAllocation[]
+  branch      Branch              @relation(fields: [branchId], references: [id])
+  supplier    Supplier            @relation(fields: [supplierId], references: [id])
+  items       PurchaseItem[]
+  payments    SupplierPayment[]
+  allocations PaymentAllocation[]
+
+  taxBreakup PurchaseTaxBreakup[]
 
   @@unique([businessId, invoiceNumber, supplierId])
   @@index([supplierId])
   @@index([status])
   @@map("purchase")
-
-  taxBreakup   PurchaseTaxBreakup[]
 }
 
 enum PurchaseStatus {
@@ -931,16 +933,16 @@ enum PurchaseStatus {
 // ─── PURCHASE TAX BREAKUP ─────────────────────────────
 // Rate-wise GST summary per GRN — used directly for GSTR-2 inward supply report
 model PurchaseTaxBreakup {
-  id             String   @id @default(cuid())
-  purchaseId     String
-  gstRate        Decimal  @db.Decimal(5, 2)   // 0, 5, 12, 18, 28
-  taxableAmount  Decimal  @db.Decimal(15, 2)
-  cgstAmount     Decimal  @db.Decimal(15, 2)  @default(0)
-  sgstAmount     Decimal  @db.Decimal(15, 2)  @default(0)
-  igstAmount     Decimal  @db.Decimal(15, 2)  @default(0)
-  cessAmount     Decimal  @db.Decimal(15, 2)  @default(0)
+  id            String  @id @default(cuid())
+  purchaseId    String
+  gstRate       Decimal @db.Decimal(5, 2) // 0, 5, 12, 18, 28
+  taxableAmount Decimal @db.Decimal(15, 2)
+  cgstAmount    Decimal @default(0) @db.Decimal(15, 2)
+  sgstAmount    Decimal @default(0) @db.Decimal(15, 2)
+  igstAmount    Decimal @default(0) @db.Decimal(15, 2)
+  cessAmount    Decimal @default(0) @db.Decimal(15, 2)
 
-  purchase  Purchase  @relation(fields: [purchaseId], references: [id])
+  purchase Purchase @relation(fields: [purchaseId], references: [id])
 
   @@unique([purchaseId, gstRate])
   @@index([purchaseId])
@@ -956,15 +958,15 @@ model PurchaseItem {
   productName             String
   hsnCode                 String?
   quantity                Decimal   @db.Decimal(15, 3)
-  freeQuantity            Decimal   @db.Decimal(15, 3) @default(0)
+  freeQuantity            Decimal   @default(0) @db.Decimal(15, 3)
   unitPrice               Decimal   @db.Decimal(15, 2)
-  schemeDiscountPercent   Decimal   @db.Decimal(5, 2)  @default(0)
-  retailerDiscountPercent Decimal   @db.Decimal(5, 2)  @default(0)
-  taxableAmount           Decimal   @db.Decimal(15, 2) @default(0)
-  gstRatePercent          Decimal   @db.Decimal(5, 2)  @default(0)
-  cgstAmount              Decimal   @db.Decimal(15, 2) @default(0)
-  sgstAmount              Decimal   @db.Decimal(15, 2) @default(0)
-  igstAmount              Decimal   @db.Decimal(15, 2) @default(0)
+  schemeDiscountPercent   Decimal   @default(0) @db.Decimal(5, 2)
+  retailerDiscountPercent Decimal   @default(0) @db.Decimal(5, 2)
+  taxableAmount           Decimal   @default(0) @db.Decimal(15, 2)
+  gstRatePercent          Decimal   @default(0) @db.Decimal(5, 2)
+  cgstAmount              Decimal   @default(0) @db.Decimal(15, 2)
+  sgstAmount              Decimal   @default(0) @db.Decimal(15, 2)
+  igstAmount              Decimal   @default(0) @db.Decimal(15, 2)
   totalAmount             Decimal   @db.Decimal(15, 2)
   expiryDate              DateTime?
   batchNumber             String?
@@ -974,21 +976,21 @@ model PurchaseItem {
   mrp                     Decimal?  @db.Decimal(15, 2)
   sellingPrice            Decimal?  @db.Decimal(15, 2)
   wsPrice                 Decimal?  @db.Decimal(15, 2)
-  basicCostPrice          Decimal   @db.Decimal(15, 2) @default(0)
-  disc1Percent            Decimal   @db.Decimal(8, 4)  @default(0)
-  disc2Percent            Decimal   @db.Decimal(8, 4)  @default(0)
-  disc3Percent            Decimal   @db.Decimal(8, 4)  @default(0)
-  disc4Percent            Decimal   @db.Decimal(8, 4)  @default(0)
-  cashDiscPercent         Decimal   @db.Decimal(8, 4)  @default(0)
-  cashDiscAmount          Decimal   @db.Decimal(15, 2) @default(0)
-  netCostPrice            Decimal   @db.Decimal(15, 2) @default(0)
-  casesReceived           Decimal   @db.Decimal(10, 3) @default(0)
-  looseQty                Decimal   @db.Decimal(10, 3) @default(0)
+  basicCostPrice          Decimal   @default(0) @db.Decimal(15, 2)
+  disc1Percent            Decimal   @default(0) @db.Decimal(8, 4)
+  disc2Percent            Decimal   @default(0) @db.Decimal(8, 4)
+  disc3Percent            Decimal   @default(0) @db.Decimal(8, 4)
+  disc4Percent            Decimal   @default(0) @db.Decimal(8, 4)
+  cashDiscPercent         Decimal   @default(0) @db.Decimal(8, 4)
+  cashDiscAmount          Decimal   @default(0) @db.Decimal(15, 2)
+  netCostPrice            Decimal   @default(0) @db.Decimal(15, 2)
+  casesReceived           Decimal   @default(0) @db.Decimal(10, 3)
+  looseQty                Decimal   @default(0) @db.Decimal(10, 3)
   packSize                Int       @default(1)
-  totalReceivedQty        Decimal   @db.Decimal(10, 3) @default(0)
-  freeCases               Decimal   @db.Decimal(10, 3) @default(0)
-  freeLoose               Decimal   @db.Decimal(10, 3) @default(0)
-  totalFreeQty            Decimal   @db.Decimal(10, 3) @default(0)
+  totalReceivedQty        Decimal   @default(0) @db.Decimal(10, 3)
+  freeCases               Decimal   @default(0) @db.Decimal(10, 3)
+  freeLoose               Decimal   @default(0) @db.Decimal(10, 3)
+  totalFreeQty            Decimal   @default(0) @db.Decimal(10, 3)
   // Whole line received at zero cost (a different product given free against
   // the bill, e.g. "Sambar Masala free" on an oil/mirchi order) — distinct
   // from freeCases/freeLoose, which are extra free units of THIS SAME item.
@@ -997,22 +999,22 @@ model PurchaseItem {
   // resold (sample/display/promotional item) — recorded on the GRN for bill-matching
   // but must never enter sellable PLU stock. Ignored for normal (non-free) lines.
   isSaleable              Boolean   @default(true)
-  totalQty                Decimal   @db.Decimal(10, 3) @default(0)
-  cessRate                Decimal   @db.Decimal(5, 2)  @default(0)
-  cessAmount              Decimal   @db.Decimal(15, 2) @default(0)
+  totalQty                Decimal   @default(0) @db.Decimal(10, 3)
+  cessRate                Decimal   @default(0) @db.Decimal(5, 2)
+  cessAmount              Decimal   @default(0) @db.Decimal(15, 2)
   manufacturingDate       DateTime?
-  rejectedQty             Decimal   @db.Decimal(10, 3) @default(0)
-  acceptedQty             Decimal   @db.Decimal(10, 3) @default(0)
+  rejectedQty             Decimal   @default(0) @db.Decimal(10, 3)
+  acceptedQty             Decimal   @default(0) @db.Decimal(10, 3)
   rejectionReason         String?
   rejectionAction         String?
-  hamaliShare             Decimal   @db.Decimal(15, 2) @default(0)
-  freightShare            Decimal   @db.Decimal(15, 2) @default(0)
-  trueCostPrice           Decimal   @db.Decimal(15, 2) @default(0)
+  hamaliShare             Decimal   @default(0) @db.Decimal(15, 2)
+  freightShare            Decimal   @default(0) @db.Decimal(15, 2)
+  trueCostPrice           Decimal   @default(0) @db.Decimal(15, 2)
   lastCostPrice           Decimal?  @db.Decimal(15, 2)
   priceChanged            Boolean   @default(false)
   priceChangePct          Decimal?  @db.Decimal(5, 2)
   unitOfMeasure           String    @default("PCS")
-  lineTotal               Decimal   @db.Decimal(15, 2) @default(0)
+  lineTotal               Decimal   @default(0) @db.Decimal(15, 2)
   // Unit-of-measure entered on this GRN line (e.g. COUNT/ctn/144) — persisted here so it
   // survives from creation to approval, where syncPluOnApproval reads it back to apply/compare
   // against the receiving PLU. Optional: most lines rely on the PLU's own existing units.
@@ -1069,10 +1071,10 @@ enum MovementType {
 
 // ─── POS COUNTER & SHIFT ──────────────────────────────
 model PosCounter {
-  id         String        @id @default(cuid())
-  businessId String
-  branchId   String
-  name       String
+  id          String        @id @default(cuid())
+  businessId  String
+  branchId    String
+  name        String
   code        String
   description String?
   status      CounterStatus @default(ACTIVE)
@@ -1100,15 +1102,15 @@ model PosShift {
   cashierName  String?
   branchId     String?
   shiftDate    DateTime    @default(now())
-  openingCash  Decimal     @db.Decimal(15, 2) @default(0)
+  openingCash  Decimal     @default(0) @db.Decimal(15, 2)
   closingCash  Decimal?    @db.Decimal(15, 2)
   expectedCash Decimal?    @db.Decimal(15, 2)
   cashDiff     Decimal?    @db.Decimal(15, 2)
-  totalSales   Decimal     @db.Decimal(15, 2) @default(0)
+  totalSales   Decimal     @default(0) @db.Decimal(15, 2)
   totalBills   Int         @default(0)
-  totalCash    Decimal     @db.Decimal(15, 2) @default(0)
-  totalUpi     Decimal     @db.Decimal(15, 2) @default(0)
-  totalCard    Decimal     @db.Decimal(15, 2) @default(0)
+  totalCash    Decimal     @default(0) @db.Decimal(15, 2)
+  totalUpi     Decimal     @default(0) @db.Decimal(15, 2)
+  totalCard    Decimal     @default(0) @db.Decimal(15, 2)
   status       ShiftStatus @default(OPEN)
   startTime    DateTime    @default(now())
   endTime      DateTime?
@@ -1156,8 +1158,8 @@ model AuditLog {
   userId      String?
   userName    String
   userRole    String
-  action      String   // CREATE UPDATE DELETE APPROVE REJECT STATUS_CHANGE LOGIN OPEN CLOSE
-  entity      String   // BILL GRN PRODUCT CUSTOMER SUPPLIER EXPENSE ONLINE_ORDER USER SHIFT INVENTORY SETTINGS
+  action      String // CREATE UPDATE DELETE APPROVE REJECT STATUS_CHANGE LOGIN OPEN CLOSE
+  entity      String // BILL GRN PRODUCT CUSTOMER SUPPLIER EXPENSE ONLINE_ORDER USER SHIFT INVENTORY SETTINGS
   entityId    String?
   entityRef   String?
   description String
@@ -1191,7 +1193,7 @@ model Notification {
   channel     String    @default("IN_APP")
   createdAt   DateTime  @default(now())
 
-  business    Business  @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@index([businessId, isRead])
   @@index([businessId, createdAt])
@@ -1200,37 +1202,37 @@ model Notification {
 
 // ─── DAY CLOSURE ─────────────────────────────────────
 model DayClosure {
-  id             String    @id @default(cuid())
-  businessId     String
-  branchId       String
-  closureDate    DateTime  @db.Date
-  status         String    @default("PENDING")
+  id          String   @id @default(cuid())
+  businessId  String
+  branchId    String
+  closureDate DateTime @db.Date
+  status      String   @default("PENDING")
   // PENDING, COMPLETED, AUTO_CLOSED
 
-  systemCash     Decimal   @db.Decimal(15, 2) @default(0)
-  actualCash     Decimal?  @db.Decimal(15, 2)
-  cashDifference Decimal?  @db.Decimal(15, 2)
+  systemCash     Decimal  @default(0) @db.Decimal(15, 2)
+  actualCash     Decimal? @db.Decimal(15, 2)
+  cashDifference Decimal? @db.Decimal(15, 2)
 
-  totalBills     Int       @default(0)
-  totalSales     Decimal   @db.Decimal(15, 2) @default(0)
-  totalCash      Decimal   @db.Decimal(15, 2) @default(0)
-  totalUpi       Decimal   @db.Decimal(15, 2) @default(0)
-  totalCard      Decimal   @db.Decimal(15, 2) @default(0)
+  totalBills Int     @default(0)
+  totalSales Decimal @default(0) @db.Decimal(15, 2)
+  totalCash  Decimal @default(0) @db.Decimal(15, 2)
+  totalUpi   Decimal @default(0) @db.Decimal(15, 2)
+  totalCard  Decimal @default(0) @db.Decimal(15, 2)
 
-  cashCounted    Boolean   @default(false)
-  grnsPending    Int       @default(0)
-  grnsCleared    Boolean   @default(false)
-  stockAlertsAck Boolean   @default(false)
+  cashCounted    Boolean @default(false)
+  grnsPending    Int     @default(0)
+  grnsCleared    Boolean @default(false)
+  stockAlertsAck Boolean @default(false)
 
-  openedById     String?
-  openedByName   String?
-  closedById     String?
-  closedAt       DateTime?
-  notes          String?
+  openedById   String?
+  openedByName String?
+  closedById   String?
+  closedAt     DateTime?
+  notes        String?
 
-  createdAt      DateTime  @default(now())
+  createdAt DateTime @default(now())
 
-  business       Business  @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@unique([businessId, branchId, closureDate])
   @@index([businessId, closureDate])
@@ -1266,8 +1268,8 @@ model HeldBill {
 
 // ─── CREDIT NOTE ─────────────────────────────────────
 model CreditNote {
-  id                 String          @id @default(cuid())
-  creditNoteNumber   String          @unique
+  id                 String    @id @default(cuid())
+  creditNoteNumber   String    @unique
   businessId         String
   branchId           String
   originalBillId     String
@@ -1276,22 +1278,22 @@ model CreditNote {
   customerName       String?
   customerPhone      String?
   customerGstin      String?
-  isB2B              Boolean         @default(false)
+  isB2B              Boolean   @default(false)
   reason             String
-  subtotalAmount     Decimal         @db.Decimal(15, 2)
-  taxAmount          Decimal         @db.Decimal(15, 2)
-  cgstAmount         Decimal         @db.Decimal(15, 2)
-  sgstAmount         Decimal         @db.Decimal(15, 2)
-  igstAmount         Decimal         @db.Decimal(15, 2) @default(0)
-  cessAmount         Decimal         @db.Decimal(15, 2) @default(0)
-  totalAmount        Decimal         @db.Decimal(15, 2)
-  refundMode         String          // CASH | STORE_CREDIT | BANK_TRANSFER
-  refundStatus       String          @default("PENDING")
+  subtotalAmount     Decimal   @db.Decimal(15, 2)
+  taxAmount          Decimal   @db.Decimal(15, 2)
+  cgstAmount         Decimal   @db.Decimal(15, 2)
+  sgstAmount         Decimal   @db.Decimal(15, 2)
+  igstAmount         Decimal   @default(0) @db.Decimal(15, 2)
+  cessAmount         Decimal   @default(0) @db.Decimal(15, 2)
+  totalAmount        Decimal   @db.Decimal(15, 2)
+  refundMode         String // CASH | STORE_CREDIT | BANK_TRANSFER
+  refundStatus       String    @default("PENDING")
   refundCompletedAt  DateTime?
   createdById        String
   createdByName      String
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   items CreditNoteItem[]
 
@@ -1309,13 +1311,13 @@ model CreditNoteItem {
   hsnCode        String?
   quantity       Decimal    @db.Decimal(15, 3)
   unitPrice      Decimal    @db.Decimal(15, 2)
-  discountAmount Decimal    @db.Decimal(15, 2) @default(0)
-  taxableAmount  Decimal    @db.Decimal(15, 2) @default(0)
+  discountAmount Decimal    @default(0) @db.Decimal(15, 2)
+  taxableAmount  Decimal    @default(0) @db.Decimal(15, 2)
   gstRatePercent Decimal    @db.Decimal(5, 2)
   cgstAmount     Decimal    @db.Decimal(15, 2)
   sgstAmount     Decimal    @db.Decimal(15, 2)
-  igstAmount     Decimal    @db.Decimal(15, 2) @default(0)
-  cessAmount     Decimal    @db.Decimal(15, 2) @default(0)
+  igstAmount     Decimal    @default(0) @db.Decimal(15, 2)
+  cessAmount     Decimal    @default(0) @db.Decimal(15, 2)
   totalAmount    Decimal    @db.Decimal(15, 2)
   isReturnable   Boolean    @default(true)
 
@@ -1326,29 +1328,29 @@ model CreditNoteItem {
 // Issued when a price increase correction is needed against a customer
 // (opposite of credit note — charges the customer more)
 model SalesDebitNote {
-  id               String   @id @default(cuid())
-  businessId       String
-  branchId         String
-  debitNoteNumber  String   @unique
-  debitNoteDate    DateTime @default(now())
-  originalBillId   String?
+  id                 String   @id @default(cuid())
+  businessId         String
+  branchId           String
+  debitNoteNumber    String   @unique
+  debitNoteDate      DateTime @default(now())
+  originalBillId     String?
   originalBillNumber String?
-  customerId       String?
-  customerName     String?
-  customerGstin    String?
-  reason           String
-  subtotalAmount   Decimal  @db.Decimal(15, 2) @default(0)
-  cgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  sgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  igstAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  cessAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  totalAmount      Decimal  @db.Decimal(15, 2)
-  status           String   @default("DRAFT")  // DRAFT | ISSUED | CANCELLED
-  createdById      String?
-  createdByName    String?
-  notes            String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  customerId         String?
+  customerName       String?
+  customerGstin      String?
+  reason             String
+  subtotalAmount     Decimal  @default(0) @db.Decimal(15, 2)
+  cgstAmount         Decimal  @default(0) @db.Decimal(15, 2)
+  sgstAmount         Decimal  @default(0) @db.Decimal(15, 2)
+  igstAmount         Decimal  @default(0) @db.Decimal(15, 2)
+  cessAmount         Decimal  @default(0) @db.Decimal(15, 2)
+  totalAmount        Decimal  @db.Decimal(15, 2)
+  status             String   @default("DRAFT") // DRAFT | ISSUED | CANCELLED
+  createdById        String?
+  createdByName      String?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   items SalesDebitNoteItem[]
 
@@ -1366,12 +1368,12 @@ model SalesDebitNoteItem {
   hsnCode        String?
   quantity       Decimal        @db.Decimal(15, 3)
   unitPrice      Decimal        @db.Decimal(15, 2)
-  taxableAmount  Decimal        @db.Decimal(15, 2) @default(0)
-  gstRatePercent Decimal        @db.Decimal(5, 2)  @default(0)
-  cgstAmount     Decimal        @db.Decimal(15, 2) @default(0)
-  sgstAmount     Decimal        @db.Decimal(15, 2) @default(0)
-  igstAmount     Decimal        @db.Decimal(15, 2) @default(0)
-  cessAmount     Decimal        @db.Decimal(15, 2) @default(0)
+  taxableAmount  Decimal        @default(0) @db.Decimal(15, 2)
+  gstRatePercent Decimal        @default(0) @db.Decimal(5, 2)
+  cgstAmount     Decimal        @default(0) @db.Decimal(15, 2)
+  sgstAmount     Decimal        @default(0) @db.Decimal(15, 2)
+  igstAmount     Decimal        @default(0) @db.Decimal(15, 2)
+  cessAmount     Decimal        @default(0) @db.Decimal(15, 2)
   totalAmount    Decimal        @db.Decimal(15, 2)
 
   @@map("sales_debit_note_item")
@@ -1386,7 +1388,7 @@ model SystemSetting {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  business   Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@unique([businessId, key])
   @@map("system_setting")
@@ -1394,19 +1396,19 @@ model SystemSetting {
 
 // ─── PLU BUNDLE (Bulk ↔ Single linking) ──────────────
 model PluBundle {
-  id              String   @id @default(cuid())
-  businessId      String
-  bulkPluId       String             // e.g. PLU 000278002 (box of 10)
-  singlePluId     String             // e.g. PLU 000278001 (single blade)
-  conversionQty   Int                // 1 bulk = conversionQty singles (FIXED); ignored for VARIABLE
-  type            String   @default("FIXED")  // FIXED | VARIABLE
-  bulkWeightG     Decimal? @db.Decimal(10, 3) // weight of 1 bulk unit in grams (VARIABLE)
-  unitWeightG     Decimal? @db.Decimal(10, 3) // default weight of 1 single in grams (VARIABLE)
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  businessId    String
+  bulkPluId     String // e.g. PLU 000278002 (box of 10)
+  singlePluId   String // e.g. PLU 000278001 (single blade)
+  conversionQty Int // 1 bulk = conversionQty singles (FIXED); ignored for VARIABLE
+  type          String   @default("FIXED") // FIXED | VARIABLE
+  bulkWeightG   Decimal? @db.Decimal(10, 3) // weight of 1 bulk unit in grams (VARIABLE)
+  unitWeightG   Decimal? @db.Decimal(10, 3) // default weight of 1 single in grams (VARIABLE)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  bulkPlu   ProductPlu @relation("BulkPlu",   fields: [bulkPluId],   references: [id])
+  bulkPlu   ProductPlu @relation("BulkPlu", fields: [bulkPluId], references: [id])
   singlePlu ProductPlu @relation("SinglePlu", fields: [singlePluId], references: [id])
 
   @@unique([bulkPluId, singlePluId])
@@ -1417,30 +1419,30 @@ model PluBundle {
 
 // ─── REPACK SESSION ───────────────────────────────────
 model RepackSession {
-  id               String    @id @default(cuid())
-  businessId       String
-  sessionNo        String                         // human-readable e.g. RPK-20260629-0001
-  sourcePluId      String
-  sourceQty        Decimal   @db.Decimal(10, 3)
-  type             String    @default("FIXED")    // FIXED | VARIABLE
-  bulkWeightG      Decimal?  @db.Decimal(10, 3)  // grams per bulk unit at session time (VARIABLE)
-  totalInputG      Decimal?  @db.Decimal(15, 3)  // sourceQty × bulkWeightG (VARIABLE)
-  totalOutputG     Decimal?  @db.Decimal(15, 3)  // sum of output grams (VARIABLE)
-  wastageG         Decimal   @db.Decimal(15, 3)  @default(0) // VARIABLE: grams
-  wastageUnits     Int       @default(0)          // FIXED: units lost
-  wastageNotes     String?
-  notes            String?
-  reversed         Boolean   @default(false)
-  reversedAt       DateTime?
-  reversedById     String?
-  reversedByName   String?
-  reversedSessionId String?                       // points to the session that reversed this one
-  createdById      String?
-  createdByName    String?
-  createdAt        DateTime  @default(now())
+  id                String    @id @default(cuid())
+  businessId        String
+  sessionNo         String // human-readable e.g. RPK-20260629-0001
+  sourcePluId       String
+  sourceQty         Decimal   @db.Decimal(10, 3)
+  type              String    @default("FIXED") // FIXED | VARIABLE
+  bulkWeightG       Decimal?  @db.Decimal(10, 3) // grams per bulk unit at session time (VARIABLE)
+  totalInputG       Decimal?  @db.Decimal(15, 3) // sourceQty × bulkWeightG (VARIABLE)
+  totalOutputG      Decimal?  @db.Decimal(15, 3) // sum of output grams (VARIABLE)
+  wastageG          Decimal   @default(0) @db.Decimal(15, 3) // VARIABLE: grams
+  wastageUnits      Int       @default(0) // FIXED: units lost
+  wastageNotes      String?
+  notes             String?
+  reversed          Boolean   @default(false)
+  reversedAt        DateTime?
+  reversedById      String?
+  reversedByName    String?
+  reversedSessionId String? // points to the session that reversed this one
+  createdById       String?
+  createdByName     String?
+  createdAt         DateTime  @default(now())
 
   lines    RepackSessionLine[]
-  business Business @relation(fields: [businessId], references: [id])
+  business Business            @relation(fields: [businessId], references: [id])
 
   @@unique([businessId, sessionNo])
   @@index([businessId])
@@ -1449,13 +1451,13 @@ model RepackSession {
 }
 
 model RepackSessionLine {
-  id          String   @id @default(cuid())
-  sessionId   String
-  targetPluId String
-  qty         Decimal  @db.Decimal(10, 3)
-  unitWeightG Decimal? @db.Decimal(10, 3) // grams per unit (VARIABLE)
+  id           String   @id @default(cuid())
+  sessionId    String
+  targetPluId  String
+  qty          Decimal  @db.Decimal(10, 3)
+  unitWeightG  Decimal? @db.Decimal(10, 3) // grams per unit (VARIABLE)
   totalWeightG Decimal? @db.Decimal(15, 3)
-  notes       String?
+  notes        String?
 
   session RepackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
@@ -1465,17 +1467,17 @@ model RepackSessionLine {
 
 // ─── BREAK BULK LOG ───────────────────────────────────
 model BreakBulkLog {
-  id              String   @id @default(cuid())
-  businessId      String
-  pluBundleId     String
-  bulkPluId       String
-  singlePluId     String
-  bulkQtyBroken   Int                // how many bulk units were broken
-  singlesCreated  Int                // = bulkQtyBroken × conversionQty
-  notes           String?
-  createdById     String?
-  createdByName   String?
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  businessId     String
+  pluBundleId    String
+  bulkPluId      String
+  singlePluId    String
+  bulkQtyBroken  Int // how many bulk units were broken
+  singlesCreated Int // = bulkQtyBroken × conversionQty
+  notes          String?
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime @default(now())
 
   @@index([businessId, createdAt])
   @@map("break_bulk_log")
@@ -1494,10 +1496,10 @@ model ProductPlu {
   mrp               Decimal   @db.Decimal(15, 2)
   sellingPrice      Decimal   @db.Decimal(15, 2)
   wholesalePrice    Decimal?  @db.Decimal(15, 2)
-  minSellingPrice   Decimal   @db.Decimal(15, 2) @default(0)
+  minSellingPrice   Decimal   @default(0) @db.Decimal(15, 2)
   // Tax fields
   gstRate           Decimal?  @db.Decimal(5, 2)
-  cessRate          Decimal   @db.Decimal(5, 2)  @default(0)
+  cessRate          Decimal   @default(0) @db.Decimal(5, 2)
   taxInclusive      Boolean   @default(false)
   // Margin fields
   marginPercent     Decimal?  @db.Decimal(8, 4)
@@ -1514,20 +1516,20 @@ model ProductPlu {
   receivedDate      DateTime  @default(now())
   effectiveFrom     DateTime  @default(now())
   // Stock fields
-  receivedQty       Decimal   @db.Decimal(10, 3) @default(0)
-  soldQty           Decimal   @db.Decimal(10, 3) @default(0)
-  stockOnHand       Decimal   @db.Decimal(10, 3) @default(0)
+  receivedQty       Decimal   @default(0) @db.Decimal(10, 3)
+  soldQty           Decimal   @default(0) @db.Decimal(10, 3)
+  stockOnHand       Decimal   @default(0) @db.Decimal(10, 3)
   // Online catalog fields
   availableOnline   Boolean   @default(false)
   onlinePrice       Decimal?  @db.Decimal(15, 2)
-  onlineStockCap    Int?      // null = no cap (sell up to totalStock); set to limit online channel
+  onlineStockCap    Int? // null = no cap (sell up to totalStock); set to limit online channel
   // UOM fields
-  measureType       String?           // WEIGHT | VOLUME | COUNT
-  unitSymbol        String?           // kg | g | L | ml | pcs | nos | ctn | box | doz | btl | bag | pkt
-  unitSize          Decimal?  @db.Decimal(10, 3)  // e.g. 50 for 50kg, 500 for 500g
-  baseUnitQty       Decimal?  @db.Decimal(15, 3)  // always grams (WEIGHT), ml (VOLUME), or 1 (COUNT)
-  gstUqc            String?           // KGS | GMS | LTR | MLT | NOS | PCS | CTN | BOX | BTL | BAG | PAC | DOZ
-  isLoose           Boolean   @default(false)      // Phase 2: marks counter loose-weigh item
+  measureType       String? // WEIGHT | VOLUME | COUNT
+  unitSymbol        String? // kg | g | L | ml | pcs | nos | ctn | box | doz | btl | bag | pkt
+  unitSize          Decimal?  @db.Decimal(10, 3) // e.g. 50 for 50kg, 500 for 500g
+  baseUnitQty       Decimal?  @db.Decimal(15, 3) // always grams (WEIGHT), ml (VOLUME), or 1 (COUNT)
+  gstUqc            String? // KGS | GMS | LTR | MLT | NOS | PCS | CTN | BOX | BTL | BAG | PAC | DOZ
+  isLoose           Boolean   @default(false) // Phase 2: marks counter loose-weigh item
   // Status flags
   isDefault         Boolean   @default(false)
   isActive          Boolean   @default(true)
@@ -1539,12 +1541,12 @@ model ProductPlu {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  product         Product            @relation(fields: [productId], references: [id])
-  business        Business           @relation(fields: [businessId], references: [id])
-  barcodes        ProductBarcode[]
-  asBulk          PluBundle[]        @relation("BulkPlu")
-  asSingle        PluBundle[]        @relation("SinglePlu")
-  priceHistory    PluPriceHistory[]
+  product          Product           @relation(fields: [productId], references: [id])
+  business         Business          @relation(fields: [businessId], references: [id])
+  barcodes         ProductBarcode[]
+  asBulk           PluBundle[]       @relation("BulkPlu")
+  asSingle         PluBundle[]       @relation("SinglePlu")
+  priceHistory     PluPriceHistory[]
   onlineOrderItems OnlineOrderItem[]
 
   @@unique([businessId, pluCode])
@@ -1558,23 +1560,23 @@ model ProductPlu {
 // Automatic report delivery via WhatsApp / email on a daily/weekly/monthly cadence.
 // Times are IST ("HH:mm"). The runner polls every minute and sends once per period.
 model ScheduledReport {
-  id          String    @id @default(cuid())
-  businessId  String
-  name        String
-  reportType  String    // DAY_BOOK | SALES_BY_CATEGORY | PAYMENT_MODES | EXPENSES | PURCHASES
-  frequency   String    // DAILY | WEEKLY | MONTHLY
-  sendAt      String    // "HH:mm" 24h IST
-  weekday     Int?      // 0=Sun … 6=Sat (WEEKLY only)
-  dayOfMonth  Int?      // 1–28 (MONTHLY only)
-  channel     String    // WHATSAPP | EMAIL
-  recipient   String    // phone for WHATSAPP, email address for EMAIL
-  isActive    Boolean   @default(true)
-  lastRunAt   DateTime?
-  lastStatus  String?   // SENT | FAILED
-  lastError   String?
-  createdBy   String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  businessId String
+  name       String
+  reportType String // DAY_BOOK | SALES_BY_CATEGORY | PAYMENT_MODES | EXPENSES | PURCHASES
+  frequency  String // DAILY | WEEKLY | MONTHLY
+  sendAt     String // "HH:mm" 24h IST
+  weekday    Int? // 0=Sun … 6=Sat (WEEKLY only)
+  dayOfMonth Int? // 1–28 (MONTHLY only)
+  channel    String // WHATSAPP | EMAIL
+  recipient  String // phone for WHATSAPP, email address for EMAIL
+  isActive   Boolean   @default(true)
+  lastRunAt  DateTime?
+  lastStatus String? // SENT | FAILED
+  lastError  String?
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([businessId])
   @@index([isActive])
@@ -1585,15 +1587,15 @@ model ScheduledReport {
 // Full before/after audit trail for every PLU price/status change.
 // changeSource: GRN_APPROVAL | PLU_CREATE | MANUAL_UPDATE | SET_DEFAULT | DEACTIVATE
 model PluPriceHistory {
-  id           String   @id @default(cuid())
-  businessId   String
-  productPluId String
-  productId    String
-  changeSource String   // GRN_APPROVAL | PLU_CREATE | MANUAL_UPDATE | SET_DEFAULT | DEACTIVATE
-  grnId        String?
-  changedBy    String?  // username or 'System'
+  id            String   @id @default(cuid())
+  businessId    String
+  productPluId  String
+  productId     String
+  changeSource  String // GRN_APPROVAL | PLU_CREATE | MANUAL_UPDATE | SET_DEFAULT | DEACTIVATE
+  grnId         String?
+  changedBy     String? // username or 'System'
   effectiveDate DateTime // business date: GRN invoiceDate, or transaction date
-  recordedAt   DateTime @default(now())
+  recordedAt    DateTime @default(now())
 
   // Before
   costPriceBefore    Decimal? @db.Decimal(15, 2)
@@ -1649,25 +1651,25 @@ model SupplierItemAlias {
 
 // ─── SUPPLIER ADVANCE ─────────────────────────────────
 model SupplierAdvance {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   businessId     String
   supplierId     String
-  amount         Decimal   @db.Decimal(15, 2)
-  adjustedAmount Decimal   @db.Decimal(15, 2) @default(0)
-  balanceAmount  Decimal   @db.Decimal(15, 2)
+  amount         Decimal  @db.Decimal(15, 2)
+  adjustedAmount Decimal  @default(0) @db.Decimal(15, 2)
+  balanceAmount  Decimal  @db.Decimal(15, 2)
   paymentMode    String
   paymentDate    DateTime
   referenceNo    String?
   notes          String?
   screenshotUrl  String?
-  status         String    @default("AVAILABLE")
+  status         String   @default("AVAILABLE")
   createdById    String?
   createdByName  String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  supplier    Supplier                   @relation(fields: [supplierId], references: [id])
-  business    Business                   @relation(fields: [businessId], references: [id])
+  supplier    Supplier                    @relation(fields: [supplierId], references: [id])
+  business    Business                    @relation(fields: [businessId], references: [id])
   adjustments SupplierAdvanceAdjustment[]
 
   @@index([businessId, supplierId])
@@ -1698,11 +1700,11 @@ model SupplierCreditNote {
   supplierCnNumber  String?
   cnDate            DateTime
   reason            String
-  taxableAmount     Decimal  @db.Decimal(15, 2) @default(0)
-  cgstAmount        Decimal  @db.Decimal(15, 2) @default(0)
-  sgstAmount        Decimal  @db.Decimal(15, 2) @default(0)
-  igstAmount        Decimal  @db.Decimal(15, 2) @default(0)
-  cessAmount        Decimal  @db.Decimal(15, 2) @default(0)
+  taxableAmount     Decimal  @default(0) @db.Decimal(15, 2)
+  cgstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  sgstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  igstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  cessAmount        Decimal  @default(0) @db.Decimal(15, 2)
   totalAmount       Decimal  @db.Decimal(15, 2)
   itcReversal       Boolean  @default(false)
   status            String   @default("PENDING")
@@ -1712,8 +1714,8 @@ model SupplierCreditNote {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  supplier Supplier @relation(fields: [supplierId], references: [id])
-  business Business @relation(fields: [businessId], references: [id])
+  supplier Supplier                 @relation(fields: [supplierId], references: [id])
+  business Business                 @relation(fields: [businessId], references: [id])
   items    SupplierCreditNoteItem[]
 
   @@index([businessId, supplierId])
@@ -1728,10 +1730,10 @@ model SupplierCreditNoteItem {
   hsnCode      String?
   quantity     Decimal @db.Decimal(10, 3)
   unitPrice    Decimal @db.Decimal(15, 2)
-  gstRate      Decimal @db.Decimal(5, 2)  @default(0)
-  cessRate     Decimal @db.Decimal(5, 2)  @default(0)
-  gstAmount    Decimal @db.Decimal(15, 2) @default(0)
-  cessAmt      Decimal @db.Decimal(15, 2) @default(0)
+  gstRate      Decimal @default(0) @db.Decimal(5, 2)
+  cessRate     Decimal @default(0) @db.Decimal(5, 2)
+  gstAmount    Decimal @default(0) @db.Decimal(15, 2)
+  cessAmt      Decimal @default(0) @db.Decimal(15, 2)
   totalAmount  Decimal @db.Decimal(15, 2)
 
   creditNote SupplierCreditNote @relation(fields: [creditNoteId], references: [id])
@@ -1743,33 +1745,33 @@ model SupplierCreditNoteItem {
 // ─── PURCHASE DEBIT NOTE ─────────────────────────────────────────────────────
 // Raised when you charge the supplier for returns, damages, or price differences
 model PurchaseDebitNote {
-  id               String   @id @default(cuid())
-  businessId       String
-  debitNoteNumber  String   @unique
-  debitNoteDate    DateTime @default(now())
-  supplierId       String
-  supplierName     String
-  supplierGstin    String?
-  originalGrnId    String?
+  id                String   @id @default(cuid())
+  businessId        String
+  debitNoteNumber   String   @unique
+  debitNoteDate     DateTime @default(now())
+  supplierId        String
+  supplierName      String
+  supplierGstin     String?
+  originalGrnId     String?
   originalInvoiceNo String?
-  supplierCnNumber String?
-  reason           String
-  taxableAmount    Decimal  @db.Decimal(15, 2) @default(0)
-  cgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  sgstAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  igstAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  cessAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  totalAmount      Decimal  @db.Decimal(15, 2)
+  supplierCnNumber  String?
+  reason            String
+  taxableAmount     Decimal  @default(0) @db.Decimal(15, 2)
+  cgstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  sgstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  igstAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  cessAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  totalAmount       Decimal  @db.Decimal(15, 2)
   // itcReversal: if goods returned, ITC claimed must be reversed
-  itcReversal      Boolean  @default(false)
-  status           String   @default("DRAFT")  // DRAFT | ISSUED | ACCEPTED | REJECTED
-  notes            String?
-  createdById      String?
-  createdByName    String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  itcReversal       Boolean  @default(false)
+  status            String   @default("DRAFT") // DRAFT | ISSUED | ACCEPTED | REJECTED
+  notes             String?
+  createdById       String?
+  createdByName     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  supplier Supplier @relation(fields: [supplierId], references: [id])
+  supplier Supplier                @relation(fields: [supplierId], references: [id])
   items    PurchaseDebitNoteItem[]
 
   @@index([businessId, supplierId])
@@ -1778,22 +1780,22 @@ model PurchaseDebitNote {
 }
 
 model PurchaseDebitNoteItem {
-  id             String            @id @default(cuid())
-  debitNoteId    String
-  debitNote      PurchaseDebitNote @relation(fields: [debitNoteId], references: [id])
-  productId      String?
-  pluId          String?
-  productName    String
-  hsnCode        String?
-  quantity       Decimal           @db.Decimal(10, 3)
-  unitPrice      Decimal           @db.Decimal(15, 2)
-  taxableAmount  Decimal           @db.Decimal(15, 2) @default(0)
-  gstRate        Decimal           @db.Decimal(5, 2)  @default(0)
-  cgstAmount     Decimal           @db.Decimal(15, 2) @default(0)
-  sgstAmount     Decimal           @db.Decimal(15, 2) @default(0)
-  igstAmount     Decimal           @db.Decimal(15, 2) @default(0)
-  cessAmount     Decimal           @db.Decimal(15, 2) @default(0)
-  totalAmount    Decimal           @db.Decimal(15, 2)
+  id            String            @id @default(cuid())
+  debitNoteId   String
+  debitNote     PurchaseDebitNote @relation(fields: [debitNoteId], references: [id])
+  productId     String?
+  pluId         String?
+  productName   String
+  hsnCode       String?
+  quantity      Decimal           @db.Decimal(10, 3)
+  unitPrice     Decimal           @db.Decimal(15, 2)
+  taxableAmount Decimal           @default(0) @db.Decimal(15, 2)
+  gstRate       Decimal           @default(0) @db.Decimal(5, 2)
+  cgstAmount    Decimal           @default(0) @db.Decimal(15, 2)
+  sgstAmount    Decimal           @default(0) @db.Decimal(15, 2)
+  igstAmount    Decimal           @default(0) @db.Decimal(15, 2)
+  cessAmount    Decimal           @default(0) @db.Decimal(15, 2)
+  totalAmount   Decimal           @db.Decimal(15, 2)
 
   @@index([debitNoteId])
   @@map("purchase_debit_note_item")
@@ -1801,36 +1803,36 @@ model PurchaseDebitNoteItem {
 
 // ─── SUPPLIER PAYMENT ─────────────────────────────────
 model SupplierPayment {
-  id               String    @id @default(cuid())
-  businessId       String
-  supplierId       String
-  purchaseId       String?   // primary GRN (for single-GRN payments)
-  invoiceReference String?
-  paymentDate      DateTime  @default(now())
-  amount           Decimal   @db.Decimal(15, 2)
-  paymentMode      String    @default("NEFT")  // NEFT / UPI / CASH / CHEQUE
-  referenceNumber  String?
-  utrNumber        String?   // UTR / transaction ID from bank
-  epayOrderNumber  String?   // PhonePe / GPay / e-pay order or transaction number
-  bankAccountId    String?   // which bank account this was paid from
-  bankTransactionId String?  // linked bank statement transaction
-  matchedFromStatement Boolean @default(false)
-  adjustmentAmount Decimal   @default(0) @db.Decimal(15, 2)  // signed gap: +charge, -TDS/discount
-  adjustmentReason String?   // BANK_CHARGE / TDS / CASH_DISCOUNT / ROUNDING / SHORT_PAYMENT
-  proofToken       String?   @unique  // public read-only token for vendor share link
-  notes            String?
-  screenshotUrl    String?
-  status           String    @default("COMPLETED") // COMPLETED / CANCELLED
-  createdById      String?
-  createdByName    String
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id                   String   @id @default(cuid())
+  businessId           String
+  supplierId           String
+  purchaseId           String? // primary GRN (for single-GRN payments)
+  invoiceReference     String?
+  paymentDate          DateTime @default(now())
+  amount               Decimal  @db.Decimal(15, 2)
+  paymentMode          String   @default("NEFT") // NEFT / UPI / CASH / CHEQUE
+  referenceNumber      String?
+  utrNumber            String? // UTR / transaction ID from bank
+  epayOrderNumber      String? // PhonePe / GPay / e-pay order or transaction number
+  bankAccountId        String? // which bank account this was paid from
+  bankTransactionId    String? // linked bank statement transaction
+  matchedFromStatement Boolean  @default(false)
+  adjustmentAmount     Decimal  @default(0) @db.Decimal(15, 2) // signed gap: +charge, -TDS/discount
+  adjustmentReason     String? // BANK_CHARGE / TDS / CASH_DISCOUNT / ROUNDING / SHORT_PAYMENT
+  proofToken           String?  @unique // public read-only token for vendor share link
+  notes                String?
+  screenshotUrl        String?
+  status               String   @default("COMPLETED") // COMPLETED / CANCELLED
+  createdById          String?
+  createdByName        String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  business         Business              @relation(fields: [businessId], references: [id])
-  supplier         Supplier              @relation(fields: [supplierId], references: [id])
-  purchase         Purchase?             @relation(fields: [purchaseId], references: [id])
-  allocations      PaymentAllocation[]   // which GRNs this payment covers
-  bankTransaction  BankTransaction[]     @relation
+  business        Business            @relation(fields: [businessId], references: [id])
+  supplier        Supplier            @relation(fields: [supplierId], references: [id])
+  purchase        Purchase?           @relation(fields: [purchaseId], references: [id])
+  allocations     PaymentAllocation[] // which GRNs this payment covers
+  bankTransaction BankTransaction[]   @relation
 
   @@index([businessId, supplierId])
   @@index([businessId, purchaseId])
@@ -1842,11 +1844,11 @@ model SupplierPayment {
 // ─── PAYMENT ALLOCATION ───────────────────────────────
 // One payment can cover multiple GRNs (partial or full)
 model PaymentAllocation {
-  id              String          @id @default(cuid())
+  id              String   @id @default(cuid())
   paymentId       String
   purchaseId      String
-  allocatedAmount Decimal         @db.Decimal(15, 2)
-  createdAt       DateTime        @default(now())
+  allocatedAmount Decimal  @db.Decimal(15, 2)
+  createdAt       DateTime @default(now())
 
   payment  SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   purchase Purchase        @relation(fields: [purchaseId], references: [id])
@@ -1880,14 +1882,14 @@ model CustomerAddress {
 model BankAccount {
   id             String   @id @default(cuid())
   businessId     String
-  accountName    String   // "SBI CC Account", "IDBI Current"
-  bankName       String   // "State Bank of India"
+  accountName    String // "SBI CC Account", "IDBI Current"
+  bankName       String // "State Bank of India"
   accountNumber  String
   accountType    String   @default("CURRENT") // CURRENT / SAVINGS / CC / OD
   ifscCode       String?
   branchName     String?
-  openingBalance Decimal  @db.Decimal(15, 2) @default(0)
-  currentBalance Decimal  @db.Decimal(15, 2) @default(0)
+  openingBalance Decimal  @default(0) @db.Decimal(15, 2)
+  currentBalance Decimal  @default(0) @db.Decimal(15, 2)
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -1908,10 +1910,10 @@ model BankStatementImport {
   fileName       String
   fromDate       DateTime
   toDate         DateTime
-  openingBalance Decimal  @db.Decimal(15, 2) @default(0)
-  closingBalance Decimal  @db.Decimal(15, 2) @default(0)
-  totalCredits   Decimal  @db.Decimal(15, 2) @default(0)
-  totalDebits    Decimal  @db.Decimal(15, 2) @default(0)
+  openingBalance Decimal  @default(0) @db.Decimal(15, 2)
+  closingBalance Decimal  @default(0) @db.Decimal(15, 2)
+  totalCredits   Decimal  @default(0) @db.Decimal(15, 2)
+  totalDebits    Decimal  @default(0) @db.Decimal(15, 2)
   txnCount       Int      @default(0)
   importedById   String?
   importedAt     DateTime @default(now())
@@ -1939,22 +1941,22 @@ model BankTransaction {
   balance       Decimal?  @db.Decimal(15, 2)
 
   // Auto-categorization
-  txnType     String @default("UNCATEGORIZED")
+  txnType String @default("UNCATEGORIZED")
   // SALES_PHONEPE | SALES_PINELABS | SALES_UPI | CASH_DEPOSIT
   // SUPPLIER_PAYMENT | EXPENSE_RENT | EXPENSE_OTHER
   // TRANSFER_PERSONAL | UNCATEGORIZED
 
   // Matching to supplier payment
-  matchStatus        String  @default("UNMATCHED") // UNMATCHED / MATCHED / IGNORED
-  supplierId         String?
-  supplierPaymentId  String?
-  matchedBySystem    Boolean @default(false)
-  notes              String?
+  matchStatus       String  @default("UNMATCHED") // UNMATCHED / MATCHED / IGNORED
+  supplierId        String?
+  supplierPaymentId String?
+  matchedBySystem   Boolean @default(false)
+  notes             String?
 
-  business         Business             @relation(fields: [businessId], references: [id])
-  bankAccount      BankAccount          @relation(fields: [bankAccountId], references: [id])
-  import           BankStatementImport? @relation(fields: [importId], references: [id])
-  supplierPayment  SupplierPayment?     @relation(fields: [supplierPaymentId], references: [id])
+  business        Business             @relation(fields: [businessId], references: [id])
+  bankAccount     BankAccount          @relation(fields: [bankAccountId], references: [id])
+  import          BankStatementImport? @relation(fields: [importId], references: [id])
+  supplierPayment SupplierPayment?     @relation(fields: [supplierPaymentId], references: [id])
 
   @@index([bankAccountId, txnDate])
   @@index([matchStatus])
@@ -1964,18 +1966,18 @@ model BankTransaction {
 
 // ─── CUSTOMER PAYMENT ────────────────────────────────
 model CustomerPayment {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   businessId    String
   customerId    String
-  amount        Decimal   @db.Decimal(15, 2)
+  amount        Decimal  @db.Decimal(15, 2)
   paymentMode   String
   reference     String?
   notes         String?
   billId        String?
-  paymentDate   DateTime  @default(now())
+  paymentDate   DateTime @default(now())
   createdBy     String
   createdByName String?
-  createdAt     DateTime  @default(now())
+  createdAt     DateTime @default(now())
 
   customer Customer   @relation(fields: [customerId], references: [id])
   bill     SalesBill? @relation(fields: [billId], references: [id])
@@ -2032,6 +2034,40 @@ model StorefrontAddress {
   @@map("storefront_address")
 }
 
+// Multi-turn state for the WhatsApp quick-reorder flow (task #99) — carries a
+// working cart across several inbound messages since Meta's buttons/lists only
+// carry an opaque id, not server-side session state. Looked up per phone,
+// lazily expired (no cron): a session older than expiresAt is treated as gone
+// on next lookup rather than actively swept.
+enum WaOrderSessionState {
+  SELECTING_ITEMS
+  AWAITING_DELIVERY_TYPE
+  AWAITING_ADDRESS_CONFIRM
+  AWAITING_FINAL_CONFIRM
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+model WaOrderSession {
+  id                 String              @id @default(cuid())
+  businessId         String
+  phone              String
+  state              WaOrderSessionState @default(SELECTING_ITEMS)
+  cart               Json // {pluBarcode, productCode, productName, packLabel, quantity, unitPrice, mrp}[]
+  awaitingItemSearch Boolean             @default(false)
+  deliveryType       DeliveryType?
+  deliveryAddress    Json?
+  sourceOrderNumber  String?
+  resultOrderNumber  String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  expiresAt          DateTime
+
+  @@index([businessId, phone])
+  @@map("wa_order_session")
+}
+
 // Pincodes the business actually delivers to. Checked at storefront checkout
 // before an order is placed — an address outside this list is rejected with a
 // clear message instead of silently accepting an unfulfillable order.
@@ -2039,11 +2075,11 @@ model ServiceablePincode {
   id         String   @id @default(cuid())
   businessId String
   pincode    String   @db.VarChar(6)
-  areaLabel  String?  // optional, e.g. "Sangareddy Town" — for admin readability only
+  areaLabel  String? // optional, e.g. "Sangareddy Town" — for admin readability only
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
 
-  business   Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@unique([businessId, pincode])
   @@index([businessId])
@@ -2059,7 +2095,7 @@ model OnlineOrder {
   customerEmail     String?
   deliveryType      DeliveryType
   deliveryAddress   Json?
-  deliverySlot      String?             // human-readable, e.g. "Today · Evening (4 PM - 8 PM)"; HOME_DELIVERY only
+  deliverySlot      String? // human-readable, e.g. "Today · Evening (4 PM - 8 PM)"; HOME_DELIVERY only
   paymentMethod     OnlinePaymentMethod
   paymentStatus     OnlinePaymentStatus @default(PENDING)
   razorpayOrderId   String?
@@ -2077,7 +2113,7 @@ model OnlineOrder {
   // Due at delivery = max(0, total - (amountPaid - walletCredited)).
   amountPaid        Decimal             @default(0) @db.Decimal(10, 2)
   walletCredited    Decimal             @default(0) @db.Decimal(10, 2)
-  assignedToName    String?             // staff member packing/delivering
+  assignedToName    String? // staff member packing/delivering
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
@@ -2105,7 +2141,7 @@ model OnlineOrderItem {
   mrp         Decimal? @db.Decimal(10, 2)
 
   order OnlineOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  plu   ProductPlu?  @relation(fields: [pluId], references: [id])
+  plu   ProductPlu? @relation(fields: [pluId], references: [id])
 
   @@index([orderId])
   @@index([pluId])
@@ -2119,10 +2155,10 @@ model OnlineOrderEvent {
   id          String   @id @default(cuid())
   orderId     String
   businessId  String
-  type        String   // STATUS_CHANGE | ITEM_ADDED | ITEM_UPDATED | ITEM_REMOVED | WALLET_CREDIT | ASSIGNED | SLOT_CHANGED | NOTE
+  type        String // STATUS_CHANGE | ITEM_ADDED | ITEM_UPDATED | ITEM_REMOVED | WALLET_CREDIT | ASSIGNED | SLOT_CHANGED | NOTE
   description String
   meta        Json?
-  userName    String?  // staff member; null for system/customer actions
+  userName    String? // staff member; null for system/customer actions
   createdAt   DateTime @default(now())
 
   order OnlineOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -2146,6 +2182,22 @@ model StorefrontProfile {
   @@map("storefront_profile")
 }
 
+// One-time codes for storefront phone verification (task: storefront customer
+// identity verification). Never stores the raw code, only a bcrypt hash.
+// A row is consumed (deleted) on successful verify, or naturally ignored
+// once expired — no cron needed, checked lazily on next verify attempt.
+model StorefrontOtp {
+  id        String   @id @default(cuid())
+  phone     String
+  codeHash  String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+  @@map("storefront_otp")
+}
+
 // ─── WHATSAPP INCOMING LISTS ─────────────────────────────────────────────────
 // ─── CUSTOMER HISTORY ─────────────────────────────────────────────────────────
 // One row per order date per customer. imageUrls stores paths relative to the
@@ -2159,10 +2211,10 @@ model CustomerListEntry {
   pageCount  Int      @default(1)
   source     String   @default("MANUAL") // MANUAL | WHATSAPP
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  business   Business @relation(fields: [businessId], references: [id])
-  customer   Customer @relation(fields: [customerId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
 
   @@index([customerId])
   @@index([businessId])
@@ -2171,33 +2223,33 @@ model CustomerListEntry {
 }
 
 model WaIncomingList {
-  id           String   @id @default(cuid())
-  businessId   String
+  id         String @id @default(cuid())
+  businessId String
 
   // Sender
-  senderPhone  String
-  senderName   String?
+  senderPhone String
+  senderName  String?
 
   // Message content
-  msgType      String            // TEXT | IMAGE | DOCUMENT | PDF
-  rawText      String?           // original typed text
-  ocrText      String?           // OCR extracted from image
-  mediaId      String?           // Meta media ID
-  mediaPath    String?           // saved file path on server
-  mediaMime    String?
+  msgType   String // TEXT | IMAGE | DOCUMENT | PDF
+  rawText   String? // original typed text
+  ocrText   String? // OCR extracted from image
+  mediaId   String? // Meta media ID
+  mediaPath String? // saved file path on server
+  mediaMime String?
 
   // Generated doc
-  docPath      String?           // .docx file path on server
-  docReady     Boolean           @default(false)
+  docPath  String? // .docx file path on server
+  docReady Boolean @default(false)
 
   // Workflow
-  status       String            @default("PENDING") // PENDING | PROCESSING | READY | DOWNLOADED
-  errorMsg     String?
+  status   String  @default("PENDING") // PENDING | PROCESSING | READY | DOWNLOADED
+  errorMsg String?
 
-  receivedAt   DateTime          @default(now())
-  processedAt  DateTime?
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
 
-  business     Business          @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@index([businessId])
   @@index([senderPhone])
@@ -2224,40 +2276,40 @@ enum WaMessageStatus {
 // and inbound webhook retries can be deduplicated. Also backs the chat-style
 // conversation inbox (grouped by phone number).
 model WaMessage {
-  id            String             @id @default(cuid())
-  businessId    String
+  id         String @id @default(cuid())
+  businessId String
 
-  waMessageId   String             // Meta's message id — dedup + status-correlation key
-  direction     WaMessageDirection
-  phone         String             // customer number, E.164 (91XXXXXXXXXX)
+  waMessageId String // Meta's message id — dedup + status-correlation key
+  direction   WaMessageDirection
+  phone       String // customer number, E.164 (91XXXXXXXXXX)
 
-  messageType   String             // TEXT | TEMPLATE | INTERACTIVE_BUTTON | IMAGE | DOCUMENT | BUTTON_REPLY
-  templateName  String?
-  bodyPreview   String?            // first ~200 chars, for the admin log/chat bubble
-  buttonId      String?            // set when direction=INBOUND and it's a button-reply tap
-  mediaId       String?            // Meta media object id, for IMAGE/DOCUMENT messages (either direction)
+  messageType  String // TEXT | TEMPLATE | INTERACTIVE_BUTTON | IMAGE | DOCUMENT | BUTTON_REPLY
+  templateName String?
+  bodyPreview  String? // first ~200 chars, for the admin log/chat bubble
+  buttonId     String? // set when direction=INBOUND and it's a button-reply tap
+  mediaId      String? // Meta media object id, for IMAGE/DOCUMENT messages (either direction)
 
-  status        WaMessageStatus    @default(QUEUED)
-  errorMessage  String?
+  status       WaMessageStatus @default(QUEUED)
+  errorMessage String?
 
-  relatedType   String?            // e.g. "ONLINE_ORDER"
-  relatedId     String?            // e.g. the orderNumber
+  relatedType String? // e.g. "ONLINE_ORDER"
+  relatedId   String? // e.g. the orderNumber
 
   // True for OUTBOUND messages generated by the rule-based auto-reply engine,
   // as opposed to a message a staff member typed themselves.
-  isAutoReply   Boolean            @default(false)
+  isAutoReply Boolean @default(false)
 
   // Staff-side read tracking for the chat inbox — distinct from `status`
   // (which is Meta's own delivery/read state on the *customer's* end).
   // Only meaningful for direction=INBOUND; null means unread by staff.
   readByStaffAt DateTime?
 
-  sentAt        DateTime?
-  deliveredAt   DateTime?
-  readAt        DateTime?
-  createdAt     DateTime           @default(now())
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
 
-  business      Business           @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@unique([businessId, waMessageId])
   @@index([businessId, createdAt(sort: Desc)])
@@ -2270,16 +2322,16 @@ model WaMessage {
 // (copied into the wa.* SystemSetting keys the sending pipeline reads) via a
 // one-click Activate instead of retyping credentials in Settings every time.
 model WaPhoneNumber {
-  id                 String   @id @default(cuid())
-  businessId         String
-  label              String              // e.g. "Sangareddy Store", "Test Sandbox"
-  accessToken        String
-  phoneNumberId      String
-  businessAccountId  String
-  storeNotifyNumber  String?
-  isActive           Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                String   @id @default(cuid())
+  businessId        String
+  label             String // e.g. "Sangareddy Store", "Test Sandbox"
+  accessToken       String
+  phoneNumberId     String
+  businessAccountId String
+  storeNotifyNumber String?
+  isActive          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   business Business @relation(fields: [businessId], references: [id])
 
@@ -2304,6 +2356,8 @@ model WaConversation {
   pinned           Boolean              @default(false)
   labels           String[]             @default([])
   assignedToUserId String?
+  snoozedUntil       DateTime?
+  lastEscalationTier Int                @default(0)
   updatedAt        DateTime             @updatedAt
 
   business   Business @relation(fields: [businessId], references: [id])
@@ -2488,11 +2542,11 @@ model CustomerGoogleSync {
   id                 String    @id @default(cuid())
   businessId         String
   customerId         String    @unique
-  googleResourceName String              // "people/c12345"
+  googleResourceName String // "people/c12345"
   googleEtag         String
   syncEnabled        Boolean   @default(true)
   lastSyncedAt       DateTime?
-  lastSyncDirection  String?             // 'PUSH' | 'PULL' | 'CONFLICT'
+  lastSyncDirection  String? // 'PUSH' | 'PULL' | 'CONFLICT'
   lastError          String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -2532,9 +2586,9 @@ model ProductReview {
   packLabel      String
   customerName   String
   customerPhone  String
-  rating         Int      // 1–5
+  rating         Int // 1–5
   comment        String?
-  sentiment      String?  // POSITIVE | NEUTRAL | NEGATIVE
+  sentiment      String? // POSITIVE | NEUTRAL | NEGATIVE
   sentimentScore Float?
   isPublished    Boolean  @default(true)
   createdAt      DateTime @default(now())
@@ -2584,21 +2638,21 @@ model VolumePricingTier {
 
 // ─── PURCHASE ORDER ──────────────────────────────────
 model PurchaseOrder {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   businessId    String
   poNumber      String
   supplierId    String
   supplierName  String
-  status        String   @default("DRAFT") // DRAFT | SENT | PARTIALLY_RECEIVED | RECEIVED | CANCELLED
-  source        String   @default("MANUAL") // MANUAL | AUTO_REORDER
+  status        String    @default("DRAFT") // DRAFT | SENT | PARTIALLY_RECEIVED | RECEIVED | CANCELLED
+  source        String    @default("MANUAL") // MANUAL | AUTO_REORDER
   expectedDate  DateTime?
   sentAt        DateTime?
-  sentVia       String?  // WHATSAPP | EMAIL
+  sentVia       String? // WHATSAPP | EMAIL
   notes         String?
   createdById   String?
   createdByName String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   business Business            @relation(fields: [businessId], references: [id])
   supplier Supplier            @relation(fields: [supplierId], references: [id])
@@ -2618,7 +2672,7 @@ model PurchaseOrderItem {
   productName String
   pluCode     String?
   qtyOrdered  Decimal  @db.Decimal(15, 3)
-  qtyReceived Decimal  @db.Decimal(15, 3) @default(0)
+  qtyReceived Decimal  @default(0) @db.Decimal(15, 3)
   unitCost    Decimal? @db.Decimal(15, 2)
   notes       String?
   createdAt   DateTime @default(now())
@@ -2643,27 +2697,27 @@ enum EntityType {
   PARTNERSHIP
   LLP
   HUF
-  PRIVATE_LTD   // v2 — schema ready, computation not yet built
-  PUBLIC_LTD    // v2
+  PRIVATE_LTD // v2 — schema ready, computation not yet built
+  PUBLIC_LTD // v2
 }
 
 enum TaxRegimePreference {
   OLD
   NEW
-  COMPUTE_BOTH  // system computes both and recommends lower
+  COMPUTE_BOTH // system computes both and recommends lower
 }
 
 enum AssetClass {
-  PLANT_MACHINERY      // 15% IT Act depreciation
-  FURNITURE_FITTINGS   // 10%
-  COMPUTER_SOFTWARE    // 40%
-  VEHICLE_COMMERCIAL   // 30%
-  VEHICLE_PERSONAL     // 15%
+  PLANT_MACHINERY // 15% IT Act depreciation
+  FURNITURE_FITTINGS // 10%
+  COMPUTER_SOFTWARE // 40%
+  VEHICLE_COMMERCIAL // 30%
+  VEHICLE_PERSONAL // 15%
   BUILDING_RESIDENTIAL // 5%
-  BUILDING_COMMERCIAL  // 10%
-  ELECTRICAL           // 15%
-  INTANGIBLE           // 25%
-  OTHER                // manual rate
+  BUILDING_COMMERCIAL // 10%
+  ELECTRICAL // 15%
+  INTANGIBLE // 25%
+  OTHER // manual rate
 }
 
 enum AssetStatus {
@@ -2673,21 +2727,21 @@ enum AssetStatus {
 }
 
 enum CapitalTxnType {
-  INTRODUCED          // owner brings in cash/assets
-  WITHDRAWAL          // drawings
-  INTEREST_CREDITED   // interest on capital per partnership deed
-  SALARY_CREDITED     // partner salary per deed
-  PROFIT_SHARE        // year-end profit allocation
-  LOSS_SHARE          // year-end loss allocation
+  INTRODUCED // owner brings in cash/assets
+  WITHDRAWAL // drawings
+  INTEREST_CREDITED // interest on capital per partnership deed
+  SALARY_CREDITED // partner salary per deed
+  PROFIT_SHARE // year-end profit allocation
+  LOSS_SHARE // year-end loss allocation
 }
 
 enum LoanType {
   BANK_TERM
-  CASH_CREDIT         // CC account
-  OVERDRAFT           // OD account
+  CASH_CREDIT // CC account
+  OVERDRAFT // OD account
   VEHICLE_LOAN
   PROPERTY_LOAN
-  PERSONAL_LOAN       // from individual/family
+  PERSONAL_LOAN // from individual/family
   NBFC
   OTHER
 }
@@ -2699,18 +2753,18 @@ enum LoanStatus {
 }
 
 enum TdsSection {
-  S192    // Salary
-  S194A   // Interest (not securities)
-  S194C   // Contractors/sub-contractors
-  S194D   // Insurance commission
-  S194H   // Commission/brokerage
-  S194I   // Rent (plant/machinery/land/building)
-  S194IB  // Rent >50k/month by individual/HUF
-  S194J   // Professional/technical fees
-  S194LA  // Compensation on transfer of immovable property
-  S194M   // Payment to contractor/professional by individual/HUF
-  S194N   // Cash withdrawal >1Cr from bank
-  S194Q   // Purchase of goods >50L
+  S192 // Salary
+  S194A // Interest (not securities)
+  S194C // Contractors/sub-contractors
+  S194D // Insurance commission
+  S194H // Commission/brokerage
+  S194I // Rent (plant/machinery/land/building)
+  S194IB // Rent >50k/month by individual/HUF
+  S194J // Professional/technical fees
+  S194LA // Compensation on transfer of immovable property
+  S194M // Payment to contractor/professional by individual/HUF
+  S194N // Cash withdrawal >1Cr from bank
+  S194Q // Purchase of goods >50L
   OTHER
 }
 
@@ -2718,14 +2772,14 @@ enum TdsStatus {
   PENDING_DEPOSIT
   DEPOSITED
   OVERDUE
-  WAIVED             // below threshold, no obligation
+  WAIVED // below threshold, no obligation
 }
 
 enum AdvanceTaxInstallment {
-  Q1_JUNE_15         // 15% by 15 June
-  Q2_SEP_15          // 45% cumulative by 15 Sep
-  Q3_DEC_15          // 75% cumulative by 15 Dec
-  Q4_MAR_15          // 100% cumulative by 15 Mar
+  Q1_JUNE_15 // 15% by 15 June
+  Q2_SEP_15 // 45% cumulative by 15 Sep
+  Q3_DEC_15 // 75% cumulative by 15 Dec
+  Q4_MAR_15 // 100% cumulative by 15 Mar
 }
 
 enum ItReturnStatus {
@@ -2741,9 +2795,9 @@ enum ItReturnStatus {
 }
 
 enum CaIssueSeverity {
-  CRITICAL     // must fix before filing
-  WARNING      // should fix, CA judgement call
-  INFO         // FYI, no action needed
+  CRITICAL // must fix before filing
+  WARNING // should fix, CA judgement call
+  INFO // FYI, no action needed
 }
 
 enum CaIssueStatus {
@@ -2755,15 +2809,15 @@ enum CaIssueStatus {
 }
 
 enum Form26ASSection {
-  PART_A      // TDS on salary
-  PART_A1     // TDS on income other than salary where TDS is less
-  PART_A2     // TDS on sale of immovable property
-  PART_B      // TCS
-  PART_C      // Tax paid (advance/self-assessment)
-  PART_D      // Paid refunds
-  PART_E      // SFT — high value transactions
-  PART_F      // TDS on sale/rent of immovable property
-  PART_G      // TDS defaults
+  PART_A // TDS on salary
+  PART_A1 // TDS on income other than salary where TDS is less
+  PART_A2 // TDS on sale of immovable property
+  PART_B // TCS
+  PART_C // Tax paid (advance/self-assessment)
+  PART_D // Paid refunds
+  PART_E // SFT — high value transactions
+  PART_F // TDS on sale/rent of immovable property
+  PART_G // TDS defaults
   OTHER
 }
 
@@ -2771,33 +2825,33 @@ enum Form26ASSection {
 // 1:1 with Business. Stores IT-specific fields that vary per entity type.
 
 model ItProfile {
-  id                   String               @id @default(cuid())
-  businessId           String               @unique
-  entityType           EntityType           @default(PROPRIETORSHIP)
-  taxRegimePref        TaxRegimePreference  @default(COMPUTE_BOTH)
+  id            String              @id @default(cuid())
+  businessId    String              @unique
+  entityType    EntityType          @default(PROPRIETORSHIP)
+  taxRegimePref TaxRegimePreference @default(COMPUTE_BOTH)
 
   // Proprietorship — same PAN as owner, stored in Business.pan
   // Partnership / LLP — firm PAN in Business.pan, TAN in Business.tan
   // HUF — HUF PAN separate from karta's individual PAN
-  hufKartaName         String?
-  hufKartaPan          String?
+  hufKartaName String?
+  hufKartaPan  String?
 
   // Books of accounts method
-  booksMethod          String  @default("MERCANTILE") // MERCANTILE | CASH
+  booksMethod String @default("MERCANTILE") // MERCANTILE | CASH
 
   // Audit flags (auto-computed, stored for quick reference)
-  isTaxAuditRequired   Boolean @default(false)  // turnover > 1Cr (or 10Cr digital)
-  isGstAuditRequired   Boolean @default(false)  // turnover > 2Cr
+  isTaxAuditRequired Boolean @default(false) // turnover > 1Cr (or 10Cr digital)
+  isGstAuditRequired Boolean @default(false) // turnover > 2Cr
 
   // ERI integration (future)
-  eriRegistered        Boolean @default(false)
-  eriToken             String?
+  eriRegistered Boolean @default(false)
+  eriToken      String?
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  business   Business          @relation(fields: [businessId], references: [id])
-  partners   BusinessPartner[]
+  business Business          @relation(fields: [businessId], references: [id])
+  partners BusinessPartner[]
 
   @@map("it_profile")
 }
@@ -2806,21 +2860,21 @@ model ItProfile {
 // For Partnership, LLP, HUF co-parceners
 
 model BusinessPartner {
-  id              String    @id @default(cuid())
-  itProfileId     String
-  name            String
-  pan             String?
-  designation     String?   // "Managing Partner", "Karta", "Designated Partner"
-  profitSharePct  Decimal   @db.Decimal(5, 2)  // e.g. 50.00
-  lossSharePct    Decimal   @db.Decimal(5, 2)
-  interestOnCapPct Decimal  @db.Decimal(5, 2) @default(0) // % per annum per deed
-  salaryPerYear   Decimal   @db.Decimal(15, 2) @default(0)
-  joiningDate     DateTime?
-  exitDate        DateTime?
-  isActive        Boolean   @default(true)
-  createdAt       DateTime  @default(now())
+  id               String    @id @default(cuid())
+  itProfileId      String
+  name             String
+  pan              String?
+  designation      String? // "Managing Partner", "Karta", "Designated Partner"
+  profitSharePct   Decimal   @db.Decimal(5, 2) // e.g. 50.00
+  lossSharePct     Decimal   @db.Decimal(5, 2)
+  interestOnCapPct Decimal   @default(0) @db.Decimal(5, 2) // % per annum per deed
+  salaryPerYear    Decimal   @default(0) @db.Decimal(15, 2)
+  joiningDate      DateTime?
+  exitDate         DateTime?
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
 
-  itProfile       ItProfile @relation(fields: [itProfileId], references: [id])
+  itProfile ItProfile @relation(fields: [itProfileId], references: [id])
 
   @@index([itProfileId])
   @@map("business_partner")
@@ -2829,32 +2883,32 @@ model BusinessPartner {
 // ─── FIXED ASSET REGISTER ───────────────────────────────────────────
 
 model FixedAsset {
-  id                String      @id @default(cuid())
-  businessId        String
-  assetCode         String?     // internal code e.g. "FA-001"
-  name              String
-  description       String?
-  assetClass        AssetClass
-  customDepnRate    Decimal?    @db.Decimal(5, 2)  // overrides class rate when assetClass=OTHER
-  location          String?     // branch/store location
+  id             String     @id @default(cuid())
+  businessId     String
+  assetCode      String? // internal code e.g. "FA-001"
+  name           String
+  description    String?
+  assetClass     AssetClass
+  customDepnRate Decimal?   @db.Decimal(5, 2) // overrides class rate when assetClass=OTHER
+  location       String? // branch/store location
 
-  purchaseDate      DateTime
-  invoiceNo         String?
-  vendorName        String?
-  originalCost      Decimal     @db.Decimal(15, 2)
-  openingWDV        Decimal?    @db.Decimal(15, 2)  // WDV when first entered if mid-life asset
-  openingFY         String?     // FY from which we start tracking e.g. "2024-25"
+  purchaseDate DateTime
+  invoiceNo    String?
+  vendorName   String?
+  originalCost Decimal  @db.Decimal(15, 2)
+  openingWDV   Decimal? @db.Decimal(15, 2) // WDV when first entered if mid-life asset
+  openingFY    String? // FY from which we start tracking e.g. "2024-25"
 
-  status            AssetStatus @default(ACTIVE)
-  disposalDate      DateTime?
-  disposalValue     Decimal?    @db.Decimal(15, 2)
-  disposalReason    String?
+  status         AssetStatus @default(ACTIVE)
+  disposalDate   DateTime?
+  disposalValue  Decimal?    @db.Decimal(15, 2)
+  disposalReason String?
 
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  business          Business              @relation(fields: [businessId], references: [id])
-  depreciations     AssetDepreciation[]
+  business      Business            @relation(fields: [businessId], references: [id])
+  depreciations AssetDepreciation[]
 
   @@index([businessId])
   @@index([businessId, status])
@@ -2863,20 +2917,20 @@ model FixedAsset {
 
 // Auto-computed each FY. One row per asset per FY.
 model AssetDepreciation {
-  id              String    @id @default(cuid())
+  id              String  @id @default(cuid())
   assetId         String
-  financialYear   String    // "2024-25"
-  openingWDV      Decimal   @db.Decimal(15, 2)
-  additions       Decimal   @db.Decimal(15, 2) @default(0)   // purchased during year
-  disposals       Decimal   @db.Decimal(15, 2) @default(0)   // WDV of disposed assets
-  depreciationPct Decimal   @db.Decimal(5, 2)
-  depreciationAmt Decimal   @db.Decimal(15, 2)
-  closingWDV      Decimal   @db.Decimal(15, 2)
+  financialYear   String // "2024-25"
+  openingWDV      Decimal @db.Decimal(15, 2)
+  additions       Decimal @default(0) @db.Decimal(15, 2) // purchased during year
+  disposals       Decimal @default(0) @db.Decimal(15, 2) // WDV of disposed assets
+  depreciationPct Decimal @db.Decimal(5, 2)
+  depreciationAmt Decimal @db.Decimal(15, 2)
+  closingWDV      Decimal @db.Decimal(15, 2)
 
   // IT Act special: 50% depreciation in year of purchase if bought after 3 Oct
-  halfYearRule    Boolean   @default(false)
+  halfYearRule Boolean @default(false)
 
-  asset           FixedAsset @relation(fields: [assetId], references: [id])
+  asset FixedAsset @relation(fields: [assetId], references: [id])
 
   @@unique([assetId, financialYear])
   @@index([assetId])
@@ -2887,32 +2941,32 @@ model AssetDepreciation {
 // One account per owner / partner. Tracks all capital movements.
 
 model CapitalAccount {
-  id            String    @id @default(cuid())
-  businessId    String
-  ownerName     String
-  pan           String?
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
+  id         String   @id @default(cuid())
+  businessId String
+  ownerName  String
+  pan        String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
 
-  business      Business          @relation(fields: [businessId], references: [id])
-  transactions  CapitalTransaction[]
+  business     Business             @relation(fields: [businessId], references: [id])
+  transactions CapitalTransaction[]
 
   @@index([businessId])
   @@map("capital_account")
 }
 
 model CapitalTransaction {
-  id               String          @id @default(cuid())
+  id               String         @id @default(cuid())
   capitalAccountId String
   financialYear    String
   date             DateTime
   type             CapitalTxnType
-  amount           Decimal         @db.Decimal(15, 2)
+  amount           Decimal        @db.Decimal(15, 2)
   description      String?
-  bankTxnId        String?         // link to BankTransaction if paid via bank
-  createdAt        DateTime        @default(now())
+  bankTxnId        String? // link to BankTransaction if paid via bank
+  createdAt        DateTime       @default(now())
 
-  account          CapitalAccount  @relation(fields: [capitalAccountId], references: [id])
+  account CapitalAccount @relation(fields: [capitalAccountId], references: [id])
 
   @@index([capitalAccountId])
   @@index([capitalAccountId, financialYear])
@@ -2922,45 +2976,45 @@ model CapitalTransaction {
 // ─── LOANS & LIABILITIES ────────────────────────────────────────────
 
 model BusinessLoan {
-  id                String     @id @default(cuid())
-  businessId        String
-  lenderName        String
-  loanType          LoanType
-  accountNumber     String?
-  sanctionedAmount  Decimal    @db.Decimal(15, 2)
-  disbursedDate     DateTime
-  maturityDate      DateTime?
-  interestRatePct   Decimal    @db.Decimal(5, 2)   // annual rate
-  interestType      String     @default("REDUCING")  // REDUCING | FLAT
-  moratoriumMonths  Int        @default(0)
-  currentBalance    Decimal    @db.Decimal(15, 2)
-  status            LoanStatus @default(ACTIVE)
-  collateral        String?
-  notes             String?
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  id               String     @id @default(cuid())
+  businessId       String
+  lenderName       String
+  loanType         LoanType
+  accountNumber    String?
+  sanctionedAmount Decimal    @db.Decimal(15, 2)
+  disbursedDate    DateTime
+  maturityDate     DateTime?
+  interestRatePct  Decimal    @db.Decimal(5, 2) // annual rate
+  interestType     String     @default("REDUCING") // REDUCING | FLAT
+  moratoriumMonths Int        @default(0)
+  currentBalance   Decimal    @db.Decimal(15, 2)
+  status           LoanStatus @default(ACTIVE)
+  collateral       String?
+  notes            String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
-  business          Business       @relation(fields: [businessId], references: [id])
-  repayments        LoanRepayment[]
+  business   Business        @relation(fields: [businessId], references: [id])
+  repayments LoanRepayment[]
 
   @@index([businessId])
   @@map("business_loan")
 }
 
 model LoanRepayment {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   loanId        String
   date          DateTime
-  principalPaid Decimal   @db.Decimal(15, 2)
-  interestPaid  Decimal   @db.Decimal(15, 2)
-  penaltyPaid   Decimal   @db.Decimal(15, 2) @default(0)
-  totalPaid     Decimal   @db.Decimal(15, 2)
-  balanceAfter  Decimal   @db.Decimal(15, 2)
-  bankTxnId     String?   // link to BankTransaction
+  principalPaid Decimal  @db.Decimal(15, 2)
+  interestPaid  Decimal  @db.Decimal(15, 2)
+  penaltyPaid   Decimal  @default(0) @db.Decimal(15, 2)
+  totalPaid     Decimal  @db.Decimal(15, 2)
+  balanceAfter  Decimal  @db.Decimal(15, 2)
+  bankTxnId     String? // link to BankTransaction
   challanRef    String?
-  createdAt     DateTime  @default(now())
+  createdAt     DateTime @default(now())
 
-  loan          BusinessLoan @relation(fields: [loanId], references: [id])
+  loan BusinessLoan @relation(fields: [loanId], references: [id])
 
   @@index([loanId])
   @@map("loan_repayment")
@@ -2970,36 +3024,36 @@ model LoanRepayment {
 // Auto-created when a qualifying payment is made. Manual deposit tracking.
 
 model TdsEntry {
-  id                String     @id @default(cuid())
-  businessId        String
-  financialYear     String
-  section           TdsSection
-  deducteeName      String
-  deducteePan       String?
-  deducteeTan       String?    // for TDS on rent (194I)
-  paymentDate       DateTime
-  paymentAmount     Decimal    @db.Decimal(15, 2)
-  tdsRatePct        Decimal    @db.Decimal(5, 2)
-  tdsAmount         Decimal    @db.Decimal(15, 2)
-  surcharge         Decimal    @db.Decimal(15, 2) @default(0)
-  cess              Decimal    @db.Decimal(15, 2) @default(0)
-  totalTdsAmount    Decimal    @db.Decimal(15, 2)
-  depositDueDate    DateTime   // 7th of following month (Apr 30 for March)
-  status            TdsStatus  @default(PENDING_DEPOSIT)
-  depositedDate     DateTime?
-  bsrCode           String?    // bank branch serial code
-  challanSerial     String?
-  challanAmount     Decimal?   @db.Decimal(15, 2)
+  id             String     @id @default(cuid())
+  businessId     String
+  financialYear  String
+  section        TdsSection
+  deducteeName   String
+  deducteePan    String?
+  deducteeTan    String? // for TDS on rent (194I)
+  paymentDate    DateTime
+  paymentAmount  Decimal    @db.Decimal(15, 2)
+  tdsRatePct     Decimal    @db.Decimal(5, 2)
+  tdsAmount      Decimal    @db.Decimal(15, 2)
+  surcharge      Decimal    @default(0) @db.Decimal(15, 2)
+  cess           Decimal    @default(0) @db.Decimal(15, 2)
+  totalTdsAmount Decimal    @db.Decimal(15, 2)
+  depositDueDate DateTime // 7th of following month (Apr 30 for March)
+  status         TdsStatus  @default(PENDING_DEPOSIT)
+  depositedDate  DateTime?
+  bsrCode        String? // bank branch serial code
+  challanSerial  String?
+  challanAmount  Decimal?   @db.Decimal(15, 2)
 
   // Source tracking — which payment triggered this
-  sourceType        String?    // SUPPLIER_PAYMENT | EXPENSE | BANK_TXN
-  sourceId          String?
+  sourceType String? // SUPPLIER_PAYMENT | EXPENSE | BANK_TXN
+  sourceId   String?
 
-  remarks           String?
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  remarks   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  business          Business   @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@index([businessId, financialYear])
   @@index([businessId, status])
@@ -3010,25 +3064,25 @@ model TdsEntry {
 // ─── ADVANCE TAX ────────────────────────────────────────────────────
 
 model AdvanceTaxPayment {
-  id                String                  @id @default(cuid())
-  businessId        String
-  financialYear     String
-  installment       AdvanceTaxInstallment
-  dueDate           DateTime
-  estimatedTaxFY    Decimal                 @db.Decimal(15, 2)  // total tax estimated for year
-  cumulativePctDue  Decimal                 @db.Decimal(5, 2)   // 15/45/75/100
-  amountDue         Decimal                 @db.Decimal(15, 2)  // cumulative due
-  amountPaid        Decimal                 @db.Decimal(15, 2)  @default(0)
-  shortfall         Decimal                 @db.Decimal(15, 2)  @default(0)
-  interest234C      Decimal                 @db.Decimal(15, 2)  @default(0)  // 1%/month on shortfall
-  paidDate          DateTime?
-  bsrCode           String?                 // manual entry — no IT portal API
-  challanSerial     String?
-  challanAmount     Decimal?                @db.Decimal(15, 2)
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
+  id               String                @id @default(cuid())
+  businessId       String
+  financialYear    String
+  installment      AdvanceTaxInstallment
+  dueDate          DateTime
+  estimatedTaxFY   Decimal               @db.Decimal(15, 2) // total tax estimated for year
+  cumulativePctDue Decimal               @db.Decimal(5, 2) // 15/45/75/100
+  amountDue        Decimal               @db.Decimal(15, 2) // cumulative due
+  amountPaid       Decimal               @default(0) @db.Decimal(15, 2)
+  shortfall        Decimal               @default(0) @db.Decimal(15, 2)
+  interest234C     Decimal               @default(0) @db.Decimal(15, 2) // 1%/month on shortfall
+  paidDate         DateTime?
+  bsrCode          String? // manual entry — no IT portal API
+  challanSerial    String?
+  challanAmount    Decimal?              @db.Decimal(15, 2)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
-  business          Business                @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@unique([businessId, financialYear, installment])
   @@index([businessId, financialYear])
@@ -3038,68 +3092,68 @@ model AdvanceTaxPayment {
 // ─── INCOME TAX RETURN ──────────────────────────────────────────────
 
 model ItReturn {
-  id                  String          @id @default(cuid())
-  businessId          String
-  financialYear       String          // "2024-25"
-  assessmentYear      String          // "2025-26"
-  itrForm             String          // "ITR-3" | "ITR-4" | "ITR-5"
+  id             String @id @default(cuid())
+  businessId     String
+  financialYear  String // "2024-25"
+  assessmentYear String // "2025-26"
+  itrForm        String // "ITR-3" | "ITR-4" | "ITR-5"
 
   // P&L snapshot (auto-computed from ERP)
-  grossTurnover       Decimal?        @db.Decimal(15, 2)
-  gstTurnover         Decimal?        @db.Decimal(15, 2)  // from GSTR
-  turnoverDiff        Decimal?        @db.Decimal(15, 2)  // gst vs books diff
-  grossProfit         Decimal?        @db.Decimal(15, 2)
-  totalExpenses       Decimal?        @db.Decimal(15, 2)
-  netProfitBooks      Decimal?        @db.Decimal(15, 2)
+  grossTurnover  Decimal? @db.Decimal(15, 2)
+  gstTurnover    Decimal? @db.Decimal(15, 2) // from GSTR
+  turnoverDiff   Decimal? @db.Decimal(15, 2) // gst vs books diff
+  grossProfit    Decimal? @db.Decimal(15, 2)
+  totalExpenses  Decimal? @db.Decimal(15, 2)
+  netProfitBooks Decimal? @db.Decimal(15, 2)
 
   // IT Act adjustments
-  depreciationBooks   Decimal?        @db.Decimal(15, 2)
-  depreciationItAct   Decimal?        @db.Decimal(15, 2)
-  disallowances40a3   Decimal?        @db.Decimal(15, 2)  // cash payments >10k
-  otherAddbacks       Decimal?        @db.Decimal(15, 2)
-  otherDeductions     Decimal?        @db.Decimal(15, 2)
-  taxableIncomeBusiness Decimal?      @db.Decimal(15, 2)
+  depreciationBooks     Decimal? @db.Decimal(15, 2)
+  depreciationItAct     Decimal? @db.Decimal(15, 2)
+  disallowances40a3     Decimal? @db.Decimal(15, 2) // cash payments >10k
+  otherAddbacks         Decimal? @db.Decimal(15, 2)
+  otherDeductions       Decimal? @db.Decimal(15, 2)
+  taxableIncomeBusiness Decimal? @db.Decimal(15, 2)
 
   // Presumptive option (44AD/44ADA)
-  presumptiveTaxable  Decimal?        @db.Decimal(15, 2)  // 6% or 8% of turnover
-  usePresumptive      Boolean         @default(false)
+  presumptiveTaxable Decimal? @db.Decimal(15, 2) // 6% or 8% of turnover
+  usePresumptive     Boolean  @default(false)
 
   // Tax computation
-  regimeOld           Json?           // full old regime breakdown
-  regimeNew           Json?           // full new regime breakdown
-  chosenRegime        String?         // "OLD" | "NEW"
-  taxableIncomeFinal  Decimal?        @db.Decimal(15, 2)
-  taxBeforeCess       Decimal?        @db.Decimal(15, 2)
-  surcharge           Decimal?        @db.Decimal(15, 2)
-  cess                Decimal?        @db.Decimal(15, 2)   // 4%
-  totalTaxPayable     Decimal?        @db.Decimal(15, 2)
-  tdsCreditFrom26as   Decimal?        @db.Decimal(15, 2)
-  advanceTaxPaid      Decimal?        @db.Decimal(15, 2)
-  selfAssessmentTax   Decimal?        @db.Decimal(15, 2)
-  interest234A        Decimal?        @db.Decimal(15, 2)   // late filing
-  interest234B        Decimal?        @db.Decimal(15, 2)   // advance tax shortfall
-  interest234C        Decimal?        @db.Decimal(15, 2)   // installment shortfall
-  netPayable          Decimal?        @db.Decimal(15, 2)
-  refundDue           Decimal?        @db.Decimal(15, 2)
+  regimeOld          Json? // full old regime breakdown
+  regimeNew          Json? // full new regime breakdown
+  chosenRegime       String? // "OLD" | "NEW"
+  taxableIncomeFinal Decimal? @db.Decimal(15, 2)
+  taxBeforeCess      Decimal? @db.Decimal(15, 2)
+  surcharge          Decimal? @db.Decimal(15, 2)
+  cess               Decimal? @db.Decimal(15, 2) // 4%
+  totalTaxPayable    Decimal? @db.Decimal(15, 2)
+  tdsCreditFrom26as  Decimal? @db.Decimal(15, 2)
+  advanceTaxPaid     Decimal? @db.Decimal(15, 2)
+  selfAssessmentTax  Decimal? @db.Decimal(15, 2)
+  interest234A       Decimal? @db.Decimal(15, 2) // late filing
+  interest234B       Decimal? @db.Decimal(15, 2) // advance tax shortfall
+  interest234C       Decimal? @db.Decimal(15, 2) // installment shortfall
+  netPayable         Decimal? @db.Decimal(15, 2)
+  refundDue          Decimal? @db.Decimal(15, 2)
 
   // Filing details
-  status              ItReturnStatus  @default(DRAFT)
-  filedDate           DateTime?
-  ackNumber           String?         // ITR-V acknowledgment — manual entry
-  filedByName         String?         // CA name who filed
-  itrJson             String?         @db.Text  // generated ITR JSON ready for upload
-  priorItrJson        String?         @db.Text  // uploaded prior year ITR for reference
+  status       ItReturnStatus @default(DRAFT)
+  filedDate    DateTime?
+  ackNumber    String? // ITR-V acknowledgment — manual entry
+  filedByName  String? // CA name who filed
+  itrJson      String?        @db.Text // generated ITR JSON ready for upload
+  priorItrJson String?        @db.Text // uploaded prior year ITR for reference
 
   // Audit
-  taxAuditRequired    Boolean         @default(false)
-  form3cdData         Json?           // auto-filled Form 3CD clause data
+  taxAuditRequired Boolean @default(false)
+  form3cdData      Json? // auto-filled Form 3CD clause data
 
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  business            Business        @relation(fields: [businessId], references: [id])
-  caIssues            CaIssueFlag[]
-  form26asUploads     Form26ASUpload[]
+  business        Business         @relation(fields: [businessId], references: [id])
+  caIssues        CaIssueFlag[]
+  form26asUploads Form26ASUpload[]
 
   @@unique([businessId, financialYear])
   @@index([businessId])
@@ -3109,22 +3163,22 @@ model ItReturn {
 // ─── CA REVIEW FLAGS ────────────────────────────────────────────────
 
 model CaIssueFlag {
-  id            String          @id @default(cuid())
-  itReturnId    String
-  caUserId      String          // User.id of the CA who raised it
-  caName        String
-  area          String          // "P&L" | "TDS" | "26AS" | "Depreciation" | "Capital" | "Loans" | "Turnover"
-  severity      CaIssueSeverity
-  issue         String          @db.Text
-  details       String?         @db.Text  // supporting numbers / references
-  ownerReply    String?         @db.Text
-  caVerifyNote  String?         @db.Text
-  status        CaIssueStatus   @default(OPEN)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  resolvedAt    DateTime?
+  id           String          @id @default(cuid())
+  itReturnId   String
+  caUserId     String // User.id of the CA who raised it
+  caName       String
+  area         String // "P&L" | "TDS" | "26AS" | "Depreciation" | "Capital" | "Loans" | "Turnover"
+  severity     CaIssueSeverity
+  issue        String          @db.Text
+  details      String?         @db.Text // supporting numbers / references
+  ownerReply   String?         @db.Text
+  caVerifyNote String?         @db.Text
+  status       CaIssueStatus   @default(OPEN)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  resolvedAt   DateTime?
 
-  itReturn      ItReturn        @relation(fields: [itReturnId], references: [id])
+  itReturn ItReturn @relation(fields: [itReturnId], references: [id])
 
   @@index([itReturnId])
   @@index([itReturnId, status])
@@ -3134,19 +3188,19 @@ model CaIssueFlag {
 // ─── FORM 26AS / AIS UPLOAD ─────────────────────────────────────────
 
 model Form26ASUpload {
-  id              String    @id @default(cuid())
-  itReturnId      String
-  businessId      String
-  financialYear   String
-  uploadedAt      DateTime  @default(now())
-  fileType        String    // "JSON" | "XML" | "PDF"
-  totalTdsCredit  Decimal   @db.Decimal(15, 2) @default(0)
-  totalTcsCredit  Decimal   @db.Decimal(15, 2) @default(0)
-  matchedCount    Int       @default(0)
-  unmatchedCount  Int       @default(0)
+  id             String   @id @default(cuid())
+  itReturnId     String
+  businessId     String
+  financialYear  String
+  uploadedAt     DateTime @default(now())
+  fileType       String // "JSON" | "XML" | "PDF"
+  totalTdsCredit Decimal  @default(0) @db.Decimal(15, 2)
+  totalTcsCredit Decimal  @default(0) @db.Decimal(15, 2)
+  matchedCount   Int      @default(0)
+  unmatchedCount Int      @default(0)
 
-  itReturn        ItReturn          @relation(fields: [itReturnId], references: [id])
-  entries         Form26ASEntry[]
+  itReturn ItReturn        @relation(fields: [itReturnId], references: [id])
+  entries  Form26ASEntry[]
 
   @@index([itReturnId])
   @@map("form_26as_upload")
@@ -3163,11 +3217,11 @@ model Form26ASEntry {
   grossAmount     Decimal         @db.Decimal(15, 2)
   tdsAmount       Decimal         @db.Decimal(15, 2)
   matched         Boolean         @default(false)
-  matchedTdsId    String?         // TdsEntry.id if matched
+  matchedTdsId    String? // TdsEntry.id if matched
   discrepancy     Decimal?        @db.Decimal(15, 2)
   notes           String?
 
-  upload          Form26ASUpload  @relation(fields: [uploadId], references: [id])
+  upload Form26ASUpload @relation(fields: [uploadId], references: [id])
 
   @@index([uploadId])
   @@map("form_26as_entry")
@@ -3177,24 +3231,24 @@ model Form26ASEntry {
 // For multi-year dashboard — one row per filed return
 
 model ItFilingRecord {
-  id              String    @id @default(cuid())
-  businessId      String
-  financialYear   String
-  assessmentYear  String
-  itrForm         String
-  filedDate       DateTime
-  ackNumber       String
-  grossIncome     Decimal   @db.Decimal(15, 2)
-  taxPaid         Decimal   @db.Decimal(15, 2)
-  refundClaimed   Decimal   @db.Decimal(15, 2) @default(0)
-  demandRaised    Decimal   @db.Decimal(15, 2) @default(0)
-  processingStatus String   @default("FILED") // FILED | PROCESSED | DEMAND | REFUND_ISSUED
-  demandNoticeNo  String?
-  refundDate      DateTime?
-  notes           String?
-  createdAt       DateTime  @default(now())
+  id               String    @id @default(cuid())
+  businessId       String
+  financialYear    String
+  assessmentYear   String
+  itrForm          String
+  filedDate        DateTime
+  ackNumber        String
+  grossIncome      Decimal   @db.Decimal(15, 2)
+  taxPaid          Decimal   @db.Decimal(15, 2)
+  refundClaimed    Decimal   @default(0) @db.Decimal(15, 2)
+  demandRaised     Decimal   @default(0) @db.Decimal(15, 2)
+  processingStatus String    @default("FILED") // FILED | PROCESSED | DEMAND | REFUND_ISSUED
+  demandNoticeNo   String?
+  refundDate       DateTime?
+  notes            String?
+  createdAt        DateTime  @default(now())
 
-  business        Business  @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@unique([businessId, financialYear])
   @@index([businessId])
@@ -3216,8 +3270,8 @@ enum PlanStatus {
 }
 
 model Tenant {
-  id         String     @id @default(cuid())
-  businessId String     @unique
+  id         String @id @default(cuid())
+  businessId String @unique
 
   // ── Subscription / Plan ───────────────────────────────────────────────────
   // plan: FREE | STARTER | PROFESSIONAL | ENTERPRISE
@@ -3288,19 +3342,19 @@ model PlatformAuditLog {
 
 // ─── P0.3  EVENT PLATFORM (Outbox / Inbox) ──────────────────────────────
 model OutboxEvent {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   businessId    String
   aggregateType String
   aggregateId   String
   eventType     String
   payload       Json
-  status        String   @default("PENDING")
+  status        String    @default("PENDING")
   correlationId String?
   causationId   String?
   publishedAt   DateTime?
-  retryCount    Int      @default(0)
+  retryCount    Int       @default(0)
   error         String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   @@index([businessId])
   @@index([status, createdAt])
@@ -3324,14 +3378,14 @@ model InboxEvent {
 
 // ─── P0.4  RULE ENGINE ───────────────────────────────────────────────────
 model RuleAuthority {
-  id           String    @id @default(cuid())
-  code         String    @unique
+  id           String   @id @default(cuid())
+  code         String   @unique
   name         String
-  jurisdiction String    @default("IN")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  jurisdiction String   @default("IN")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  ruleSets     RuleSet[]
+  ruleSets RuleSet[]
 
   @@map("RuleAuthority")
 }
@@ -3350,9 +3404,9 @@ model RuleSet {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  authority     RuleAuthority        @relation(fields: [authorityId], references: [id])
-  rules         Rule[]
-  overrides     BusinessRuleOverride[]
+  authority RuleAuthority          @relation(fields: [authorityId], references: [id])
+  rules     Rule[]
+  overrides BusinessRuleOverride[]
 
   @@unique([code, effectiveFrom])
   @@index([code])
@@ -3368,7 +3422,7 @@ model Rule {
   notes     String?
   createdAt DateTime @default(now())
 
-  ruleSet   RuleSet @relation(fields: [ruleSetId], references: [id])
+  ruleSet RuleSet @relation(fields: [ruleSetId], references: [id])
 
   @@index([ruleSetId, priority])
   @@map("Rule")
@@ -3386,7 +3440,7 @@ model BusinessRuleOverride {
   effectiveTo   DateTime?
   createdAt     DateTime  @default(now())
 
-  ruleSet       RuleSet   @relation(fields: [ruleSetId], references: [id])
+  ruleSet RuleSet @relation(fields: [ruleSetId], references: [id])
 
   @@index([businessId, ruleSetCode])
   @@map("BusinessRuleOverride")
@@ -3417,17 +3471,17 @@ model Document {
 
 // ─── P0.7  AI PLATFORM ───────────────────────────────────────────────────
 model AiCallLog {
-  id          String   @id @default(cuid())
-  businessId  String
-  provider    String
-  model       String
-  promptHash  String
-  tokensUsed  Int
-  latencyMs   Int
-  confidence  Float
-  success     Boolean
-  error       String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  businessId String
+  provider   String
+  model      String
+  promptHash String
+  tokensUsed Int
+  latencyMs  Int
+  confidence Float
+  success    Boolean
+  error      String?
+  createdAt  DateTime @default(now())
 
   @@index([businessId])
   @@index([businessId, createdAt])
@@ -3450,13 +3504,13 @@ model AiCorrection {
 }
 
 model KnowledgeChunk {
-  id        String   @id @default(cuid())
+  id         String   @id @default(cuid())
   businessId String?
-  source    String
-  content   String
-  tags      String[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  source     String
+  content    String
+  tags       String[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([businessId])
   @@map("KnowledgeChunk")
@@ -3471,9 +3525,9 @@ model AccountGroup {
   parentId   String?
   createdAt  DateTime @default(now())
 
-  parent     AccountGroup?  @relation("GroupHierarchy", fields: [parentId], references: [id])
-  children   AccountGroup[] @relation("GroupHierarchy")
-  accounts   Account[]
+  parent   AccountGroup?  @relation("GroupHierarchy", fields: [parentId], references: [id])
+  children AccountGroup[] @relation("GroupHierarchy")
+  accounts Account[]
 
   @@index([businessId])
   @@map("AccountGroup")
@@ -3492,8 +3546,8 @@ model Account {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  accountGroup   AccountGroup  @relation(fields: [accountGroupId], references: [id])
-  journalLines   JournalLine[]
+  accountGroup AccountGroup  @relation(fields: [accountGroupId], references: [id])
+  journalLines JournalLine[]
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -3510,7 +3564,7 @@ model FiscalPeriod {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  journals   Journal[]
+  journals Journal[]
 
   @@index([businessId])
   @@map("FiscalPeriod")
@@ -3531,8 +3585,8 @@ model Journal {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  fiscalPeriod    FiscalPeriod @relation(fields: [fiscalPeriodId], references: [id])
-  lines           JournalLine[]
+  fiscalPeriod FiscalPeriod  @relation(fields: [fiscalPeriodId], references: [id])
+  lines        JournalLine[]
 
   @@index([businessId])
   @@index([businessId, fiscalPeriodId])
@@ -3543,13 +3597,13 @@ model JournalLine {
   id           String   @id @default(cuid())
   journalId    String
   accountId    String
-  debitAmount  Decimal  @db.Decimal(19, 4) @default(0)
-  creditAmount Decimal  @db.Decimal(19, 4) @default(0)
+  debitAmount  Decimal  @default(0) @db.Decimal(19, 4)
+  creditAmount Decimal  @default(0) @db.Decimal(19, 4)
   narration    String?
   createdAt    DateTime @default(now())
 
-  journal      Journal @relation(fields: [journalId], references: [id])
-  account      Account @relation(fields: [accountId], references: [id])
+  journal Journal @relation(fields: [journalId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
 
   @@index([journalId])
   @@index([accountId])
@@ -3610,33 +3664,33 @@ model ComputationJob {
 // ═══════════════════════════════════════════════════════════════════════════
 
 model GstReturn {
-  id              String    @id @default(cuid())
-  businessId      String
-  returnType      String    // GSTR1 | GSTR3B | GSTR2A | GSTR9
-  financialYear   String
-  taxPeriod       String    // YYYY-MM or Q1-2025-26
-  status          String    @default("DRAFT")
-  b2bTaxable      Decimal   @db.Decimal(19, 4) @default(0)
-  b2bTax          Decimal   @db.Decimal(19, 4) @default(0)
-  b2cTaxable      Decimal   @db.Decimal(19, 4) @default(0)
-  b2cTax          Decimal   @db.Decimal(19, 4) @default(0)
-  exportTaxable   Decimal   @db.Decimal(19, 4) @default(0)
-  nilExempt       Decimal   @db.Decimal(19, 4) @default(0)
-  totalLiability  Decimal   @db.Decimal(19, 4) @default(0)
-  itcCgst         Decimal   @db.Decimal(19, 4) @default(0)
-  itcSgst         Decimal   @db.Decimal(19, 4) @default(0)
-  itcIgst         Decimal   @db.Decimal(19, 4) @default(0)
-  netPayableCgst  Decimal   @db.Decimal(19, 4) @default(0)
-  netPayableSgst  Decimal   @db.Decimal(19, 4) @default(0)
-  netPayableIgst  Decimal   @db.Decimal(19, 4) @default(0)
+  id               String    @id @default(cuid())
+  businessId       String
+  returnType       String // GSTR1 | GSTR3B | GSTR2A | GSTR9
+  financialYear    String
+  taxPeriod        String // YYYY-MM or Q1-2025-26
+  status           String    @default("DRAFT")
+  b2bTaxable       Decimal   @default(0) @db.Decimal(19, 4)
+  b2bTax           Decimal   @default(0) @db.Decimal(19, 4)
+  b2cTaxable       Decimal   @default(0) @db.Decimal(19, 4)
+  b2cTax           Decimal   @default(0) @db.Decimal(19, 4)
+  exportTaxable    Decimal   @default(0) @db.Decimal(19, 4)
+  nilExempt        Decimal   @default(0) @db.Decimal(19, 4)
+  totalLiability   Decimal   @default(0) @db.Decimal(19, 4)
+  itcCgst          Decimal   @default(0) @db.Decimal(19, 4)
+  itcSgst          Decimal   @default(0) @db.Decimal(19, 4)
+  itcIgst          Decimal   @default(0) @db.Decimal(19, 4)
+  netPayableCgst   Decimal   @default(0) @db.Decimal(19, 4)
+  netPayableSgst   Decimal   @default(0) @db.Decimal(19, 4)
+  netPayableIgst   Decimal   @default(0) @db.Decimal(19, 4)
   // Feature-ready
-  arn             String?
-  evcOtp          String?
-  apiFilingStatus String?
+  arn              String?
+  evcOtp           String?
+  apiFilingStatus  String?
   computationJobId String?
-  filedAt         DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  filedAt          DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([businessId, returnType, taxPeriod])
   @@index([businessId])
@@ -3648,14 +3702,14 @@ model ItcLedger {
   id              String   @id @default(cuid())
   businessId      String
   taxPeriod       String
-  sourceType      String   // PURCHASE_INVOICE | DEBIT_NOTE | CREDIT_NOTE | ITC_CLAIM
+  sourceType      String // PURCHASE_INVOICE | DEBIT_NOTE | CREDIT_NOTE | ITC_CLAIM
   sourceId        String
-  cgst            Decimal  @db.Decimal(19, 4) @default(0)
-  sgst            Decimal  @db.Decimal(19, 4) @default(0)
-  igst            Decimal  @db.Decimal(19, 4) @default(0)
+  cgst            Decimal  @default(0) @db.Decimal(19, 4)
+  sgst            Decimal  @default(0) @db.Decimal(19, 4)
+  igst            Decimal  @default(0) @db.Decimal(19, 4)
   isReversed      Boolean  @default(false)
   reversalReason  String?
-  itcCategoryType String?  // ITC-1 | ITC-2 | ITC-3 (feature-ready)
+  itcCategoryType String? // ITC-1 | ITC-2 | ITC-3 (feature-ready)
   createdAt       DateTime @default(now())
 
   @@index([businessId, taxPeriod])
@@ -3664,19 +3718,19 @@ model ItcLedger {
 }
 
 model GstChallan {
-  id          String    @id @default(cuid())
-  businessId  String
-  taxPeriod   String
-  cgstPaid    Decimal   @db.Decimal(19, 4) @default(0)
-  sgstPaid    Decimal   @db.Decimal(19, 4) @default(0)
-  igstPaid    Decimal   @db.Decimal(19, 4) @default(0)
-  interest    Decimal   @db.Decimal(19, 4) @default(0)
-  lateFee     Decimal   @db.Decimal(19, 4) @default(0)
-  totalPaid   Decimal   @db.Decimal(19, 4) @default(0)
-  cpin        String?
-  bsrCode     String?
-  paidAt      DateTime?
-  createdAt   DateTime  @default(now())
+  id         String    @id @default(cuid())
+  businessId String
+  taxPeriod  String
+  cgstPaid   Decimal   @default(0) @db.Decimal(19, 4)
+  sgstPaid   Decimal   @default(0) @db.Decimal(19, 4)
+  igstPaid   Decimal   @default(0) @db.Decimal(19, 4)
+  interest   Decimal   @default(0) @db.Decimal(19, 4)
+  lateFee    Decimal   @default(0) @db.Decimal(19, 4)
+  totalPaid  Decimal   @default(0) @db.Decimal(19, 4)
+  cpin       String?
+  bsrCode    String?
+  paidAt     DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([businessId, taxPeriod])
   @@map("GstChallan")
@@ -3687,37 +3741,37 @@ model GstReconRun {
   businessId  String
   uploadedBy  String?
   fileName    String
-  period      String   // human label e.g. "Jun 2026"
+  period      String // human label e.g. "Jun 2026"
   runAt       DateTime @default(now())
-  window      Json     // { from: ISO|null, to: ISO|null }
-  summary     Json     // reconciliation summary numbers
-  matched     Json     // Row[]
-  mismatch    Json     // Row[]
-  onlyIn2B    Json     // Row[]
-  onlyInBooks Json     // Row[]
+  window      Json // { from: ISO|null, to: ISO|null }
+  summary     Json // reconciliation summary numbers
+  matched     Json // Row[]
+  mismatch    Json // Row[]
+  onlyIn2B    Json // Row[]
+  onlyInBooks Json // Row[]
 
   @@index([businessId, runAt(sort: Desc)])
   @@map("GstReconRun")
 }
 
 model TdsChallan {
-  id               String    @id @default(cuid())
-  businessId       String
-  financialYear    String
-  quarter          String    // Q1 | Q2 | Q3 | Q4
-  section          String
-  amountDeducted   Decimal   @db.Decimal(19, 4) @default(0)
-  amountDeposited  Decimal   @db.Decimal(19, 4) @default(0)
-  interest         Decimal   @db.Decimal(19, 4) @default(0)
-  lateFee          Decimal   @db.Decimal(19, 4) @default(0)
-  bsrCode          String?
-  challanSerial    String?
-  depositedAt      DateTime?
+  id                 String    @id @default(cuid())
+  businessId         String
+  financialYear      String
+  quarter            String // Q1 | Q2 | Q3 | Q4
+  section            String
+  amountDeducted     Decimal   @default(0) @db.Decimal(19, 4)
+  amountDeposited    Decimal   @default(0) @db.Decimal(19, 4)
+  interest           Decimal   @default(0) @db.Decimal(19, 4)
+  lateFee            Decimal   @default(0) @db.Decimal(19, 4)
+  bsrCode            String?
+  challanSerial      String?
+  depositedAt        DateTime?
   // Feature-ready: TRACES 2.0
-  ackNumber        String?
-  filingMode       String    @default("OFFLINE")
+  ackNumber          String?
+  filingMode         String    @default("OFFLINE")
   provisionalReceipt String?
-  createdAt        DateTime  @default(now())
+  createdAt          DateTime  @default(now())
 
   @@index([businessId, financialYear])
   @@index([businessId, section])
@@ -3729,7 +3783,7 @@ model TdsChallan {
 // The legacy User.businessId FK stays (for existing queries). This table adds
 // role + scopes + branchId for proper multi-tenant RBAC enforcement.
 model UserBusinessMembership {
-  id         String    @id @default(cuid())
+  id         String @id @default(cuid())
   userId     String
   businessId String
   tenantId   String
@@ -3737,7 +3791,7 @@ model UserBusinessMembership {
   // role: OWNER | ACCOUNTANT | CASHIER | CA | VIEWER | BRANCH_MANAGER | AUDITOR
   role     String
   // scopes: fine-grained permissions e.g. ["SALES:READ","SALES:WRITE","REPORTS:READ"]
-  scopes   String[]  @default([])
+  scopes   String[] @default([])
   // branchId: null = access to all branches; set to restrict to one branch
   branchId String?
 

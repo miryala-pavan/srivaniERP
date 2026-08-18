@@ -14,9 +14,9 @@ export class AddressesService {
     });
   }
 
-  async create(dto: CreateAddressDto) {
+  async create(phone: string, dto: CreateAddressDto) {
     const count = await this.prisma.storefrontAddress.count({
-      where: { phone: dto.phone },
+      where: { phone },
     });
     if (count >= 10) {
       throw new BadRequestException('Maximum 10 saved addresses allowed');
@@ -26,14 +26,14 @@ export class AddressesService {
 
     if (makeDefault) {
       await this.prisma.storefrontAddress.updateMany({
-        where: { phone: dto.phone, isDefault: true },
+        where: { phone, isDefault: true },
         data: { isDefault: false },
       });
     }
 
     return this.prisma.storefrontAddress.create({
       data: {
-        phone: dto.phone,
+        phone,
         label: dto.label ?? 'Home',
         line1: dto.line1,
         line2: dto.line2 ?? null,

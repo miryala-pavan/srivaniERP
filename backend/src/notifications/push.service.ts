@@ -45,8 +45,18 @@ export class PushService {
   /** Fire-and-forget push to every subscribed device for a business — callers should .catch(). */
   async sendToBusiness(businessId: string, payload: PushPayload): Promise<void> {
     if (!this.configured) return;
-
     const subs = await this.prisma.pushSubscription.findMany({ where: { businessId } });
+    await this.deliver(subs, payload);
+  }
+
+  /** Fire-and-forget push to every subscribed device for one specific user — callers should .catch(). */
+  async sendToUser(businessId: string, userId: string, payload: PushPayload): Promise<void> {
+    if (!this.configured) return;
+    const subs = await this.prisma.pushSubscription.findMany({ where: { businessId, userId } });
+    await this.deliver(subs, payload);
+  }
+
+  private async deliver(subs: { id: string; endpoint: string; p256dh: string; auth: string }[], payload: PushPayload): Promise<void> {
     if (subs.length === 0) return;
 
     await Promise.all(subs.map(async (sub) => {

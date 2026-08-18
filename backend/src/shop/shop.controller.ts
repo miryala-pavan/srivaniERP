@@ -1,7 +1,12 @@
-import { Controller, Get, Param, Query, ParseIntPipe, ParseBoolPipe, DefaultValuePipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Request, Res, UseGuards, ForbiddenException, ParseIntPipe, ParseBoolPipe, DefaultValuePipe } from '@nestjs/common';
+import type { Response } from 'express';
 import { ShopService } from './shop.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
-// NO auth guard — public catalog
+// NO auth guard — public catalog (except the two admin-only feed-settings
+// routes at the bottom, which are individually @UseGuards-protected)
 
 @Controller('shop')
 export class ShopController {
@@ -81,5 +86,33 @@ export class ShopController {
   @Get('delivery-slots')
   getDeliverySlots(@Query('date') date?: string) {
     return this.shopService.getDeliverySlots(date === 'tomorrow' ? 'tomorrow' : 'today');
+  }
+
+  // ── Meta (Facebook/Instagram) Commerce Catalog data feed ──────────────────
+
+  // GET /shop/meta-catalog-feed.csv?token=<per-business token> — fetched by
+  // Meta's own crawler on a schedule the store owner sets in Commerce
+  // Manager, not by staff — public route, but gated by an unguessable
+  // per-business token instead of the JWT guard used below.
+  @Get('meta-catalog-feed.csv')
+  async getMetaCatalogFeed(@Query('token') token: string, @Res() res: Response) {
+    if (!token) throw new ForbiddenException('Missing feed token');
+    const csv = await this.shopService.generateCatalogFeedCsv(token);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.send(csv);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Get('meta-catalog-feed/settings')
+  getMetaCatalogFeedSettings(@Request() req: any) {
+    return this.shopService.getFeedSettings(req.user.businessId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Post('meta-catalog-feed/regenerate')
+  regenerateMetaCatalogFeed(@Request() req: any) {
+    return this.shopService.getFeedUrlAfterRegenerate(req.user.businessId);
   }
 }

@@ -41,9 +41,10 @@ export default function AddressesPage() {
   }, [isLoggedIn, isLoading, router]);
 
   useEffect(() => {
-    if (!phoneReady || !verifiedPhone) { setFetching(false); return; }
-    fetchAddresses(verifiedPhone).then(setAddresses).finally(() => setFetching(false));
-  }, [verifiedPhone, phoneReady]);
+    if (!phoneReady) return;
+    if (!verifiedPhone) { router.replace('/verify-phone?redirect=/account/addresses'); return; }
+    fetchAddresses().then(setAddresses).finally(() => setFetching(false));
+  }, [verifiedPhone, phoneReady, router]);
 
   function openAdd() { setForm(emptyForm); setEditId(null); setError(''); setShowForm(true); }
   function openEdit(a: SavedAddress) {
@@ -59,14 +60,14 @@ export default function AddressesPage() {
     setError(''); setSaving(true);
     try {
       if (editId) {
-        const updated = await updateAddress(editId, verifiedPhone, {
+        const updated = await updateAddress(editId, {
           label: form.label, line1: form.line1.trim(), line2: form.line2.trim() || undefined,
           city: form.city.trim(), pincode: form.pincode.trim(), state: form.state.trim(),
         });
         setAddresses(prev => prev.map(a => a.id === editId ? updated : a));
       } else {
         const payload: CreateAddressPayload = {
-          phone: verifiedPhone, label: form.label,
+          label: form.label,
           line1: form.line1.trim(), line2: form.line2.trim() || undefined,
           city: form.city.trim(), pincode: form.pincode.trim(), state: form.state.trim(),
         };
@@ -83,14 +84,14 @@ export default function AddressesPage() {
 
   async function handleSetDefault(id: string) {
     if (!verifiedPhone) return;
-    const updated = await setDefaultAddress(id, verifiedPhone);
+    const updated = await setDefaultAddress(id);
     setAddresses(prev => prev.map(a => ({ ...a, isDefault: a.id === updated.id })));
   }
 
   async function handleDelete(id: string) {
     if (!verifiedPhone) return;
     if (!confirm('Remove this address?')) return;
-    await deleteAddress(id, verifiedPhone);
+    await deleteAddress(id);
     setAddresses(prev => {
       const remaining = prev.filter(a => a.id !== id);
       // if deleted was default, promote first remaining

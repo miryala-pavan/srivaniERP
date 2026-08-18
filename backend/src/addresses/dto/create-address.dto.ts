@@ -7,10 +7,8 @@ import {
 } from 'class-validator';
 
 export class CreateAddressDto {
-  @IsString()
-  @Matches(/^[6-9]\d{9}$/, { message: 'phone must be a valid 10-digit Indian mobile number' })
-  phone: string;
-
+  // No phone field — the address always belongs to the caller's own
+  // OTP-verified phone (StorefrontJwtGuard), never a client-supplied value.
   @IsString()
   @IsOptional()
   label?: string;

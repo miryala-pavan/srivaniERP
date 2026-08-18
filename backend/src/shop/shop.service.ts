@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { wildcardFilter, hasWildcard } from '../common/helpers/search.helper';
 import { ShopCacheService } from './shop-cache.service';
@@ -10,6 +11,12 @@ import { SettingsService } from '../settings/settings.service';
 // Must match the static-serve mount in main.ts (imagesDir <-> /uploads/products).
 const PRODUCT_IMAGES_DIR = process.env.PRODUCT_IMAGES_DIR
   ?? path.join(process.cwd(), '..', 'storage', 'product-images');
+
+// Used to build absolute image_link URLs for the Meta catalog feed — Meta's
+// crawler fetches this server-to-server and can't resolve a relative path or
+// localhost, so this must be a real public HTTPS origin in production.
+const API_PUBLIC_URL = (process.env.API_PUBLIC_URL ?? 'http://localhost:4001').replace(/\/$/, '');
+const FEED_TOKEN_KEY = 'meta.catalog_feed_token';
 function productImageExists(imageUrl: string): boolean {
   if (!imageUrl.startsWith('/uploads/products/')) return false;
   const relative = imageUrl.slice('/uploads/products/'.length);
@@ -983,5 +990,133 @@ export class ShopService {
     return shopProducts
       .sort((a, b) => (rankMap.get(a.code) ?? 999) - (rankMap.get(b.code) ?? 999))
       .slice(0, limit);
+  }
+
+  // ─── Meta (Facebook/Instagram) Commerce Catalog data feed ───────────────────
+  // A token-gated CSV Meta's own crawler polls on a schedule the store owner
+  // configures in Commerce Manager — no Graph API credentials needed on our
+  // side. One row per ProductPlu (a sellable pack/variant), matching how the
+  // storefront already treats packs as separately purchasable units.
+
+  async getOrCreateFeedToken(businessId: string): Promise<string> {
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { businessId_key: { businessId, key: FEED_TOKEN_KEY } },
+    });
+    if (existing) return existing.value;
+
+    const token = randomBytes(16).toString('hex');
+    await this.prisma.systemSetting.create({
+      data: { businessId, key: FEED_TOKEN_KEY, value: token },
+    });
+    return token;
+  }
+
+  async regenerateFeedToken(businessId: string): Promise<string> {
+    const token = randomBytes(16).toString('hex');
+    await this.prisma.systemSetting.upsert({
+      where:  { businessId_key: { businessId, key: FEED_TOKEN_KEY } },
+      update: { value: token },
+      create: { businessId, key: FEED_TOKEN_KEY, value: token },
+    });
+    return token;
+  }
+
+  private buildFeedUrl(token: string): string {
+    return `${API_PUBLIC_URL}/api/shop/meta-catalog-feed.csv?token=${token}`;
+  }
+
+  async getFeedSettings(businessId: string): Promise<{ url: string }> {
+    const token = await this.getOrCreateFeedToken(businessId);
+    return { url: this.buildFeedUrl(token) };
+  }
+
+  async getFeedUrlAfterRegenerate(businessId: string): Promise<{ url: string }> {
+    const token = await this.regenerateFeedToken(businessId);
+    return { url: this.buildFeedUrl(token) };
+  }
+
+  private static readonly FEED_COLUMNS = [
+    'id', 'title', 'description', 'availability', 'condition', 'price', 'sale_price',
+    'link', 'image_link', 'brand', 'item_group_id', 'gtin', 'identifier_exists',
+  ] as const;
+
+  private csvEscape(value: string): string {
+    if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+    return value;
+  }
+
+  private toCsvRow(fields: Record<string, string>): string {
+    return ShopService.FEED_COLUMNS.map(col => this.csvEscape(fields[col] ?? '')).join(',');
+  }
+
+  async generateCatalogFeedCsv(token: string): Promise<string> {
+    const setting = await this.prisma.systemSetting.findFirst({
+      where: { key: FEED_TOKEN_KEY, value: token },
+      select: { businessId: true },
+    });
+    if (!setting) throw new ForbiddenException('Invalid or expired feed token');
+    const businessId = setting.businessId;
+
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { name: true },
+    });
+
+    const plus = await this.prisma.productPlu.findMany({
+      where: {
+        businessId,
+        ...ONLINE_PLU_FILTER,
+        product: { isActive: true, isManuallyDisabled: false },
+      },
+      select: {
+        pluCode: true, displayName: true, eanCode: true,
+        sellingPrice: true, mrp: true, onlinePrice: true, stockOnHand: true,
+        product: {
+          select: {
+            productCode: true, name: true, description: true, imageUrl: true,
+            allowNegativeStock: true, brandName: true,
+            brand: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    const shopUrl = (process.env.SHOP_URL ?? 'https://shop.srivani.com').replace(/\/$/, '');
+    const rows: string[] = [ShopService.FEED_COLUMNS.join(',')];
+
+    for (const plu of plus) {
+      const product = plu.product;
+      if (!product.imageUrl || !productImageExists(product.imageUrl)) continue; // dead image = Meta rejects the whole item anyway
+
+      const pluStock = toDecimal(plu.stockOnHand);
+      const available = pluStock > 0 || product.allowNegativeStock;
+
+      const mrp = toDecimal(plu.mrp);
+      const effectivePrice = plu.onlinePrice !== null && plu.onlinePrice !== undefined
+        ? toDecimal(plu.onlinePrice)
+        : toDecimal(plu.sellingPrice);
+
+      const brand = product.brand?.name ?? product.brandName ?? business?.name ?? '';
+
+      const fields: Record<string, string> = {
+        id:            plu.pluCode,
+        title:         product.name + (plu.displayName ? ` - ${plu.displayName}` : ''),
+        description:   product.description ?? product.name,
+        availability:  available ? 'in stock' : 'out of stock',
+        condition:     'new',
+        price:         `${mrp.toFixed(2)} INR`,
+        link:          `${shopUrl}/product/${product.productCode ?? ''}`,
+        image_link:    `${API_PUBLIC_URL}${product.imageUrl}`,
+        brand,
+        item_group_id: product.productCode ?? '',
+        gtin:          plu.eanCode ?? '',
+      };
+      if (effectivePrice < mrp) fields.sale_price = `${effectivePrice.toFixed(2)} INR`;
+      if (!plu.eanCode) fields.identifier_exists = 'no';
+
+      rows.push(this.toCsvRow(fields));
+    }
+
+    return rows.join('\n');
   }
 }

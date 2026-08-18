@@ -56,6 +56,7 @@ import { TdsModule } from './tds/tds.module';
 import { LedgerApiModule } from './ledger/ledger-api.module';
 import { HistoryModule } from './history/history.module';
 import { WalletModule } from './wallet/wallet.module';
+import { StorefrontAuthModule } from './storefront-auth/storefront-auth.module';
 
 @Module({
   controllers: [AppController],
@@ -102,6 +103,7 @@ import { WalletModule } from './wallet/wallet.module';
     LedgerApiModule,
     HistoryModule,
     WalletModule,
+    StorefrontAuthModule,
 
     // Platform Core (Phase 0)
     HelpModule,

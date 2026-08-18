@@ -1,3 +1,5 @@
+import { authHeader } from './storefront-auth';
+
 const API = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:4001/api';
 
 export type DeliveryType = 'HOME_DELIVERY' | 'STORE_PICKUP';
@@ -85,12 +87,18 @@ export interface OnlineOrder {
   };
 }
 
+// customerPhone must be the verified number — the backend rejects a
+// createOrder/whatsapp-checkout call whose body phone doesn't match the
+// caller's OTP-verified token. This is the actual order-placement/identity
+// boundary; order tracking below (view/cancel/confirm/retry via a shared
+// orderNumber+phone link) is intentionally a separate, lighter mechanism —
+// see the backend controller for why.
 export async function createOrder(
   payload: CreateOrderPayload,
 ): Promise<CreateOrderResponse> {
   const res = await fetch(`${API}/online-orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -192,7 +200,7 @@ export async function whatsappCheckout(
 ): Promise<{ orderNumber: string; total: number }> {
   const res = await fetch(`${API}/online-orders/whatsapp-checkout`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {

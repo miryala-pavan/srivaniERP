@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards, Request, BadRequestException, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards, Request, BadRequestException, ForbiddenException, HttpCode } from '@nestjs/common';
 import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { OnlineOrdersService } from './online-orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -8,6 +8,7 @@ import { AddOrderItemDto, UpdateOrderItemQtyDto } from './dto/edit-order-items.d
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { StorefrontJwtGuard } from '../storefront-auth/guards/storefront-jwt.guard';
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'ACCOUNTS_PERSON'];
 
@@ -15,17 +16,26 @@ const ADMIN_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'ACCOU
 export class OnlineOrdersController {
   constructor(private readonly service: OnlineOrdersService) {}
 
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(ThrottlerGuard, StorefrontJwtGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post()
-  createOrder(@Body() dto: CreateOrderDto) {
+  createOrder(@Body() dto: CreateOrderDto, @Request() req: any) {
+    if (dto.customerPhone !== req.verifiedPhone) {
+      throw new ForbiddenException('Order phone must match your verified number');
+    }
     return this.service.createOrder(dto);
   }
 
-  @UseGuards(ThrottlerGuard)
+  // No HTTP callers today (WaOrderingService invokes this in-process, not
+  // via this route) — guarded anyway so the route can't silently become an
+  // open door if something starts calling it over HTTP later.
+  @UseGuards(ThrottlerGuard, StorefrontJwtGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('whatsapp-checkout')
-  whatsappCheckout(@Body() dto: WhatsAppCheckoutDto) {
+  whatsappCheckout(@Body() dto: WhatsAppCheckoutDto, @Request() req: any) {
+    if (dto.customerPhone !== req.verifiedPhone) {
+      throw new ForbiddenException('Order phone must match your verified number');
+    }
     return this.service.whatsappCheckout(dto);
   }
 
@@ -36,6 +46,14 @@ export class OnlineOrdersController {
     return this.service.verifyPayment(dto);
   }
 
+  // Order tracking-by-link (orderNumber + phone) is a separate, intentionally
+  // lighter mechanism than the OTP-guarded routes above — these are read/
+  // status-check routes reached from a shared link (e.g. the WhatsApp
+  // order-confirmation message), including for guest/WhatsApp-checkout
+  // customers who never go through Google login or phone OTP at all. Fully
+  // requiring an OTP session here would lock out that entire guest-tracking
+  // flow — out of scope for this pass; ownership here is still checked
+  // server-side via samePhone() against the order's own stored phone.
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Get()

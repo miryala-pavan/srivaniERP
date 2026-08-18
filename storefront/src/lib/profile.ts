@@ -1,3 +1,5 @@
+import { authHeader } from './storefront-auth';
+
 const API = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:4001/api';
 
 export interface StorefrontProfile {
@@ -13,7 +15,7 @@ export async function fetchProfile(email: string): Promise<StorefrontProfile | n
   try {
     const res = await fetch(
       `${API}/storefront-profile?email=${encodeURIComponent(email)}`,
-      { cache: 'no-store' },
+      { cache: 'no-store', headers: { ...authHeader() } },
     );
     if (res.status === 404 || res.status === 204) return null;
     if (!res.ok) return null;
@@ -34,7 +36,7 @@ export async function upsertProfile(data: {
 }): Promise<StorefrontProfile> {
   const res = await fetch(`${API}/storefront-profile`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -52,7 +54,7 @@ export async function updateProfile(
     `${API}/storefront-profile?email=${encodeURIComponent(email)}`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify(data),
     },
   );

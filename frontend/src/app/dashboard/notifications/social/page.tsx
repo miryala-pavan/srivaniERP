@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Camera, MessagesSquare, MessageCircle as CommentIcon, Settings as SettingsIcon,
-  Wifi, WifiOff, Plus, Trash2, Pencil, Globe,
+  Wifi, WifiOff, Plus, Trash2, Pencil, Globe, Copy, RefreshCw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -34,6 +34,10 @@ export default function SocialPage() {
   const [pageForm, setPageForm] = useState({ ...BLANK_PAGE_FORM });
   const [savingPage, setSavingPage] = useState(false);
   const [activatingId, setActivatingId] = useState<string | null>(null);
+
+  const [feedUrl, setFeedUrl] = useState<string | null>(null);
+  const [feedLoaded, setFeedLoaded] = useState(false);
+  const [regeneratingFeed, setRegeneratingFeed] = useState(false);
 
   const [campaigns, setCampaigns] = useState<CommentCampaign[]>([]);
   const [campaignsLoaded, setCampaignsLoaded] = useState(false);
@@ -70,9 +74,34 @@ export default function SocialPage() {
     }
   }
 
+  async function loadFeedSettings() {
+    try {
+      const { data } = await api.get('/shop/meta-catalog-feed/settings');
+      setFeedUrl(data.url);
+    } catch {
+      toast.error('Failed to load catalog feed URL');
+    } finally {
+      setFeedLoaded(true);
+    }
+  }
+
+  async function regenerateFeedToken() {
+    if (!confirm('Regenerate the feed URL? Meta Commerce Manager will need to be re-pointed at the new URL — the old one will stop working immediately.')) return;
+    setRegeneratingFeed(true);
+    try {
+      const { data } = await api.post('/shop/meta-catalog-feed/regenerate');
+      setFeedUrl(data.url);
+      toast.success('Feed URL regenerated');
+    } catch {
+      toast.error('Failed to regenerate feed URL');
+    } finally {
+      setRegeneratingFeed(false);
+    }
+  }
+
   useEffect(() => {
     loadCreds();
-    if (isSuperAdmin) { loadPageAccounts(); loadCampaigns(); }
+    if (isSuperAdmin) { loadPageAccounts(); loadCampaigns(); loadFeedSettings(); }
   }, [isSuperAdmin]);
 
   async function savePageAccount() {
@@ -397,6 +426,49 @@ export default function SocialPage() {
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Product Catalog Feed</h2>
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <div className="px-5 py-4 bg-amber-50/50 border-b border-amber-100">
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  <b>To list products on Facebook &amp; Instagram Shops:</b> in Meta Commerce Manager, go to{' '}
+                  <b>Data Sources → Add products → Data feed</b>, paste the URL below, and set the schedule to{' '}
+                  <b>Daily</b>. Meta fetches this URL itself on that schedule — nothing further to do here once it's set up.
+                </p>
+              </div>
+
+              <div className="px-5 py-4">
+                {feedLoaded && feedUrl ? (
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-gray-500 font-medium">Feed URL:</p>
+                    <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-2.5">
+                      <span className="flex-1 text-xs font-mono text-gray-700 truncate">{feedUrl}</span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(feedUrl); toast.success('Copied!'); }}
+                        className="p-1 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 shrink-0"
+                        title="Copy link"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="flex justify-end pt-1">
+                      <button
+                        onClick={regenerateFeedToken}
+                        disabled={regeneratingFeed}
+                        className="btn-outline flex items-center gap-1.5 text-xs px-2.5 py-1.5 disabled:opacity-50"
+                      >
+                        <RefreshCw size={12} className={regeneratingFeed ? 'animate-spin' : ''} />
+                        {regeneratingFeed ? 'Regenerating…' : 'Regenerate URL'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 text-center py-5">Loading feed URL…</p>
                 )}
               </div>
             </div>

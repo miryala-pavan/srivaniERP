@@ -38,6 +38,7 @@ export const Events = {
   WA_MESSAGE_RECEIVED:        'wa.message.received',
   WA_MESSAGE_SENT:            'wa.message.sent',
   WA_CONVERSATION_ASSIGNED:   'wa.conversation.assigned',
+  WA_CONVERSATION_ESCALATED: 'wa.conversation.escalated',
   SOCIAL_MESSAGE_RECEIVED:    'social.message.received',
   SOCIAL_MESSAGE_SENT:        'social.message.sent',
 } as const;
@@ -75,3 +76,4 @@ export interface CustomerPaymentDeletedPayload  { paymentId: string; customerId:
 export interface OnlineOrderPlacedPayload       { orderNumber: string; customerName: string; customerPhone: string; total: number; paymentMethod: string; deliveryType: string; itemCount: number }
 export interface OnlineOrderStatusChangedPayload { orderNumber: string; status: string; customerName: string }
 export interface WaMessagePayload { phone: string; direction: 'INBOUND' | 'OUTBOUND'; bodyPreview: string | null; messageType: string; createdAt: string }
+export interface WaConversationEscalatedPayload { phone: string; tier: number; assignedToUserId: string | null }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ShoppingBag, X, Volume2, VolumeX } from 'lucide-react';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
 import { useQueryClient } from '@tanstack/react-query';
+import { beep, getAudioContext } from '@/lib/beep';
 
 interface OrderAlert {
   id: string;
@@ -18,22 +19,6 @@ interface OrderAlert {
   at: number;
 }
 
-function beep(ctx: AudioContext) {
-  try {
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.12);
-    gain.gain.setValueAtTime(0.35, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.45);
-  } catch {}
-}
-
 export default function OnlineOrderAlert() {
   const router      = useRouter();
   const qc          = useQueryClient();
@@ -42,10 +27,7 @@ export default function OnlineOrderAlert() {
   const audioRef    = useRef<AudioContext | null>(null);
 
   function getCtx() {
-    if (!audioRef.current) {
-      audioRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    return audioRef.current;
+    return getAudioContext(audioRef);
   }
 
   const handleNewOrder = useCallback((payload: Omit<OrderAlert, 'id' | 'at'>) => {

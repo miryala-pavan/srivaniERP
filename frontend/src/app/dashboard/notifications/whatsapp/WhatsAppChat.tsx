@@ -6,7 +6,8 @@ import {
   Send, Search, Clock, MessageSquare, Paperclip, Bot,
   Check, CheckCheck, AlertCircle, Pencil, ExternalLink, ShoppingBag, Award, Receipt,
   MapPin, FileText, SmilePlus, Pin, PinOff, CheckCircle2, Circle, Tag, X, Plus,
-  ChevronLeft, StickyNote, Zap, UserCircle2, MessageSquarePlus, Bell,
+  ChevronLeft, StickyNote, Zap, UserCircle2, MessageSquarePlus, Bell, Volume2, VolumeX,
+  Moon, Download,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -17,6 +18,7 @@ import { usePushSubscription } from '@/hooks/usePushSubscription';
 import { useReportParams } from '@/hooks/useReportParams';
 import { Avatar } from '@/components/shared/Avatar';
 import SavedViews from '@/components/reports/SavedViews';
+import { isWaSoundMuted, setWaSoundMuted } from '@/components/layout/WaSoundAlert';
 
 const PUSH_BANNER_DISMISSED_KEY = 'wa_push_banner_dismissed';
 
@@ -36,6 +38,7 @@ interface Conversation {
   labels?: string[];
   assignedToUserId?: string | null;
   assignedToName?: string | null;
+  snoozedUntil?: string | null;
 }
 
 interface StaffMember {
@@ -204,6 +207,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const [addressBookMatches, setAddressBookMatches] = useState<{ id: string; name: string; phone: string }[]>([]);
   const [unreadOnly, setUnreadOnly]       = useState(() => params.get('unread') === '1');
   const [showResolved, setShowResolved]   = useState(() => params.get('resolved') === '1');
+  const [showSnoozed, setShowSnoozed]     = useState(() => params.get('snoozed') === '1');
   const [assignedToMeOnly, setAssignedToMeOnly] = useState(() => params.get('mine') === '1');
   const [waitingOnly, setWaitingOnly]     = useState(() => params.get('waiting') === '1');
   const [vipOnly, setVipOnly]             = useState(() => params.get('vip') === '1');
@@ -212,8 +216,30 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const currentUser = getUser<{ userId?: string; id?: string; fullName?: string }>();
   const currentUserId = currentUser?.userId ?? currentUser?.id ?? null;
 
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  useEffect(() => {
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+  async function installPwa() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  }
+
+  const [soundMuted, setSoundMuted] = useState(false);
+  useEffect(() => { setSoundMuted(isWaSoundMuted()); }, []);
+  function toggleSound() {
+    const next = !soundMuted;
+    setWaSoundMuted(next);
+    setSoundMuted(next);
+  }
+
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [showAssignPopover, setShowAssignPopover] = useState(false);
+  const [showSnoozePopover, setShowSnoozePopover] = useState(false);
   const [showNewChat, setShowNewChat]     = useState(false);
   const [newChatPhone, setNewChatPhone]   = useState('');
   const [newChatMatches, setNewChatMatches] = useState<{ id: string; name: string; phone: string; hasConversation: boolean }[]>([]);
@@ -524,6 +550,13 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     loadConversations();
   });
 
+  useWebSocketEvent<{ phone: string; tier: number }>('wa.conversation.escalated', (data) => {
+    loadConversations();
+    if (selectedPhoneRef.current !== data.phone) {
+      toast(`Still waiting: +${data.phone}`, { icon: '⏰' });
+    }
+  });
+
   function startNewChat(rawPhone?: string) {
     const source = typeof rawPhone === 'string' ? rawPhone : newChatPhone;
     const digits = source.replace(/\D/g, '');
@@ -633,7 +666,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     }
   }
 
-  async function updateMeta(patch: Partial<{ status: 'OPEN' | 'RESOLVED'; pinned: boolean; labels: string[] }>) {
+  async function updateMeta(patch: Partial<{ status: 'OPEN' | 'RESOLVED'; pinned: boolean; labels: string[]; snoozedUntil: string | null }>) {
     if (!selectedPhone) return;
     setSavingMeta(true);
     try {
@@ -644,6 +677,25 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     } finally {
       setSavingMeta(false);
     }
+  }
+
+  function snoozeInHours(hours: number) {
+    updateMeta({ snoozedUntil: new Date(Date.now() + hours * 3600_000).toISOString() });
+  }
+
+  function snoozeTomorrow9am() {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(9, 0, 0, 0);
+    updateMeta({ snoozedUntil: d.toISOString() });
+  }
+
+  function snoozeNextMonday9am() {
+    const d = new Date();
+    const daysUntilMonday = ((8 - d.getDay()) % 7) || 7;
+    d.setDate(d.getDate() + daysUntilMonday);
+    d.setHours(9, 0, 0, 0);
+    updateMeta({ snoozedUntil: d.toISOString() });
   }
 
   function addLabel() {
@@ -679,7 +731,10 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     params.set({ [key]: next ? '1' : null });
   }
 
+  const isSnoozed = (c: Conversation) => !!(c.snoozedUntil && new Date(c.snoozedUntil) > new Date());
+
   const filtered = conversations.filter(c => {
+    if (!showSnoozed && isSnoozed(c)) return false;
     if (unreadOnly && c.unreadCount === 0) return false;
     if (!showResolved && c.convStatus === 'RESOLVED') return false;
     if (assignedToMeOnly && c.assignedToUserId !== currentUserId) return false;
@@ -767,6 +822,22 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
             >
               <MessageSquarePlus size={15} />
             </button>
+            <button
+              onClick={toggleSound}
+              title={soundMuted ? 'Unmute new-message sound' : 'Mute new-message sound'}
+              className="flex items-center justify-center w-8 h-8 rounded-lg border shrink-0 bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+            >
+              {soundMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+            </button>
+            {installPrompt && (
+              <button
+                onClick={installPwa}
+                title="Install PaVa Connect as a separate desktop app"
+                className="flex items-center justify-center w-8 h-8 rounded-lg border shrink-0 bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+              >
+                <Download size={15} />
+              </button>
+            )}
             <SavedViews />
           </div>
           {showNewChat && (
@@ -842,6 +913,15 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
               title="Include resolved conversations in the list"
             >
               Resolved
+            </button>
+            <button
+              onClick={() => toggleFilter('snoozed', showSnoozed, setShowSnoozed)}
+              className={`text-[11px] font-medium rounded-full px-2 py-1 border transition-colors ${
+                showSnoozed ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+              title="Include snoozed conversations in the list"
+            >
+              Snoozed
             </button>
             {currentUserId && (
               <button
@@ -932,6 +1012,11 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                     )}
                     {c.convStatus === 'RESOLVED' && (
                       <span title="Resolved"><CheckCircle2 size={12} className="text-gray-400" /></span>
+                    )}
+                    {isSnoozed(c) && (
+                      <span title={`Snoozed until ${new Date(c.snoozedUntil!).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`}>
+                        <Moon size={12} className="text-purple-400" />
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1370,6 +1455,49 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
               {selectedConv?.convStatus === 'RESOLVED' ? <Circle size={13} /> : <CheckCircle2 size={13} />}
               {selectedConv?.convStatus === 'RESOLVED' ? 'Reopen' : 'Resolve'}
             </button>
+          </div>
+
+          {/* Snooze */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSnoozePopover(v => !v)}
+              disabled={savingMeta}
+              className={`w-full flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-2 py-1.5 border transition-colors disabled:opacity-50 ${
+                selectedConv && isSnoozed(selectedConv) ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <Moon size={13} />
+              {selectedConv && isSnoozed(selectedConv)
+                ? `Snoozed until ${new Date(selectedConv.snoozedUntil!).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`
+                : 'Snooze'}
+            </button>
+            {showSnoozePopover && (
+              <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 p-1.5 space-y-0.5">
+                {selectedConv && isSnoozed(selectedConv) && (
+                  <button
+                    onClick={() => { updateMeta({ snoozedUntil: null }); setShowSnoozePopover(false); }}
+                    className="w-full text-left text-xs font-medium rounded-md px-2 py-1.5 text-purple-700 hover:bg-purple-50"
+                  >
+                    Unsnooze now
+                  </button>
+                )}
+                <button onClick={() => { snoozeInHours(1); setShowSnoozePopover(false); }} className="w-full text-left text-xs rounded-md px-2 py-1.5 text-gray-700 hover:bg-gray-50">1 hour</button>
+                <button onClick={() => { snoozeInHours(3); setShowSnoozePopover(false); }} className="w-full text-left text-xs rounded-md px-2 py-1.5 text-gray-700 hover:bg-gray-50">3 hours</button>
+                <button onClick={() => { snoozeTomorrow9am(); setShowSnoozePopover(false); }} className="w-full text-left text-xs rounded-md px-2 py-1.5 text-gray-700 hover:bg-gray-50">Tomorrow 9am</button>
+                <button onClick={() => { snoozeNextMonday9am(); setShowSnoozePopover(false); }} className="w-full text-left text-xs rounded-md px-2 py-1.5 text-gray-700 hover:bg-gray-50">Next Monday 9am</button>
+                <div className="border-t border-gray-100 pt-1 mt-1">
+                  <input
+                    type="datetime-local"
+                    className="input text-xs h-8 py-1 w-full"
+                    onChange={e => {
+                      if (!e.target.value) return;
+                      updateMeta({ snoozedUntil: new Date(e.target.value).toISOString() });
+                      setShowSnoozePopover(false);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Labels */}

@@ -276,6 +276,7 @@ export class NotificationsController {
   @Patch('whatsapp/conversations/:phone/meta')
   updateConversationMeta(@Request() req: any, @Param('phone') phone: string, @Body() body: {
     status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[]; assignedToUserId?: string | null;
+    snoozedUntil?: string | null;
   }) {
     return this.whatsapp.updateConversationMeta(req.user.businessId, phone, body);
   }

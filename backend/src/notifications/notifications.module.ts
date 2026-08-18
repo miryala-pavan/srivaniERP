@@ -7,6 +7,7 @@ import { EmailService } from './email.service';
 import { InternalNoteService } from './internal-note.service';
 import { CannedReplyService } from './canned-reply.service';
 import { PushService } from './push.service';
+import { EscalationCheckerService } from './escalation-checker.service';
 import { SocialMessagingService } from './social-messaging.service';
 import { EventsModule } from '../events/events.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -15,7 +16,7 @@ import { ShopModule } from '../shop/shop.module';
 
 @Module({
   imports:     [EventsModule, PrismaModule, AuditLogModule, ShopModule],
-  providers:   [NotificationsService, WhatsAppService, EmailService, InternalNoteService, CannedReplyService, PushService, SocialMessagingService],
+  providers:   [NotificationsService, WhatsAppService, EmailService, InternalNoteService, CannedReplyService, PushService, SocialMessagingService, EscalationCheckerService],
   controllers: [NotificationsController, SocialWebhookController],
   exports:     [NotificationsService, WhatsAppService, EmailService, InternalNoteService, CannedReplyService, PushService, SocialMessagingService],
 })

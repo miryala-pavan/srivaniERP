@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface UpsertProfileDto {
@@ -19,11 +19,35 @@ export interface UpdateProfileDto {
 export class StorefrontProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByEmail(email: string) {
-    return this.prisma.storefrontProfile.findUnique({ where: { email } });
+  /**
+   * Full email-ownership verification is a separate follow-up (wiring the
+   * storefront's NextAuth/Google session into the backend) — out of scope
+   * here. What this DOES close: once a profile has a phone on file, only
+   * the matching OTP-verified phone can read or touch it, which is the
+   * actual exploitable surface (phone/address/data exposure) closed by
+   * this pass. A profile with no phone yet has no verified secret to check
+   * against.
+   */
+  private assertOwnsPhone(profilePhone: string | null, verifiedPhone: string) {
+    if (profilePhone && profilePhone !== verifiedPhone) {
+      throw new NotFoundException('Profile not found');
+    }
   }
 
-  async upsert(dto: UpsertProfileDto) {
+  async findByEmail(email: string, verifiedPhone: string) {
+    const profile = await this.prisma.storefrontProfile.findUnique({ where: { email } });
+    if (!profile) return null;
+    this.assertOwnsPhone(profile.phone, verifiedPhone);
+    return profile;
+  }
+
+  async upsert(dto: UpsertProfileDto, verifiedPhone: string) {
+    if (dto.phone !== undefined && dto.phone !== '' && dto.phone !== verifiedPhone) {
+      throw new ForbiddenException('Phone must match your verified number');
+    }
+    const existing = await this.prisma.storefrontProfile.findUnique({ where: { email: dto.email } });
+    if (existing) this.assertOwnsPhone(existing.phone, verifiedPhone);
+
     return this.prisma.storefrontProfile.upsert({
       where: { email: dto.email },
       create: {
@@ -42,9 +66,14 @@ export class StorefrontProfileService {
     });
   }
 
-  async update(email: string, dto: UpdateProfileDto) {
+  async update(email: string, dto: UpdateProfileDto, verifiedPhone: string) {
     const existing = await this.prisma.storefrontProfile.findUnique({ where: { email } });
     if (!existing) throw new NotFoundException('Profile not found');
+    this.assertOwnsPhone(existing.phone, verifiedPhone);
+    if (dto.phone !== undefined && dto.phone !== '' && dto.phone !== verifiedPhone) {
+      throw new ForbiddenException('Phone must match your verified number');
+    }
+
     return this.prisma.storefrontProfile.update({
       where: { email },
       data: {

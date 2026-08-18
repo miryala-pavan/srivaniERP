@@ -12,7 +12,7 @@ import {
   signIn as nextAuthSignIn,
   signOut as nextAuthSignOut,
 } from 'next-auth/react';
-import { clearVerifiedPhone } from '@/lib/phone-auth';
+import { clearStorefrontAuth } from '@/lib/storefront-auth';
 
 export interface UserProfile {
   name: string;
@@ -47,7 +47,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   }, []);
 
   const handleSignOut = useCallback((callbackUrl?: string) => {
-    clearVerifiedPhone();
+    clearStorefrontAuth();
     nextAuthSignOut({ callbackUrl: callbackUrl ?? '/' });
   }, []);
 

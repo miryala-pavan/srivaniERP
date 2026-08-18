@@ -249,8 +249,17 @@ export class WhatsAppService implements OnModuleInit {
    * not just while PaVa Connect is open.
    */
   async getUnreadCount(businessId: string): Promise<number> {
+    const snoozed = await this.prisma.waConversation.findMany({
+      where: { businessId, snoozedUntil: { gt: new Date() } },
+      select: { phone: true },
+    });
     return this.prisma.waMessage.count({
-      where: { businessId, direction: 'INBOUND', readByStaffAt: null },
+      where: {
+        businessId,
+        direction: 'INBOUND',
+        readByStaffAt: null,
+        ...(snoozed.length ? { phone: { notIn: snoozed.map(s => s.phone) } } : {}),
+      },
     });
   }
 
@@ -290,6 +299,7 @@ export class WhatsAppService implements OnModuleInit {
         where: { businessId, phone: { in: phones } },
         select: {
           phone: true, status: true, pinned: true, labels: true, assignedToUserId: true,
+          snoozedUntil: true,
           assignedTo: { select: { fullName: true } },
         },
       }),
@@ -339,6 +349,7 @@ export class WhatsAppService implements OnModuleInit {
           labels: meta?.labels ?? [],
           assignedToUserId: meta?.assignedToUserId ?? null,
           assignedToName: meta?.assignedTo?.fullName ?? null,
+          snoozedUntil: meta?.snoozedUntil ?? null,
         };
       })
       .sort((a, b) => {
@@ -359,12 +370,23 @@ export class WhatsAppService implements OnModuleInit {
 
   async updateConversationMeta(businessId: string, phone: string, data: {
     status?: 'OPEN' | 'RESOLVED'; pinned?: boolean; labels?: string[]; assignedToUserId?: string | null;
+    snoozedUntil?: string | null;
   }) {
     const to = this.e164(phone) ?? phone;
+    const { snoozedUntil, ...rest } = data;
+    const payload: Record<string, unknown> = { ...rest };
+    if (snoozedUntil !== undefined) {
+      payload.snoozedUntil = snoozedUntil === null ? null : new Date(snoozedUntil);
+    }
+    // A reopened conversation should re-escalate fresh rather than staying
+    // silently "already escalated" from before it was resolved.
+    if (data.status === 'RESOLVED') {
+      payload.lastEscalationTier = 0;
+    }
     const meta = await this.prisma.waConversation.upsert({
       where:  { businessId_phone: { businessId, phone: to } },
-      update: data,
-      create: { businessId, phone: to, ...data },
+      update: payload,
+      create: { businessId, phone: to, ...payload },
       include: { assignedTo: { select: { fullName: true } } },
     });
 
@@ -484,6 +506,15 @@ export class WhatsAppService implements OnModuleInit {
       where: { businessId, phone, direction: 'INBOUND', readByStaffAt: null },
       data: { readByStaffAt: new Date() },
     });
+
+    if (result.count > 0) {
+      const to = this.e164(phone) ?? phone;
+      await this.prisma.waConversation.upsert({
+        where:  { businessId_phone: { businessId, phone: to } },
+        update: { lastEscalationTier: 0 },
+        create: { businessId, phone: to, lastEscalationTier: 0 },
+      }).catch(() => {});
+    }
 
     // Tell Meta so the customer sees blue read ticks — best-effort, doesn't
     // block the staff-side read tracking above if Meta's API is unavailable.
@@ -1013,6 +1044,7 @@ export class WhatsAppService implements OnModuleInit {
       'Menu',
       [
         { id: 'WA_TRACK_ORDER',  title: 'Track Order',   description: 'Check the status of your latest order' },
+        { id: 'WA_REORDER',      title: 'Reorder',       description: 'Quickly repeat your last order' },
         { id: 'WA_CHECK_STOCK',   title: 'Price / Stock',  description: 'Check a product\'s price and availability' },
         { id: 'WA_BROWSE_STORE',   title: 'Browse Store',   description: `Shop online at ${shopHost}` },
         { id: 'WA_STORE_HOURS',    title: 'Store Hours',    description: 'When we\'re open' },
@@ -1690,7 +1722,7 @@ export class WhatsAppService implements OnModuleInit {
     name: string;
     category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
     language: string;
-    bodyText: string;
+    bodyText?: string;
     bodyExample?: string[];   // one sample value per {{N}} variable in bodyText
     headerText?: string;
     footerText?: string;
@@ -1699,10 +1731,41 @@ export class WhatsAppService implements OnModuleInit {
       | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
       | { type: 'URL'; text: string; url: string; example?: string }
     >;
+    // AUTHENTICATION templates are Meta-generated — no custom body/footer/
+    // button text at all (Meta renders "*{{1}}* is your verification code…"
+    // itself). Ignored unless category === 'AUTHENTICATION'.
+    authentication?: {
+      codeExpirationMinutes?: number;   // default 10, Meta allows 1-90
+      addSecurityRecommendation?: boolean;
+      otpType?: 'COPY_CODE' | 'ONE_TAP';
+    };
   }) {
     if (!this.token || !this.wabaId) {
       return { error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
     }
+
+    if (dto.category === 'AUTHENTICATION') {
+      const auth = dto.authentication ?? {};
+      const components: object[] = [
+        { type: 'BODY', add_security_recommendation: auth.addSecurityRecommendation ?? true },
+        { type: 'FOOTER', code_expiration_minutes: auth.codeExpirationMinutes ?? 10 },
+        { type: 'BUTTONS', buttons: [{ type: 'OTP', otp_type: auth.otpType ?? 'COPY_CODE' }] },
+      ];
+      try {
+        const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: dto.name, category: dto.category, language: dto.language, components }),
+        });
+        const data = await res.json();
+        if (!res.ok) this.logger.error(`Authentication template create failed: ${JSON.stringify(data)}`);
+        return data;
+      } catch (err) {
+        return { error: String(err) };
+      }
+    }
+
     const components: object[] = [];
     if (dto.headerText) {
       components.push({ type: 'HEADER', format: 'TEXT', text: dto.headerText });

@@ -7,6 +7,7 @@ import type { Response } from 'express';
 import { ListsService } from './lists.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { OnlineOrdersService } from '../online-orders/online-orders.service';
+import { WaOrderingService } from '../online-orders/wa-ordering.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -29,6 +30,7 @@ export class WebhookController implements OnModuleInit {
     private lists: ListsService,
     private prisma: PrismaService,
     private onlineOrders: OnlineOrdersService,
+    private waOrdering: WaOrderingService,
     private events: EventsService,
     private whatsapp: WhatsAppService,
     private push: PushService,
@@ -222,13 +224,35 @@ export class WebhookController implements OnModuleInit {
         }))
         .catch(() => {});
 
+      const buttonId = msg.interactive?.button_reply?.id as string | undefined;
+      const listReplyId = msg.interactive?.list_reply?.id as string | undefined;
+      const messageBody = msg.text?.body as string | undefined;
+
+      // WhatsApp quick-reorder flow (task #99) — takes over the conversation
+      // while a session is open, or starts one on an explicit "reorder"
+      // trigger. Checked before the generic auto-reply/button/list handlers
+      // below since only this flow carries multi-turn state.
+      const activeReorderSession = await this.waOrdering.getActiveSession(businessId, senderPhone);
+      if (activeReorderSession) {
+        await this.waOrdering.handleSessionMessage(businessId, senderPhone, activeReorderSession, { buttonId, listReplyId, messageBody })
+          .catch(err => this.logger.error(`WA reorder session handling failed for ${senderPhone}: ${err}`));
+        return;
+      }
+      const isReorderTrigger = listReplyId === 'WA_REORDER' || buttonId === 'WA_REORDER'
+        || /^(reorder|order again|repeat( my)? order)/i.test((messageBody ?? '').trim());
+      if (isReorderTrigger) {
+        await this.waOrdering.startReorder(businessId, senderPhone)
+          .catch(err => this.logger.error(`WA reorder start failed for ${senderPhone}: ${err}`));
+        return;
+      }
+
       // Rule-based auto-reply — layered alongside the existing handlers below,
       // not a replacement for them (e.g. a text list-order can still be
       // processed by ListsService even if a keyword also triggers an auto-reply).
       this.whatsapp.handleAutoReply(businessId, senderPhone, {
-        messageBody: msg.text?.body as string | undefined,
-        buttonId: msg.interactive?.button_reply?.id as string | undefined,
-        listReplyId: msg.interactive?.list_reply?.id as string | undefined,
+        messageBody,
+        buttonId,
+        listReplyId,
         senderName,
       }).catch(err => this.logger.error(`Auto-reply failed for ${senderPhone}: ${err}`));
 
