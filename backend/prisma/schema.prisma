@@ -83,6 +83,8 @@ model Business {
   waConversations     WaConversation[]
   waCannedReplies     WaCannedReply[]
   waInternalNotes     WaInternalNote[]
+  waCampaigns         WaCampaign[]
+  waReminderRules     WaReminderRule[]
   socialMessages      SocialMessage[]
   socialConversations SocialConversation[]
   commentCampaigns    CommentCampaign[]
@@ -2316,6 +2318,82 @@ model WaMessage {
   @@index([businessId, status])
   @@index([businessId, phone, createdAt(sort: Desc)])
   @@map("wa_message")
+}
+
+enum WaCampaignStatus {
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+// A scheduled/broadcast WhatsApp send to a segment or explicit customer list.
+// Per-recipient results aren't tracked in a separate table — sends tag their
+// WaMessage row via relatedType='CAMPAIGN'/relatedId=this campaign's id, same
+// polymorphic link WaMessage already carries for other related-entity sends.
+model WaCampaign {
+  id           String           @id @default(cuid())
+  businessId   String
+  name         String
+  segmentId    String // 'ALL_OPTED_IN' | 'WIN_BACK_30D' | 'CUSTOM_LIST'
+  customerIds  String[] // only used when segmentId == 'CUSTOM_LIST'
+  templateName String
+  language     String
+  params       String[] // same value sent to every recipient — not personalized, matching the existing broadcast semantics
+  scheduledAt  DateTime
+  status       WaCampaignStatus @default(SCHEDULED)
+  totalCount   Int              @default(0)
+  sentCount    Int              @default(0)
+  failedCount  Int              @default(0)
+  createdById  String?
+  createdAt    DateTime         @default(now())
+  sentAt       DateTime?
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, status, scheduledAt])
+  @@map("wa_campaign")
+}
+
+enum WaReminderTrigger {
+  PAYMENT_OVERDUE
+  REORDER_DUE
+}
+
+// Rule-based automated reminder: no templateName here on purpose — each
+// triggerType maps 1:1 to an existing single-customer send helper
+// (sendCreditReminder / sendReorderReminder in whatsapp.service.ts), which
+// already owns its approved template and param shape.
+model WaReminderRule {
+  id            String            @id @default(cuid())
+  businessId    String
+  name          String
+  triggerType   WaReminderTrigger
+  thresholdDays Int
+  isActive      Boolean           @default(true)
+  cooldownDays  Int               @default(7)
+  lastRunAt     DateTime?
+  createdById   String?
+  createdAt     DateTime          @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("wa_reminder_rule")
+}
+
+// One row per customer per rule-firing — powers both the cooldown check and
+// the "recent auto-sends" audit view.
+model WaReminderLog {
+  id         String   @id @default(cuid())
+  ruleId     String
+  businessId String
+  customerId String
+  waSent     Boolean
+  sentAt     DateTime @default(now())
+
+  @@index([ruleId, customerId, sentAt])
+  @@map("wa_reminder_log")
 }
 
 // Saved WhatsApp number presets — lets staff switch which number is "live"

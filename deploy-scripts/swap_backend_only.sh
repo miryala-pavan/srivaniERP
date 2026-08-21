@@ -7,6 +7,8 @@ tar -xzf /tmp/backend-dist.tgz -C /tmp/bdist
 rm -rf "$APP/backend/dist.old"
 mv "$APP/backend/dist" "$APP/backend/dist.old"
 mv /tmp/bdist/dist "$APP/backend/dist"
+rm -f "$APP/backend/prisma/schema.prisma.old"
+cp "$APP/backend/prisma/schema.prisma" "$APP/backend/prisma/schema.prisma.old"
 cp /tmp/schema.prisma "$APP/backend/prisma/schema.prisma"
 
 cd "$APP/backend"

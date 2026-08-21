@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
@@ -784,13 +784,115 @@ export class WhatsAppService implements OnModuleInit {
   private async sendTemplateToCustomers(
     customers: { phone: string; name: string }[],
     businessId: string, templateName: string, language: string, params: string[],
+    related?: { type: string; id: string },
   ) {
     let sent = 0, failed = 0;
     for (const c of customers) {
-      const result = await this.sendTemplateToNumber(businessId, c.phone, templateName, language, params);
+      const result = await this.sendTemplateToNumber(businessId, c.phone, templateName, language, params, undefined, related);
       if (result.ok) sent++; else failed++;
     }
     return { total: customers.length, sent, failed };
+  }
+
+  /** Audience resolution shared by scheduled campaigns — segments reuse getSegmentCustomers, CUSTOM_LIST re-filters to opt-in like sendBulkTemplate does. */
+  async resolveCampaignAudience(businessId: string, segmentId: string, customerIds: string[]): Promise<{ phone: string; name: string }[]> {
+    if (segmentId === 'CUSTOM_LIST') {
+      const rows = await this.prisma.customer.findMany({
+        where: { businessId, id: { in: customerIds }, whatsappOptIn: true, phone: { not: null } },
+        select: { phone: true, name: true },
+      });
+      return rows.filter((r): r is { phone: string; name: string } => !!r.phone);
+    }
+    return this.getSegmentCustomers(businessId, segmentId);
+  }
+
+  /** Resolves and sends a scheduled WaCampaign, tagging every WaMessage it creates with relatedType='CAMPAIGN'. Called by CampaignSchedulerService. */
+  async sendScheduledCampaign(
+    businessId: string,
+    campaign: { id: string; segmentId: string; customerIds: string[]; templateName: string; language: string; params: string[] },
+  ) {
+    const customers = await this.resolveCampaignAudience(businessId, campaign.segmentId, campaign.customerIds);
+    return this.sendTemplateToCustomers(
+      customers, businessId, campaign.templateName, campaign.language, campaign.params,
+      { type: 'CAMPAIGN', id: campaign.id },
+    );
+  }
+
+  /** Creates a WaCampaign row for CampaignSchedulerService to pick up once scheduledAt arrives. */
+  async createScheduledCampaign(businessId: string, dto: {
+    name: string; segmentId: string; customerIds?: string[];
+    template: string; language: string; params?: string[]; scheduledAt: string;
+  }) {
+    return this.prisma.waCampaign.create({
+      data: {
+        businessId,
+        name: dto.name,
+        segmentId: dto.segmentId,
+        customerIds: dto.customerIds ?? [],
+        templateName: dto.template,
+        language: dto.language,
+        params: dto.params ?? [],
+        scheduledAt: new Date(dto.scheduledAt),
+      },
+    });
+  }
+
+  async listCampaigns(businessId: string) {
+    return this.prisma.waCampaign.findMany({
+      where: { businessId },
+      orderBy: { scheduledAt: 'desc' },
+      take: 100,
+    });
+  }
+
+  async cancelCampaign(businessId: string, campaignId: string) {
+    const result = await this.prisma.waCampaign.updateMany({
+      where: { id: campaignId, businessId, status: 'SCHEDULED' },
+      data: { status: 'CANCELLED' },
+    });
+    if (result.count === 0) return { cancelled: false, reason: 'Campaign not found or already sent' };
+    return { cancelled: true };
+  }
+
+  // ── Automated reminder rules ────────────────────────────────────────────────
+
+  async createReminderRule(businessId: string, dto: {
+    name: string; triggerType: 'PAYMENT_OVERDUE' | 'REORDER_DUE'; thresholdDays: number; cooldownDays?: number;
+  }, createdById?: string) {
+    return this.prisma.waReminderRule.create({
+      data: {
+        businessId, name: dto.name, triggerType: dto.triggerType,
+        thresholdDays: dto.thresholdDays, cooldownDays: dto.cooldownDays ?? 7, createdById,
+      },
+    });
+  }
+
+  async listReminderRules(businessId: string) {
+    return this.prisma.waReminderRule.findMany({ where: { businessId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  async updateReminderRule(businessId: string, ruleId: string, dto: {
+    name?: string; thresholdDays?: number; cooldownDays?: number; isActive?: boolean;
+  }) {
+    const result = await this.prisma.waReminderRule.updateMany({
+      where: { id: ruleId, businessId },
+      data: dto,
+    });
+    if (result.count === 0) throw new NotFoundException('Reminder rule not found');
+    return this.prisma.waReminderRule.findFirst({ where: { id: ruleId, businessId } });
+  }
+
+  async deleteReminderRule(businessId: string, ruleId: string) {
+    const result = await this.prisma.waReminderRule.deleteMany({ where: { id: ruleId, businessId } });
+    return { deleted: result.count > 0 };
+  }
+
+  async getReminderRuleLog(businessId: string, ruleId: string) {
+    return this.prisma.waReminderLog.findMany({
+      where: { ruleId, businessId },
+      orderBy: { sentAt: 'desc' },
+      take: 50,
+    });
   }
 
   /** Sends an approved template to every customer in a segment. */
@@ -1840,6 +1942,7 @@ export class WhatsAppService implements OnModuleInit {
     language: string,
     params: string[],
     urlButtonParam?: string,   // dynamic suffix for URL button at index 0
+    related?: { type: string; id: string },
   ) {
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
@@ -1863,7 +1966,7 @@ export class WhatsAppService implements OnModuleInit {
     const result = await this.logAndSend(
       businessId,
       { to, type: 'template', template: { name: templateName, language: { code: language }, components } },
-      { phone: to, messageType: 'TEMPLATE', templateName, bodyPreview: params.join(' | ') },
+      { phone: to, messageType: 'TEMPLATE', templateName, bodyPreview: params.join(' | '), relatedType: related?.type, relatedId: related?.id },
     );
     if (!result.ok) return { ok: false, reason: JSON.stringify((result.data as any)?.error?.message ?? result.data) };
     return { ok: true, to };

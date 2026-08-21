@@ -11,6 +11,8 @@ import { CreateCannedReplyDto } from './dto/create-canned-reply.dto';
 import { UpdateCannedReplyDto } from './dto/update-canned-reply.dto';
 import { PushService } from './push.service';
 import { SubscribePushDto } from './dto/subscribe-push.dto';
+import { ScheduleCampaignDto } from './dto/schedule-campaign.dto';
+import { CreateReminderRuleDto, UpdateReminderRuleDto } from './dto/reminder-rule.dto';
 import { SocialMessagingService } from './social-messaging.service';
 import { CreateCommentCampaignDto } from './dto/create-comment-campaign.dto';
 import { BulkSendTemplateDto } from './dto/bulk-send-template.dto';
@@ -432,6 +434,56 @@ export class NotificationsController {
   @Post('whatsapp/campaigns/send')
   sendCampaign(@Request() req: any, @Body() body: { segmentId: string; template: string; language: string; params: string[] }) {
     return this.whatsapp.sendCampaign(req.user.businessId, body.segmentId, body.template, body.language, body.params ?? []);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/campaigns/schedule')
+  scheduleCampaign(@Request() req: any, @Body() body: ScheduleCampaignDto) {
+    return this.whatsapp.createScheduledCampaign(req.user.businessId, body);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/campaigns')
+  listCampaigns(@Request() req: any) {
+    return this.whatsapp.listCampaigns(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/campaigns/:id/cancel')
+  cancelCampaign(@Request() req: any, @Param('id') id: string) {
+    return this.whatsapp.cancelCampaign(req.user.businessId, id);
+  }
+
+  // ── Automated reminder rules ─────────────────────────────────────────────────
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/reminder-rules')
+  listReminderRules(@Request() req: any) {
+    return this.whatsapp.listReminderRules(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/reminder-rules')
+  createReminderRule(@Request() req: any, @Body() body: CreateReminderRuleDto) {
+    return this.whatsapp.createReminderRule(req.user.businessId, body, req.user.userId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('whatsapp/reminder-rules/:id')
+  updateReminderRule(@Request() req: any, @Param('id') id: string, @Body() body: UpdateReminderRuleDto) {
+    return this.whatsapp.updateReminderRule(req.user.businessId, id, body);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Delete('whatsapp/reminder-rules/:id')
+  deleteReminderRule(@Request() req: any, @Param('id') id: string) {
+    return this.whatsapp.deleteReminderRule(req.user.businessId, id);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/reminder-rules/:id/log')
+  getReminderRuleLog(@Request() req: any, @Param('id') id: string) {
+    return this.whatsapp.getReminderRuleLog(req.user.businessId, id);
   }
 
   // Not SUPER_ADMIN-only like sendCampaign above — this is triggered from

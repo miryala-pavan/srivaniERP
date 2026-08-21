@@ -18,6 +18,7 @@ export function usePushSubscription() {
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const isSupported = typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
 
@@ -31,9 +32,10 @@ export function usePushSubscription() {
   }, [isSupported]);
 
   const subscribe = useCallback(async () => {
-    if (!isSupported) return false;
+    setLastError(null);
+    if (!isSupported) { setLastError('This browser does not support push notifications'); return false; }
     const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    if (!vapidKey) return false;
+    if (!vapidKey) { setLastError('Push notifications are not configured on this server (missing VAPID key)'); return false; }
 
     setBusy(true);
     try {
@@ -42,19 +44,43 @@ export function usePushSubscription() {
       if (perm !== 'granted') return false;
 
       const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
-      });
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        try {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
+          });
+        } catch (err) {
+          // A stale subscription created under a different VAPID key (e.g. an
+          // earlier deploy) makes the browser reject any new subscribe() call
+          // until the old one is dropped — retry once after unsubscribing.
+          const stale = await reg.pushManager.getSubscription();
+          if (stale) {
+            await stale.unsubscribe();
+            sub = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
+            });
+          } else {
+            throw err;
+          }
+        }
+      }
       await api.post('/notifications/push/subscribe', sub.toJSON());
       setSubscribed(true);
       return true;
-    } catch {
+    } catch (err: any) {
+      const detail = err?.response?.status === 403
+        ? "Your account doesn't have permission to enable notifications"
+        : err?.response?.data?.message ?? err?.message ?? String(err);
+      console.error('[push] subscribe failed:', err);
+      setLastError(detail);
       return false;
     } finally {
       setBusy(false);
     }
   }, [isSupported]);
 
-  return { isSupported, permission, subscribed, busy, subscribe };
+  return { isSupported, permission, subscribed, busy, lastError, subscribe };
 }

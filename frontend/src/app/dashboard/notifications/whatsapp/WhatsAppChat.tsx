@@ -7,7 +7,7 @@ import {
   Check, CheckCheck, AlertCircle, Pencil, ExternalLink, ShoppingBag, Award, Receipt,
   MapPin, FileText, SmilePlus, Pin, PinOff, CheckCircle2, Circle, Tag, X, Plus,
   ChevronLeft, StickyNote, Zap, UserCircle2, MessageSquarePlus, Bell, Volume2, VolumeX,
-  Moon, Download,
+  Moon, Download, History,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -163,6 +163,23 @@ function StatusTick({ status }: { status: string }) {
   return <span title="Queued"><Clock size={11} className="text-gray-300" /></span>;
 }
 
+// Meta's raw API error is a JSON blob meant for developers, not staff reading
+// a chat transcript — pull out the one human sentence it contains and keep
+// the rest available on hover for anyone who needs to debug it.
+function formatWaError(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    const err = parsed?.error ?? parsed;
+    const detail = err?.error_data?.details;
+    const message = err?.message;
+    if (detail) return detail;
+    if (message) return String(message).replace(/^\(#\d+\)\s*/, '');
+  } catch {
+    // not JSON — fall through and show as-is
+  }
+  return raw;
+}
+
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -268,6 +285,8 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const [savingName, setSavingName]     = useState(false);
   const [labelInput, setLabelInput]     = useState('');
   const [savingMeta, setSavingMeta]     = useState(false);
+  const [sendingHistory, setSendingHistory] = useState(false);
+  const [historyResult, setHistoryResult] = useState<{ url: string; waSent: boolean; waError?: string; previouslySentAt?: string | null } | null>(null);
 
   // Pane 3 (contact panel) Info/Notes tab switch
   const [contactTab, setContactTab] = useState<'info' | 'notes'>('info');
@@ -315,7 +334,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     const ok = await push.subscribe();
     if (ok) { toast.success('Notifications enabled'); dismissPushBanner(); }
     else if (push.permission === 'denied') toast.error('Notifications blocked — enable them in your browser\'s site settings');
-    else toast.error('Could not enable notifications');
+    else toast.error(push.lastError ?? 'Could not enable notifications');
   }
 
   // Deep-link from a push notification click (sw.js navigates to
@@ -676,6 +695,20 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
       toast.error('Failed to update conversation');
     } finally {
       setSavingMeta(false);
+    }
+  }
+
+  async function sendHistory() {
+    if (!contact?.customerId) return;
+    setSendingHistory(true);
+    try {
+      const { data } = await api.post(`/history/customers/${contact.customerId}/send`);
+      setHistoryResult(data);
+      toast.success(data.waSent ? 'History link sent via WhatsApp!' : 'History link generated (WhatsApp session not open)');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to generate history link');
+    } finally {
+      setSendingHistory(false);
     }
   }
 
@@ -1216,7 +1249,9 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                           <p className="whitespace-pre-wrap break-words leading-relaxed">{m.bodyPreview || `[${m.messageType}]`}</p>
                         )}
                         {m.errorMessage && (
-                          <p className="text-[10px] text-red-500 mt-1">{m.errorMessage}</p>
+                          <p className="text-[10px] text-red-500 mt-1 cursor-help" title={m.errorMessage}>
+                            Failed — {formatWaError(m.errorMessage)}
+                          </p>
                         )}
                         <p className="text-[10px] text-gray-400 text-right mt-1 flex items-center justify-end gap-1">
                           {fmtTime(m.createdAt)}
@@ -1433,6 +1468,18 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
             )}
           </div>
 
+          {contact?.customerId && (
+            <button
+              onClick={sendHistory}
+              disabled={sendingHistory}
+              title="Generate a personal shopping history link and send via WhatsApp"
+              className="w-full flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-2 py-1.5 border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors disabled:opacity-50"
+            >
+              <History size={13} />
+              {sendingHistory ? 'Sending…' : 'Send History'}
+            </button>
+          )}
+
           {/* Quick actions */}
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -1574,6 +1621,51 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
         </div>
       )}
     </div>
+
+    {historyResult && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <History className="w-5 h-5 text-amber-600" />
+              <h2 className="text-base font-semibold text-gray-900">Shopping History Link</h2>
+            </div>
+            <button onClick={() => setHistoryResult(null)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {historyResult.waSent ? (
+            <p className="text-sm text-gray-600">Sent to the customer via WhatsApp.</p>
+          ) : (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Couldn't send via WhatsApp{historyResult.waError ? ` (${historyResult.waError})` : ''} — copy the link below and share it manually.
+            </p>
+          )}
+
+          {historyResult.previouslySentAt && (
+            <p className="text-xs text-gray-400">Previously sent {new Date(historyResult.previouslySentAt).toLocaleString('en-IN')}</p>
+          )}
+
+          <div className="flex items-center gap-2">
+            <input readOnly value={historyResult.url} className="input text-xs flex-1" onFocus={e => e.target.select()} />
+            <button
+              onClick={() => { navigator.clipboard.writeText(historyResult.url); toast.success('Copied'); }}
+              className="btn-outline text-xs px-2.5 py-1.5 shrink-0"
+            >
+              Copy
+            </button>
+          </div>
+
+          <button
+            onClick={() => setHistoryResult(null)}
+            className="w-full py-2.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    )}
     </div>
   );
 }

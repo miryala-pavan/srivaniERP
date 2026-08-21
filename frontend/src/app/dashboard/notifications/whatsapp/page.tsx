@@ -179,6 +179,16 @@ const MSG_STATUS_CONFIG = {
 
 interface BirthdayCustomer { id: string; name: string; phone: string | null; dateOfBirth: string }
 interface Segment { id: string; label: string; count: number }
+interface CampaignRow {
+  id: string; name: string; segmentId: string; templateName: string;
+  status: 'SCHEDULED' | 'SENDING' | 'SENT' | 'FAILED' | 'CANCELLED';
+  scheduledAt: string; sentAt: string | null;
+  totalCount: number; sentCount: number; failedCount: number;
+}
+interface ReminderRuleRow {
+  id: string; name: string; triggerType: 'PAYMENT_OVERDUE' | 'REORDER_DUE';
+  thresholdDays: number; cooldownDays: number; isActive: boolean; lastRunAt: string | null;
+}
 interface PhoneNumberPreset {
   id: string; label: string; phoneNumberId: string; businessAccountId: string;
   storeNotifyNumber: string | null; isActive: boolean; createdAt: string;
@@ -224,6 +234,14 @@ export default function WhatsAppTemplatesPage() {
   const [broadcastTemplateName, setBroadcastTemplateName] = useState('');
   const [broadcastParams, setBroadcastParams] = useState<string[]>([]);
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
+  const [broadcastScheduledAt, setBroadcastScheduledAt] = useState('');
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [reminderRules, setReminderRules] = useState<ReminderRuleRow[]>([]);
+  const [reminderRulesLoaded, setReminderRulesLoaded] = useState(false);
+  const [showReminderForm, setShowReminderForm] = useState(false);
+  const [reminderForm, setReminderForm] = useState({ name: '', triggerType: 'PAYMENT_OVERDUE' as 'PAYMENT_OVERDUE' | 'REORDER_DUE', thresholdDays: 14, cooldownDays: 7 });
+  const [savingReminder, setSavingReminder] = useState(false);
   const [businessProfile, setBusinessProfile] = useState({ about: '', address: '', description: '', email: '', vertical: '' });
   const [businessProfileLoaded, setBusinessProfileLoaded] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -410,6 +428,82 @@ export default function WhatsAppTemplatesPage() {
     if (tab === 'campaigns' && !segmentsLoaded) loadSegments();
   }, [tab, segmentsLoaded, loadSegments]);
 
+  const loadCampaigns = useCallback(async () => {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/campaigns');
+      setCampaigns(Array.isArray(data) ? data : []);
+    } catch {
+      toast.error('Failed to load campaigns');
+    } finally {
+      setCampaignsLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'campaigns' && !campaignsLoaded) loadCampaigns();
+  }, [tab, campaignsLoaded, loadCampaigns]);
+
+  const cancelCampaign = async (id: string) => {
+    try {
+      await api.post(`/notifications/whatsapp/campaigns/${id}/cancel`);
+      toast.success('Campaign cancelled');
+      loadCampaigns();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to cancel campaign');
+    }
+  };
+
+  const loadReminderRules = useCallback(async () => {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/reminder-rules');
+      setReminderRules(Array.isArray(data) ? data : []);
+    } catch {
+      toast.error('Failed to load reminder rules');
+    } finally {
+      setReminderRulesLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'campaigns' && !reminderRulesLoaded) loadReminderRules();
+  }, [tab, reminderRulesLoaded, loadReminderRules]);
+
+  const createReminderRule = async () => {
+    if (!reminderForm.name.trim()) { toast.error('Name the rule'); return; }
+    setSavingReminder(true);
+    try {
+      await api.post('/notifications/whatsapp/reminder-rules', reminderForm);
+      toast.success('Reminder rule created');
+      setShowReminderForm(false);
+      setReminderForm({ name: '', triggerType: 'PAYMENT_OVERDUE', thresholdDays: 14, cooldownDays: 7 });
+      loadReminderRules();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to create rule');
+    } finally {
+      setSavingReminder(false);
+    }
+  };
+
+  const toggleReminderRule = async (rule: ReminderRuleRow) => {
+    try {
+      await api.patch(`/notifications/whatsapp/reminder-rules/${rule.id}`, { isActive: !rule.isActive });
+      loadReminderRules();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to update rule');
+    }
+  };
+
+  const deleteReminderRule = async (id: string) => {
+    if (!confirm('Delete this reminder rule? This cannot be undone.')) return;
+    try {
+      await api.delete(`/notifications/whatsapp/reminder-rules/${id}`);
+      toast.success('Rule deleted');
+      loadReminderRules();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to delete rule');
+    }
+  };
+
   const loadCannedReplies = useCallback(async () => {
     try {
       const { data } = await api.get('/notifications/whatsapp/canned-replies');
@@ -458,10 +552,39 @@ export default function WhatsAppTemplatesPage() {
   async function sendBroadcast() {
     const segment = segments.find(s => s.id === selectedSegment);
     if (!segment || !broadcastTemplateName) return;
+    const t = templates.find(x => x.name === broadcastTemplateName);
+
+    if (broadcastScheduledAt) {
+      const when = new Date(broadcastScheduledAt);
+      if (when.getTime() <= Date.now()) { toast.error('Pick a time in the future'); return; }
+      if (!confirm(`Schedule "${broadcastTemplateName}" to ${segment.count} customer(s) in "${segment.label}" for ${when.toLocaleString('en-IN')}?`)) return;
+      setSendingBroadcast(true);
+      try {
+        await api.post('/notifications/whatsapp/campaigns/schedule', {
+          name: `${segment.label} — ${broadcastTemplateName}`,
+          segmentId: selectedSegment,
+          template: broadcastTemplateName,
+          language: t?.language ?? 'en',
+          params: broadcastParams,
+          scheduledAt: when.toISOString(),
+        });
+        toast.success('Campaign scheduled');
+        setSelectedSegment('');
+        setBroadcastTemplateName('');
+        setBroadcastParams([]);
+        setBroadcastScheduledAt('');
+        loadCampaigns();
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'Failed to schedule campaign');
+      } finally {
+        setSendingBroadcast(false);
+      }
+      return;
+    }
+
     if (!confirm(`Send "${broadcastTemplateName}" to ${segment.count} customer(s) in "${segment.label}"? This cannot be undone.`)) return;
     setSendingBroadcast(true);
     try {
-      const t = templates.find(x => x.name === broadcastTemplateName);
       const { data } = await api.post('/notifications/whatsapp/campaigns/send', {
         segmentId: selectedSegment,
         template: broadcastTemplateName,
@@ -1682,7 +1805,7 @@ export default function WhatsAppTemplatesPage() {
                 className="cursor-help text-gray-400 font-normal">ⓘ</span>
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
             <select className="input text-sm" value={selectedSegment} onChange={e => setSelectedSegment(e.target.value)}>
               <option value="">Choose segment…</option>
               {segments.map(s => <option key={s.id} value={s.id}>{s.label} ({s.count})</option>)}
@@ -1691,12 +1814,19 @@ export default function WhatsAppTemplatesPage() {
               <option value="">Choose template…</option>
               {approvedTemplates.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
             </select>
+            <input
+              type="datetime-local"
+              className="input text-sm"
+              title="Leave blank to send immediately, or pick a time to schedule this broadcast for later"
+              value={broadcastScheduledAt}
+              onChange={e => setBroadcastScheduledAt(e.target.value)}
+            />
             <button
               onClick={sendBroadcast}
               disabled={sendingBroadcast || !selectedSegment || !broadcastTemplateName || !selectedSegmentObj?.count}
               className="btn-primary flex items-center justify-center gap-1.5 text-sm disabled:opacity-40"
             >
-              <Send size={13} /> {sendingBroadcast ? 'Sending…' : 'Send Broadcast'}
+              <Send size={13} /> {sendingBroadcast ? (broadcastScheduledAt ? 'Scheduling…' : 'Sending…') : (broadcastScheduledAt ? 'Schedule' : 'Send Now')}
             </button>
           </div>
           {broadcastVarCount > 0 && (
@@ -1713,6 +1843,151 @@ export default function WhatsAppTemplatesPage() {
             <p className="text-xs text-amber-600 mt-2">No customers currently match this segment.</p>
           )}
         </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Scheduled &amp; Recent Campaigns</h2>
+          <button onClick={loadCampaigns} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
+            <RefreshCw size={12} />
+          </button>
+        </div>
+        {!campaigns.length ? (
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm py-8 text-center text-sm text-gray-400">
+            No campaigns yet
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-500 bg-gray-50">
+                  <th className="px-3 py-2 text-left font-medium">Name</th>
+                  <th className="px-3 py-2 text-left font-medium">Template</th>
+                  <th className="px-3 py-2 text-left font-medium">Status</th>
+                  <th className="px-3 py-2 text-left font-medium">When</th>
+                  <th className="px-3 py-2 text-right font-medium">Sent / Failed</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {campaigns.map(c => {
+                  const statusColor: Record<string, string> = {
+                    SCHEDULED: 'bg-blue-100 text-blue-700', SENDING: 'bg-purple-100 text-purple-700',
+                    SENT: 'bg-green-100 text-green-700', FAILED: 'bg-red-100 text-red-600',
+                    CANCELLED: 'bg-gray-100 text-gray-500',
+                  };
+                  return (
+                    <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="px-3 py-2">{c.name}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{c.templateName}</td>
+                      <td className="px-3 py-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[c.status] ?? 'bg-gray-100 text-gray-600'}`}>{c.status}</span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                        {new Date(c.sentAt ?? c.scheduledAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-600">{c.sentCount} / {c.failedCount}</td>
+                      <td className="px-3 py-2 text-right">
+                        {c.status === 'SCHEDULED' && (
+                          <button onClick={() => cancelCampaign(c.id)} className="text-xs text-red-500 hover:underline">Cancel</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+            Automated Reminders
+            <span
+              title="Rule-based auto-send: PAYMENT_OVERDUE reuses the existing credit-reminder template, REORDER_DUE reuses the existing reorder template. Each customer gets at most one reminder per rule within the cooldown window."
+              className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
+          </h2>
+          <button onClick={() => setShowReminderForm(v => !v)} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
+            <Plus size={12} /> New Rule
+          </button>
+        </div>
+        {showReminderForm && (
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-4 mb-3 grid grid-cols-1 sm:grid-cols-5 gap-2 items-end">
+            <div className="sm:col-span-2">
+              <label className="label text-xs">Rule name</label>
+              <input className="input text-sm" placeholder="e.g. Overdue 14d"
+                value={reminderForm.name} onChange={e => setReminderForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label text-xs">Trigger</label>
+              <select className="input text-sm" value={reminderForm.triggerType}
+                onChange={e => setReminderForm(f => ({ ...f, triggerType: e.target.value as any }))}>
+                <option value="PAYMENT_OVERDUE">Payment overdue</option>
+                <option value="REORDER_DUE">Hasn&apos;t reordered</option>
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Threshold (days)</label>
+              <input type="number" min={1} className="input text-sm" value={reminderForm.thresholdDays}
+                onChange={e => setReminderForm(f => ({ ...f, thresholdDays: Number(e.target.value) || 1 }))} />
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="label text-xs">Cooldown (days)</label>
+                <input type="number" min={1} className="input text-sm" value={reminderForm.cooldownDays}
+                  onChange={e => setReminderForm(f => ({ ...f, cooldownDays: Number(e.target.value) || 1 }))} />
+              </div>
+              <button onClick={createReminderRule} disabled={savingReminder} className="btn-primary text-sm px-3 disabled:opacity-40">
+                {savingReminder ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
+        {!reminderRules.length ? (
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm py-8 text-center text-sm text-gray-400">
+            No automated reminder rules yet
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-500 bg-gray-50">
+                  <th className="px-3 py-2 text-left font-medium">Name</th>
+                  <th className="px-3 py-2 text-left font-medium">Trigger</th>
+                  <th className="px-3 py-2 text-right font-medium">Threshold</th>
+                  <th className="px-3 py-2 text-right font-medium">Cooldown</th>
+                  <th className="px-3 py-2 text-left font-medium">Last Run</th>
+                  <th className="px-3 py-2 text-left font-medium">Status</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {reminderRules.map(r => (
+                  <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-3 py-2">{r.name}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600">{r.triggerType === 'PAYMENT_OVERDUE' ? 'Payment overdue' : "Hasn't reordered"}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{r.thresholdDays}d</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{r.cooldownDays}d</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">
+                      {r.lastRunAt ? new Date(r.lastRunAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Never'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <button onClick={() => toggleReminderRule(r)}
+                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {r.isActive ? 'Active' : 'Paused'}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button onClick={() => deleteReminderRule(r.id)} className="text-xs text-red-500 hover:underline">Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div>

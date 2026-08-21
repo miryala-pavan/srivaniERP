@@ -171,6 +171,20 @@ export class CustomersController {
     return this.customersService.getWaSummary(req.user.businessId, id);
   }
 
+  @Get(':id/timeline')
+  getTimeline(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Query() query: { page?: string; limit?: string },
+  ) {
+    return this.customersService.getTimeline(req.user.businessId, id, query);
+  }
+
+  @Get(':id/insights')
+  getInsights(@Request() req: any, @Param('id') id: string) {
+    return this.customersService.getInsights(req.user.businessId, id);
+  }
+
   // ─── SINGLE RESOURCE ──────────────────────────────────
 
   @Get(':id')

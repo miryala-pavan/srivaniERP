@@ -20,11 +20,18 @@ Usage:
   powershell -File deploy-safe.ps1              # full run, asks for confirmation
   powershell -File deploy-safe.ps1 -DryRun      # build + show schema diff only, changes nothing
   powershell -File deploy-safe.ps1 -SkipSchema  # skip schema diff/apply, code deploy only
+  powershell -File deploy-safe.ps1 -Rollback    # undo the most recent code swap (backend/frontend/
+                                                 #   storefront each keep a one-deploy-back .old copy -
+                                                 #   see deploy-scripts/rollback.sh). Does NOT touch the
+                                                 #   database - if that deploy also changed the schema,
+                                                 #   restore the matching backup separately (see
+                                                 #   deploy-scripts/restore_backup.sh, manual/deliberate only)
 #>
 
 param(
   [switch]$DryRun,
-  [switch]$SkipSchema
+  [switch]$SkipSchema,
+  [switch]$Rollback
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,9 +52,27 @@ function Invoke-RemoteScript($scriptName, [string[]]$scriptArgs = @()) {
   return @{ Output = $output; ExitCode = $LASTEXITCODE }
 }
 
+if ($Rollback) {
+  Say "Rolling back to the previous build" 'Yellow'
+  $rollbackResult = Invoke-RemoteScript 'rollback.sh'
+  $rollbackResult.Output | ForEach-Object { Write-Host $_ }
+  if ($rollbackResult.ExitCode -ne 0) { Fail "rollback failed on server" }
+
+  Say "Health check"
+  Start-Sleep -Seconds 4
+  $healthResult = Invoke-RemoteScript 'health_check.sh'
+  $health = ($healthResult.Output -join "`n").Trim()
+  if ($health -match 'backend=200' -and $health -match 'storefront=200') {
+    Write-Host "Backend and storefront both healthy: $health" -ForegroundColor Green
+  } else {
+    Write-Host "Health check returned: $health - check pm2 logs on the server" -ForegroundColor Red
+  }
+  exit 0
+}
+
 New-Item -ItemType Directory -Force $Scratch | Out-Null
 
-#  1. Build 
+#  1. Build
 Say "Building backend"
 Push-Location "$RepoRoot\backend"
 npm run build

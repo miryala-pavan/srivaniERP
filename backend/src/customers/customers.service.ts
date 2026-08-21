@@ -824,4 +824,221 @@ export class CustomersService {
 
     return { messages, phone: e164, totalMessages };
   }
+
+  // ─── UNIFIED INTERACTION TIMELINE ──────────────────────────────────────────
+
+  async getTimeline(businessId: string, customerId: string, query: { page?: string; limit?: string }) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, businessId },
+      select: { phone: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const page  = Math.max(1, parseInt(query.page  ?? '1'));
+    const limit = Math.min(100, parseInt(query.limit ?? '30'));
+    const e164 = customer.phone ? `91${customer.phone}` : null;
+
+    type Entry = {
+      type: 'POS_BILL' | 'ONLINE_ORDER' | 'PAYMENT' | 'CREDIT_NOTE' | 'WA_MESSAGE' | 'OFFLINE_LIST';
+      date: Date; title: string; subtitle?: string; amount?: number; status?: string;
+      meta?: Record<string, unknown>;
+    };
+
+    const [bills, payments, creditNotes, onlineOrders, waMessages, listEntries] = await Promise.all([
+      this.prisma.salesBill.findMany({
+        where: { customerId, businessId },
+        select: { id: true, billNumber: true, billDate: true, grandTotal: true, isVoided: true, saleType: true },
+      }),
+      this.prisma.customerPayment.findMany({
+        where: { customerId, businessId },
+        select: { id: true, paymentDate: true, amount: true, paymentMode: true, reference: true },
+      }),
+      this.prisma.creditNote.findMany({
+        where: { customerId, businessId },
+        select: { id: true, creditNoteNumber: true, createdAt: true, totalAmount: true, reason: true },
+      }),
+      e164 ? this.prisma.onlineOrder.findMany({
+        where: { businessId, customerPhone: customer.phone! },
+        select: { id: true, orderNumber: true, createdAt: true, total: true, status: true },
+      }) : Promise.resolve([]),
+      e164 ? this.prisma.waMessage.findMany({
+        where: { businessId, phone: e164 },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: { id: true, direction: true, bodyPreview: true, templateName: true, messageType: true, createdAt: true, status: true },
+      }) : Promise.resolve([]),
+      this.prisma.customerListEntry.findMany({
+        where: { customerId, businessId },
+        select: { id: true, entryDate: true, pageCount: true, source: true },
+      }),
+    ]);
+
+    const entries: Entry[] = [
+      ...bills.map((b): Entry => ({
+        type: 'POS_BILL', date: b.billDate,
+        title: b.isVoided ? `Bill ${b.billNumber ?? b.id} (voided)` : `Bill ${b.billNumber ?? b.id}`,
+        subtitle: b.saleType, amount: Number(b.grandTotal), status: b.isVoided ? 'VOIDED' : undefined,
+        meta: { billId: b.id },
+      })),
+      ...payments.map((p): Entry => ({
+        type: 'PAYMENT', date: p.paymentDate,
+        title: `Payment received — ${p.paymentMode}`,
+        subtitle: p.reference ?? undefined, amount: Number(p.amount),
+        meta: { paymentId: p.id },
+      })),
+      ...creditNotes.map((c): Entry => ({
+        type: 'CREDIT_NOTE', date: c.createdAt,
+        title: `Credit note ${c.creditNoteNumber}`,
+        subtitle: c.reason, amount: Number(c.totalAmount),
+        meta: { creditNoteId: c.id },
+      })),
+      ...onlineOrders.map((o): Entry => ({
+        type: 'ONLINE_ORDER', date: o.createdAt,
+        title: `Online order ${o.orderNumber}`,
+        subtitle: o.status, amount: Number(o.total),
+        status: o.status, meta: { orderId: o.id },
+      })),
+      ...waMessages.map((m): Entry => ({
+        type: 'WA_MESSAGE', date: m.createdAt,
+        title: m.direction === 'OUTBOUND'
+          ? (m.templateName ? `Sent template "${m.templateName}"` : 'Message sent')
+          : 'Message received',
+        subtitle: m.bodyPreview ?? m.messageType, status: m.status,
+        meta: { messageId: m.id, direction: m.direction },
+      })),
+      ...listEntries.map((l): Entry => ({
+        type: 'OFFLINE_LIST', date: l.entryDate,
+        title: `Shopping list scanned (${l.pageCount} page${l.pageCount === 1 ? '' : 's'})`,
+        subtitle: l.source ?? undefined,
+        meta: { listEntryId: l.id },
+      })),
+    ];
+
+    entries.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+    const total = entries.length;
+    const start = (page - 1) * limit;
+    const data = entries.slice(start, start + limit);
+
+    return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+  }
+
+  // ─── PURCHASE HISTORY INSIGHTS ─────────────────────────────────────────────
+
+  async getInsights(businessId: string, customerId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, businessId },
+      select: { phone: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const [bills, onlineOrders, posItems, onlineItems] = await Promise.all([
+      this.prisma.salesBill.findMany({
+        where: { customerId, businessId, isVoided: false },
+        select: { billDate: true, grandTotal: true },
+      }),
+      customer.phone ? this.prisma.onlineOrder.findMany({
+        where: { businessId, customerPhone: customer.phone },
+        select: { createdAt: true, total: true },
+      }) : Promise.resolve([] as { createdAt: Date; total: any }[]),
+      this.prisma.salesItem.findMany({
+        where: { bill: { customerId, businessId, isVoided: false } },
+        select: {
+          productName: true, quantity: true, totalAmount: true,
+          product: { select: { category: { select: { name: true, label: true } } } },
+        },
+      }),
+      customer.phone ? this.prisma.onlineOrderItem.findMany({
+        where: { order: { businessId, customerPhone: customer.phone } },
+        select: { productName: true, quantity: true, total: true },
+      }) : Promise.resolve([] as { productName: string; quantity: number; total: any }[]),
+    ]);
+
+    const orderDates = [
+      ...bills.map(b => b.billDate),
+      ...onlineOrders.map(o => o.createdAt),
+    ].sort((a, b) => b.getTime() - a.getTime());
+
+    const now = Date.now();
+    const daysSinceLastOrder = orderDates.length
+      ? Math.floor((now - orderDates[0].getTime()) / 86_400_000)
+      : null;
+
+    const last90d = orderDates.filter(d => now - d.getTime() <= 90 * 86_400_000).length;
+    const last12mo = orderDates.filter(d => now - d.getTime() <= 365 * 86_400_000).length;
+
+    let avgDaysBetweenOrders: number | null = null;
+    if (orderDates.length > 1) {
+      const spanDays = (orderDates[0].getTime() - orderDates[orderDates.length - 1].getTime()) / 86_400_000;
+      avgDaysBetweenOrders = Math.round(spanDays / (orderDates.length - 1));
+    }
+
+    const allTotals = [
+      ...bills.map(b => Number(b.grandTotal)),
+      ...onlineOrders.map(o => Number(o.total)),
+    ];
+    const avgBasketValue = allTotals.length
+      ? allTotals.reduce((s, v) => s + v, 0) / allTotals.length
+      : 0;
+
+    // Favorite products — merge POS + online by product name (online items have
+    // no direct Product FK, only pluId, so name is the one field both sides share).
+    const productMap = new Map<string, { name: string; qty: number; revenue: number }>();
+    for (const it of posItems) {
+      const cur = productMap.get(it.productName) ?? { name: it.productName, qty: 0, revenue: 0 };
+      cur.qty += Number(it.quantity);
+      cur.revenue += Number(it.totalAmount);
+      productMap.set(it.productName, cur);
+    }
+    for (const it of onlineItems) {
+      const cur = productMap.get(it.productName) ?? { name: it.productName, qty: 0, revenue: 0 };
+      cur.qty += it.quantity;
+      cur.revenue += Number(it.total);
+      productMap.set(it.productName, cur);
+    }
+    const favoriteProducts = Array.from(productMap.values())
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5);
+
+    // Favorite categories — POS side only (online items have no category join path).
+    const categoryMap = new Map<string, { name: string; qty: number }>();
+    for (const it of posItems) {
+      const cat = it.product?.category;
+      if (!cat) continue;
+      const label = cat.label || cat.name;
+      const cur = categoryMap.get(label) ?? { name: label, qty: 0 };
+      cur.qty += Number(it.quantity);
+      categoryMap.set(label, cur);
+    }
+    const favoriteCategories = Array.from(categoryMap.values())
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5);
+
+    // Spend trend — last 3 calendar months' totals.
+    const spendTrend: { month: string; total: number }[] = [];
+    for (let i = 2; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - i);
+      const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+      const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      const total = [
+        ...bills.filter(b => b.billDate >= monthStart && b.billDate < monthEnd).map(b => Number(b.grandTotal)),
+        ...onlineOrders.filter(o => o.createdAt >= monthStart && o.createdAt < monthEnd).map(o => Number(o.total)),
+      ].reduce((s, v) => s + v, 0);
+      spendTrend.push({ month: monthStart.toLocaleDateString('en-IN', { month: 'short' }), total });
+    }
+
+    return {
+      daysSinceLastOrder,
+      ordersLast90d: last90d,
+      ordersLast12mo: last12mo,
+      avgDaysBetweenOrders,
+      avgBasketValue,
+      totalOrders: orderDates.length,
+      favoriteProducts,
+      favoriteCategories,
+      spendTrend,
+    };
+  }
 }
