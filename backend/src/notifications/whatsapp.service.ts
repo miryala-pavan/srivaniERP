@@ -1021,7 +1021,10 @@ export class WhatsAppService implements OnModuleInit {
     });
     const map = new Map(rows.map(r => [r.key, r.value]));
     return {
-      enabled:        map.get(WhatsAppService.AUTOREPLY_KEYS.enabled) === 'true',
+      // Default to ON for any business that's never touched this setting —
+      // a retailer just going live should get useful auto-replies out of the
+      // box, not silence, until they explicitly turn it off.
+      enabled:        map.get(WhatsAppService.AUTOREPLY_KEYS.enabled) !== 'false',
       storeHours:     map.get(WhatsAppService.AUTOREPLY_KEYS.storeHours) ?? '',
       locationLat:    map.get(WhatsAppService.AUTOREPLY_KEYS.locationLat) ?? '',
       locationLng:    map.get(WhatsAppService.AUTOREPLY_KEYS.locationLng) ?? '',
