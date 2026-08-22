@@ -53,6 +53,7 @@ import {
   Percent,
   Banknote,
   Camera,
+  ImagePlus,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import type { User } from '@/types';
@@ -161,6 +162,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/settings',                    label: 'Settings',        icon: Settings,        roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/settings/financial-year',     label: 'Financial Years', icon: CalendarRange,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/notifications/whatsapp',      label: 'PaVa Connect',    icon: MessageSquare,   roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
+      { href: '/dashboard/order-photos',                label: 'Order Photos',    icon: ImagePlus,       roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/notifications/social',        label: 'Facebook & Instagram', icon: Camera, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/lists',                        label: 'Order Lists',      icon: FileText,        roles: ['SUPER_ADMIN'] },
       { href: '/dashboard/settings/roles',               label: 'Role Permissions', icon: ShieldCheck,     roles: ['SUPER_ADMIN'] },

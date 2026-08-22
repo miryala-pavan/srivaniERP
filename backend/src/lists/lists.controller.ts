@@ -264,7 +264,7 @@ export class WebhookController implements OnModuleInit {
       // NotificationsModule).
       const refMatch = messageBody?.match(ORDER_PHOTO_REF_RE);
       if (refMatch) {
-        const photo = await this.orderPhotos.findByRefCode(businessId, refMatch[1]);
+        const photo = await this.orderPhotos.findByRefCode(businessId, refMatch[1], senderPhone);
         if (photo) {
           await this.orderPhotos.sendPhotoReply(businessId, senderPhone, photo)
             .catch(err => this.logger.error(`Order photo reply failed for ${senderPhone}: ${err}`));

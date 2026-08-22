@@ -140,11 +140,24 @@ export class OrderPhotosService {
     return null;
   }
 
-  /** Looks up a photo by its short Ref: code — used by the auto-reply branch. Scoped to businessId so one business can't fish another's tokens. */
-  async findByRefCode(businessId: string, refCode: string) {
-    return this.prisma.orderPhoto.findFirst({
+  /**
+   * Looks up a photo by its short Ref: code — used by the auto-reply branch.
+   * Scoped to businessId so one business can't fish another's tokens, AND
+   * requires the inbound sender's phone to match the photo's own customer —
+   * the code is short enough (10 alphanumeric chars) and travels through a
+   * staff-copied chat message that a forward, screenshot, or mis-paste could
+   * leak it to someone else. Same ownership check the existing
+   * CONFIRM_DELIVERY button flow already applies (online-orders.service.ts's
+   * confirmDelivery/samePhone) — a mismatched sender gets nothing rather
+   * than someone else's order photo and total.
+   */
+  async findByRefCode(businessId: string, refCode: string, senderPhone: string) {
+    const photo = await this.prisma.orderPhoto.findFirst({
       where: { businessId, token: refCode.toUpperCase() },
+      include: { customer: { select: { phone: true } } },
     });
+    if (!photo || !photo.customer.phone || !samePhone(photo.customer.phone, senderPhone)) return null;
+    return photo;
   }
 
   /**
@@ -172,7 +185,12 @@ export class OrderPhotosService {
       const itemsLine = order.items.length
         ? ` — ${order.items.length} item${order.items.length === 1 ? '' : 's'}`
         : '';
-      await this.wa.sendTextMessage(businessId, phone, `${order.label}${itemsLine}, ₹${order.total.toFixed(0)}. ${order.status}!`);
+      // sendTextMessage throws (unlike sendImageByLink/sendInteractiveList,
+      // which return {ok:false}) — caught here so a transient failure on
+      // this one line doesn't also swallow the follow-up menu below.
+      try {
+        await this.wa.sendTextMessage(businessId, phone, `${order.label}${itemsLine}, ₹${order.total.toFixed(0)}. ${order.status}!`);
+      } catch { /* menu still sends below */ }
     }
 
     const shopUrl = process.env.SHOP_URL ?? 'https://shop.srivani.com';
@@ -191,6 +209,14 @@ export class OrderPhotosService {
       { relatedType: 'ORDER_PHOTO', relatedId: photo.id },
     );
   }
+}
+
+// Same normalization as OnlineOrdersService's private samePhone() — compares
+// only the last 10 digits, so it's indifferent to whether either side is
+// stored bare or with a country-code prefix.
+function samePhone(a: string, b: string): boolean {
+  const norm = (p: string) => p.replace(/\D/g, '').slice(-10);
+  return norm(a) === norm(b) && norm(a).length === 10;
 }
 
 // Bilingual (Telugu + English), following the exact precedent already set by
