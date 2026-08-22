@@ -283,13 +283,12 @@ export class WebhookController implements OnModuleInit {
         return;
       }
 
-      // "Last Order Pic" option — same menu, needs OrderPhotosModule.
+      // "Last Order Pic" option — same menu, needs OrderPhotosModule. No
+      // customer lookup needed here; sendLastOrderReply matches by phone
+      // directly (see its own comment for why — duplicate Customer rows).
       if (buttonId === 'WA_LAST_ORDER' || listReplyId === 'WA_LAST_ORDER') {
-        const customer = await this.findCustomerByPhone(businessId, senderPhone);
-        if (customer) {
-          await this.orderPhotos.sendLastOrderReply(businessId, senderPhone, customer.id)
-            .catch(err => this.logger.error(`Last order reply failed for ${senderPhone}: ${err}`));
-        }
+        await this.orderPhotos.sendLastOrderReply(businessId, senderPhone)
+          .catch(err => this.logger.error(`Last order reply failed for ${senderPhone}: ${err}`));
         return;
       }
 

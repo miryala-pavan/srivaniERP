@@ -216,10 +216,19 @@ export class OrderPhotosService {
    * this customer (not necessarily the one that's still in the chat above,
    * since the menu it's tapped from can itself be a few messages old).
    * Falls back to a plain message if none has ever been shared with them.
+   *
+   * Matches by phone digits directly rather than a single resolved
+   * customerId — some phone numbers have more than one Customer row (created
+   * via different flows that each did their own exact-format phone match
+   * instead of a normalized one), so resolving "the" customer first and then
+   * querying by customerId can silently land on a duplicate that owns no
+   * photos while the real one does. Matching the photo's own customer
+   * relation by phone sidesteps picking the wrong duplicate.
    */
-  async sendLastOrderReply(businessId: string, phone: string, customerId: string): Promise<void> {
+  async sendLastOrderReply(businessId: string, phone: string): Promise<void> {
+    const digits = phone.replace(/\D/g, '').slice(-10);
     const photo = await this.prisma.orderPhoto.findFirst({
-      where: { businessId, customerId },
+      where: { businessId, customer: { OR: [{ phone: digits }, { phone: `91${digits}` }] } },
       orderBy: { createdAt: 'desc' },
     });
     if (!photo) {
