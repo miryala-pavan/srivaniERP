@@ -201,6 +201,7 @@ export class OrderPhotosService {
       [{
         title: 'More options',
         rows: [
+          { id: 'WA_LAST_ORDER', title: 'Last Order Pic', description: 'Resend your most recent order photo' },
           { id: 'WA_HISTORY_LINK', title: 'History Link', description: 'See your full order history' },
           { id: 'WA_REORDER', title: 'Send New Order', description: 'Reorder your usual items' },
           { id: 'WA_TALK_STAFF', title: 'Talk to Staff', description: 'Chat with our team' },
@@ -208,6 +209,24 @@ export class OrderPhotosService {
       }],
       { relatedType: 'ORDER_PHOTO', relatedId: photo.id },
     );
+  }
+
+  /**
+   * "Last Order Pic" menu option — resends the most recent photo shared with
+   * this customer (not necessarily the one that's still in the chat above,
+   * since the menu it's tapped from can itself be a few messages old).
+   * Falls back to a plain message if none has ever been shared with them.
+   */
+  async sendLastOrderReply(businessId: string, phone: string, customerId: string): Promise<void> {
+    const photo = await this.prisma.orderPhoto.findFirst({
+      where: { businessId, customerId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!photo) {
+      await this.wa.sendTextMessage(businessId, phone, 'మీ కోసం ఇంకా ఆర్డర్ ఫోటో షేర్ చేయలేదు.\nNo order photo has been shared with you yet.');
+      return;
+    }
+    await this.sendPhotoReply(businessId, phone, photo);
   }
 }
 

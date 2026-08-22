@@ -275,17 +275,20 @@ export class WebhookController implements OnModuleInit {
       // "History Link" option from the order-photo follow-up menu — same
       // circular-dependency reason as above (needs HistoryModule).
       if (buttonId === 'WA_HISTORY_LINK' || listReplyId === 'WA_HISTORY_LINK') {
-        // Customer.phone isn't stored consistently (bare 10-digit vs
-        // 91-prefixed) across creation paths, so an exact match against the
-        // webhook's raw senderPhone silently misses real customers — match
-        // both known storage shapes instead of assuming one.
-        const senderDigits = senderPhone.replace(/\D/g, '').slice(-10);
-        const customer = await this.prisma.customer.findFirst({
-          where: { businessId, OR: [{ phone: senderDigits }, { phone: `91${senderDigits}` }, { phone: senderPhone }] },
-        });
+        const customer = await this.findCustomerByPhone(businessId, senderPhone);
         if (customer) {
           await this.history.sendHistoryLink(customer.id, businessId)
             .catch(err => this.logger.error(`History link send failed for ${senderPhone}: ${err}`));
+        }
+        return;
+      }
+
+      // "Last Order Pic" option — same menu, needs OrderPhotosModule.
+      if (buttonId === 'WA_LAST_ORDER' || listReplyId === 'WA_LAST_ORDER') {
+        const customer = await this.findCustomerByPhone(businessId, senderPhone);
+        if (customer) {
+          await this.orderPhotos.sendLastOrderReply(businessId, senderPhone, customer.id)
+            .catch(err => this.logger.error(`Last order reply failed for ${senderPhone}: ${err}`));
         }
         return;
       }
@@ -383,6 +386,16 @@ export class WebhookController implements OnModuleInit {
     // Safe as free text — the tap that got us here just reopened the 24h session window.
     await this.whatsapp.sendTextMessage(order.businessId, order.customerPhone,
       "Thanks for letting us know — our team will reach out to help.").catch(() => {});
+  }
+
+  // Customer.phone isn't stored consistently (bare 10-digit vs 91-prefixed)
+  // across creation paths, so an exact match against the webhook's raw
+  // senderPhone silently misses real customers — match both known shapes.
+  private async findCustomerByPhone(businessId: string, senderPhone: string) {
+    const senderDigits = senderPhone.replace(/\D/g, '').slice(-10);
+    return this.prisma.customer.findFirst({
+      where: { businessId, OR: [{ phone: senderDigits }, { phone: `91${senderDigits}` }, { phone: senderPhone }] },
+    });
   }
 }
 
