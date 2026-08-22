@@ -2317,6 +2317,9 @@ model WaMessage {
   bodyPreview  String? // first ~200 chars, for the admin log/chat bubble
   buttonId     String? // set when direction=INBOUND and it's a button-reply tap
   mediaId      String? // Meta media object id, for IMAGE/DOCUMENT messages (either direction)
+  mediaUrl     String? // set instead of mediaId for outbound images sent via a public link
+                        // (e.g. order-photo share) — already publicly reachable, so the chat
+                        // UI can render it directly without proxying through Meta's media API
 
   status       WaMessageStatus @default(QUEUED)
   errorMessage String?

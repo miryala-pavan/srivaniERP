@@ -56,6 +56,7 @@ interface ThreadMessage {
   bodyPreview: string | null;
   buttonId: string | null;
   mediaId: string | null;
+  mediaUrl: string | null;
   isAutoReply: boolean;
   status: string;
   errorMessage: string | null;
@@ -619,7 +620,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     setMessages(m => [...m, {
       id: tempId, waMessageId: tempId, direction: 'OUTBOUND', phone: selectedPhone,
       messageType: 'TEXT', templateName: null, bodyPreview: text, buttonId: null,
-      mediaId: null, isAutoReply: false, status: 'QUEUED', errorMessage: null,
+      mediaId: null, mediaUrl: null, isAutoReply: false, status: 'QUEUED', errorMessage: null,
       createdAt: new Date().toISOString(),
     }]);
     setReplyText('');
@@ -1254,7 +1255,11 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                             )}
                           </p>
                         )}
-                        {m.messageType === 'IMAGE' && m.mediaId ? (
+                        {m.messageType === 'IMAGE' && m.mediaUrl ? (
+                          <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer">
+                            <img src={m.mediaUrl} alt="Sent image" className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
+                          </a>
+                        ) : m.messageType === 'IMAGE' && m.mediaId ? (
                           <ChatImage mediaId={m.mediaId} />
                         ) : m.messageType === 'DOCUMENT' && m.mediaId ? (
                           <button

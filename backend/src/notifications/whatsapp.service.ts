@@ -755,6 +755,7 @@ export class WhatsAppService implements OnModuleInit {
       {
         phone: to, messageType: 'IMAGE',
         bodyPreview: opts?.caption ?? '[Image]',
+        mediaUrl: imageUrl,
         isAutoReply: opts?.isAutoReply,
         relatedType: opts?.relatedType, relatedId: opts?.relatedId,
       },
@@ -1390,6 +1391,7 @@ export class WhatsAppService implements OnModuleInit {
       relatedType?: string;
       relatedId?: string;
       mediaId?: string;
+      mediaUrl?: string;
       isAutoReply?: boolean;
     },
   ): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
@@ -1408,6 +1410,7 @@ export class WhatsAppService implements OnModuleInit {
           templateName: meta.templateName,
           bodyPreview: meta.bodyPreview?.slice(0, 200),
           mediaId: meta.mediaId,
+          mediaUrl: meta.mediaUrl,
           isAutoReply: meta.isAutoReply ?? false,
           status: result.ok ? 'SENT' : 'FAILED',
           errorMessage: result.ok ? undefined : JSON.stringify(result.data).slice(0, 500),
