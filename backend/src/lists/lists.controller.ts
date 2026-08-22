@@ -275,7 +275,14 @@ export class WebhookController implements OnModuleInit {
       // "History Link" option from the order-photo follow-up menu — same
       // circular-dependency reason as above (needs HistoryModule).
       if (buttonId === 'WA_HISTORY_LINK' || listReplyId === 'WA_HISTORY_LINK') {
-        const customer = await this.prisma.customer.findFirst({ where: { businessId, phone: senderPhone } });
+        // Customer.phone isn't stored consistently (bare 10-digit vs
+        // 91-prefixed) across creation paths, so an exact match against the
+        // webhook's raw senderPhone silently misses real customers — match
+        // both known storage shapes instead of assuming one.
+        const senderDigits = senderPhone.replace(/\D/g, '').slice(-10);
+        const customer = await this.prisma.customer.findFirst({
+          where: { businessId, OR: [{ phone: senderDigits }, { phone: `91${senderDigits}` }, { phone: senderPhone }] },
+        });
         if (customer) {
           await this.history.sendHistoryLink(customer.id, businessId)
             .catch(err => this.logger.error(`History link send failed for ${senderPhone}: ${err}`));

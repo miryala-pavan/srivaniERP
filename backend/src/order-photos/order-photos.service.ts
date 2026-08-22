@@ -225,12 +225,15 @@ function samePhone(a: string, b: string): boolean {
 // business-configurable template would be a reasonable fast-follow if this
 // platform ever serves a non-Telugu-speaking retailer.
 
+// Kept deliberately short — each Telugu character costs ~9 characters once
+// URL-encoded into the wa.me link's text= param (3 UTF-8 bytes × "%XX"), so
+// a full bilingual sentence here was ballooning the link to 400+ characters
+// and reading as spam. The customer doesn't need to read this text closely —
+// they're tapping "Send" on a pre-filled message, not composing one — the
+// real bilingual content is in the auto-reply they get back.
 /** The text pre-filled in the CUSTOMER's WhatsApp box when they tap the wa.me link — must always carry a parseable "Ref: <token>". */
 function buildCustomerRefMessage(businessName: string, token: string): string {
-  return `నమస్తే ${businessName}! 👋
-మీ ఆర్డర్ ఫోటో చూడాలంటే ఈ మెసేజ్ పంపండి 📦
-Hi! Sending this message shows me my order photo instantly ✨
-Ref: ${token}`;
+  return `నమస్తే! 📦 Show my order photo. Ref: ${token}`;
 }
 
 /** The full block STAFF copy and send via their own personal WhatsApp — greeting, reason to tap, the link, sign-off. */
