@@ -1605,7 +1605,7 @@ export class OnlineOrdersService {
           data: {
             businessId, name: cleanedName, phone,
             email: order.customerEmail || undefined,
-            channel: 'ONLINE', status: 'ACTIVE', isActive: true, whatsappOptIn: false,
+            channel: 'ONLINE', status: 'ACTIVE', isActive: true, whatsappOptIn: true,
           },
         });
         created++;
@@ -1644,7 +1644,7 @@ export class OnlineOrdersService {
         channel: 'ONLINE',
         status: 'ACTIVE',
         isActive: true,
-        whatsappOptIn: false,
+        whatsappOptIn: true,
       },
       select: { id: true },
     });

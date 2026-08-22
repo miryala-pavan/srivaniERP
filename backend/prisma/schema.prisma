@@ -614,7 +614,7 @@ model Customer {
   companyName        String?
   billingAddress     String?
   openingBalance     Decimal         @default(0) @db.Decimal(15, 2)
-  whatsappOptIn      Boolean         @default(false)
+  whatsappOptIn      Boolean         @default(true)
   smsOptIn           Boolean         @default(false)
   emailOptIn         Boolean         @default(false)
   dateOfBirth        DateTime?

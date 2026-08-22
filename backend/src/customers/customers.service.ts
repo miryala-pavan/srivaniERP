@@ -278,7 +278,7 @@ export class CustomersService {
           customerGroup:  dto.customerGroup,
           creditLimit:    dto.creditLimit,
           openingBalance: dto.openingBalance,
-          whatsappOptIn:  dto.whatsappOptIn ?? false,
+          whatsappOptIn:  dto.whatsappOptIn ?? true,
           smsOptIn:       dto.smsOptIn      ?? false,
           emailOptIn:     dto.emailOptIn    ?? false,
           dateOfBirth:    dto.dateOfBirth    ? new Date(dto.dateOfBirth)    : undefined,

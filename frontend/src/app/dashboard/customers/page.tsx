@@ -54,7 +54,7 @@ const EMPTY_FORM = {
   address:        '',
   creditLimit:    0,
   openingBalance: 0,
-  whatsappOptIn:  false,
+  whatsappOptIn:  true,
   smsOptIn:       false,
   emailOptIn:     false,
   status:         'ACTIVE',
