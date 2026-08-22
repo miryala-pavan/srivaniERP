@@ -9,10 +9,11 @@ const API_VERSION = 'v25.0';
 
 // DB keys for WhatsApp credentials stored in SystemSetting
 const WA_KEYS = {
-  token:    'wa.access_token',
-  phoneId:  'wa.phone_number_id',
-  wabaId:   'wa.business_account_id',
-  storeNum: 'wa.store_notify_number',
+  token:         'wa.access_token',
+  phoneId:       'wa.phone_number_id',
+  wabaId:        'wa.business_account_id',
+  storeNum:      'wa.store_notify_number',
+  displayNumber: 'wa.display_phone_number',
 } as const;
 
 @Injectable()
@@ -181,7 +182,49 @@ export class WhatsAppService implements OnModuleInit {
       this.prisma.waPhoneNumber.update({ where: { id }, data: { isActive: true } }),
     ]);
 
+    // Fire-and-forget — refreshes the cached customer-facing number for
+    // wa.me link building. Doesn't block activation if Meta's slow/unreachable.
+    this.refreshStoreDisplayNumber(businessId).catch(() => {});
+
     return this.listPhoneNumbers(businessId);
+  }
+
+  /**
+   * The store's own customer-facing WhatsApp number (E.164 digits, no
+   * leading +), used to build wa.me click-to-chat links. Fetched from Meta
+   * and cached in SystemSetting rather than hand-configured — a manually
+   * maintained copy is exactly the kind of value that silently drifts out of
+   * sync with whichever phone number preset is actually active (see the
+   * stale-WABA-ID incident this session).
+   */
+  async getOrDiscoverStoreDisplayNumber(businessId: string): Promise<string | null> {
+    const cached = await this.prisma.systemSetting.findUnique({
+      where: { businessId_key: { businessId, key: WA_KEYS.displayNumber } },
+    });
+    if (cached?.value) return cached.value;
+    return this.refreshStoreDisplayNumber(businessId);
+  }
+
+  private async refreshStoreDisplayNumber(businessId: string): Promise<string | null> {
+    if (!this.token || !this.phoneId) return null;
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/${API_VERSION}/${this.phoneId}?fields=display_phone_number`,
+        { headers: { Authorization: `Bearer ${this.token}` } },
+      );
+      const data = await res.json() as any;
+      const raw = data?.display_phone_number as string | undefined; // e.g. "+91 84552 76355"
+      if (!raw) return null;
+      const digits = raw.replace(/\D/g, '');
+      await this.prisma.systemSetting.upsert({
+        where: { businessId_key: { businessId, key: WA_KEYS.displayNumber } },
+        update: { value: digits },
+        create: { businessId, key: WA_KEYS.displayNumber, value: digits },
+      });
+      return digits;
+    } catch {
+      return null;
+    }
   }
 
   // ── Business profile (Meta's own "About this business" panel) ─────────────────
@@ -684,6 +727,36 @@ export class WhatsAppService implements OnModuleInit {
         phone: to, messageType: 'LOCATION',
         bodyPreview: location.name ?? `${location.latitude},${location.longitude}`,
         isAutoReply: opts?.isAutoReply,
+      },
+    );
+    if (!result.ok) return { ok: false, reason: JSON.stringify(result.data) };
+    return { ok: true };
+  }
+
+  /**
+   * Sends an image by public URL (Meta fetches it directly) rather than the
+   * media-upload flow — used for auto-reply content we're already hosting
+   * publicly (e.g. an OrderPhoto share), so no separate upload-to-Meta round
+   * trip is needed. Same 24h session-window rule as free text/location.
+   */
+  async sendImageByLink(
+    businessId: string, phone: string, imageUrl: string,
+    opts?: { caption?: string; isAutoReply?: boolean; relatedType?: string; relatedId?: string },
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const window = await this.getSessionWindowStatus(businessId, phone);
+    if (!window.open) return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule).' };
+    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    const to = this.e164(phone);
+    if (!to) return { ok: false, reason: 'Invalid phone number' };
+
+    const result = await this.logAndSend(
+      businessId,
+      { to, type: 'image', image: { link: imageUrl, caption: opts?.caption } },
+      {
+        phone: to, messageType: 'IMAGE',
+        bodyPreview: opts?.caption ?? '[Image]',
+        isAutoReply: opts?.isAutoReply,
+        relatedType: opts?.relatedType, relatedId: opts?.relatedId,
       },
     );
     if (!result.ok) return { ok: false, reason: JSON.stringify(result.data) };

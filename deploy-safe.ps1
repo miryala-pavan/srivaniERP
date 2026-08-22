@@ -26,12 +26,19 @@ Usage:
                                                  #   database - if that deploy also changed the schema,
                                                  #   restore the matching backup separately (see
                                                  #   deploy-scripts/restore_backup.sh, manual/deliberate only)
+  powershell -File deploy-safe.ps1 -ConfirmSchema  # apply the shown schema diff without an interactive
+                                                    #   prompt - only ever pass this after a real "yes"
+                                                    #   from whoever asked for the deploy; needed when
+                                                    #   running non-interactively (Read-Host cannot
+                                                    #   prompt without an attached console). Same pattern
+                                                    #   as deploy-git.ps1's -ConfirmSchema.
 #>
 
 param(
   [switch]$DryRun,
   [switch]$SkipSchema,
-  [switch]$Rollback
+  [switch]$Rollback,
+  [switch]$ConfirmSchema
 )
 
 $ErrorActionPreference = 'Stop'
@@ -128,8 +135,12 @@ if ($SkipSchema) {
     if ($DryRun) {
       Say "Dry run - schema change shown above, nothing applied" 'Yellow'
     } else {
-      $confirm = Read-Host "Apply this schema change to PROD? (yes/no)"
-      if ($confirm -ne 'yes') { Fail "cancelled by user" }
+      if ($ConfirmSchema) {
+        Say "Schema change pre-confirmed via -ConfirmSchema" 'Yellow'
+      } else {
+        $confirm = Read-Host "Apply this schema change to PROD? (yes/no)"
+        if ($confirm -ne 'yes') { Fail "cancelled by user" }
+      }
 
       Say "Backing up prod database before schema change"
       $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'

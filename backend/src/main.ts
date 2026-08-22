@@ -58,6 +58,11 @@ async function bootstrap() {
   fs.mkdirSync(proofsDir, { recursive: true });
   app.useStaticAssets(proofsDir, { prefix: '/uploads/payment-proofs' });
 
+  const orderPhotosDir = process.env.ORDER_PHOTOS_DIR
+    ?? path.join(process.cwd(), '..', 'storage', 'order-photos');
+  fs.mkdirSync(orderPhotosDir, { recursive: true });
+  app.useStaticAssets(orderPhotosDir, { prefix: '/uploads/order-photos' });
+
   // Serve customer handwritten order-list photos for the history page
   const shopListDir = process.env.SHOP_LIST_DIR ?? 'D:/shop/LIST/new';
   if (fs.existsSync(shopListDir)) {

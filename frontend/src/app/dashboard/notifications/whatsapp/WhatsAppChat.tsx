@@ -7,7 +7,7 @@ import {
   Check, CheckCheck, AlertCircle, Pencil, ExternalLink, ShoppingBag, Award, Receipt,
   MapPin, FileText, SmilePlus, Pin, PinOff, CheckCircle2, Circle, Tag, X, Plus,
   ChevronLeft, StickyNote, Zap, UserCircle2, MessageSquarePlus, Bell, Volume2, VolumeX,
-  Moon, Download, History,
+  Moon, Download, History, Camera,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -287,6 +287,11 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const [savingMeta, setSavingMeta]     = useState(false);
   const [sendingHistory, setSendingHistory] = useState(false);
   const [historyResult, setHistoryResult] = useState<{ url: string; waSent: boolean; waError?: string; previouslySentAt?: string | null } | null>(null);
+  const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoShareResult, setPhotoShareResult] = useState<{ waLink: string | null; staffMessage: string | null } | null>(null);
 
   // Pane 3 (contact panel) Info/Notes tab switch
   const [contactTab, setContactTab] = useState<'info' | 'notes'>('info');
@@ -709,6 +714,27 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
       toast.error(e?.response?.data?.message ?? 'Failed to generate history link');
     } finally {
       setSendingHistory(false);
+    }
+  }
+
+  async function uploadOrderPhoto() {
+    if (!contact?.customerId || !photoFile) return;
+    setUploadingPhoto(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', photoFile);
+      fd.append('customerId', contact.customerId);
+      if (photoCaption.trim()) fd.append('caption', photoCaption.trim());
+      const { data } = await api.post('/order-photos', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setPhotoShareResult({ waLink: data.waLink, staffMessage: data.staffMessage });
+      setShowPhotoUpload(false);
+      setPhotoFile(null);
+      setPhotoCaption('');
+      if (!data.waLink) toast.error('Photo uploaded, but no WhatsApp number is configured yet to build a share link');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to upload photo');
+    } finally {
+      setUploadingPhoto(false);
     }
   }
 
@@ -1480,6 +1506,17 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
             </button>
           )}
 
+          {contact?.customerId && (
+            <button
+              onClick={() => setShowPhotoUpload(true)}
+              title="Upload a photo (e.g. the packed order) and generate a link to share with the customer"
+              className="w-full flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-2 py-1.5 border border-teal-200 text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors disabled:opacity-50"
+            >
+              <Camera size={13} />
+              Share Order Photo
+            </button>
+          )}
+
           {/* Quick actions */}
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -1659,6 +1696,84 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
 
           <button
             onClick={() => setHistoryResult(null)}
+            className="w-full py-2.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    )}
+
+    {showPhotoUpload && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Camera className="w-5 h-5 text-teal-600" />
+              <h2 className="text-base font-semibold text-gray-900">Share Order Photo</h2>
+            </div>
+            <button onClick={() => { setShowPhotoUpload(false); setPhotoFile(null); setPhotoCaption(''); }} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div>
+            <label className="label text-xs">Photo</label>
+            <input type="file" accept="image/jpeg,image/png,image/webp"
+              onChange={e => setPhotoFile(e.target.files?.[0] ?? null)}
+              className="input text-sm" />
+          </div>
+
+          <div>
+            <label className="label text-xs">Caption (optional)</label>
+            <input className="input text-sm" placeholder="e.g. Your order, packed and ready!"
+              value={photoCaption} onChange={e => setPhotoCaption(e.target.value)} />
+          </div>
+
+          <button
+            onClick={uploadOrderPhoto}
+            disabled={!photoFile || uploadingPhoto}
+            className="w-full btn-primary text-sm py-2.5 disabled:opacity-50"
+          >
+            {uploadingPhoto ? 'Uploading…' : 'Upload & Generate Link'}
+          </button>
+        </div>
+      </div>
+    )}
+
+    {photoShareResult && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Camera className="w-5 h-5 text-teal-600" />
+              <h2 className="text-base font-semibold text-gray-900">Ready to Share</h2>
+            </div>
+            <button onClick={() => setPhotoShareResult(null)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {photoShareResult.staffMessage ? (
+            <>
+              <p className="text-sm text-gray-600">Copy this message and send it to the customer from your own personal WhatsApp:</p>
+              <textarea readOnly value={photoShareResult.staffMessage} rows={8}
+                className="input text-xs w-full font-mono" onFocus={e => e.currentTarget.select()} />
+              <button
+                onClick={() => { navigator.clipboard.writeText(photoShareResult.staffMessage!); toast.success('Copied'); }}
+                className="w-full btn-primary text-sm py-2.5"
+              >
+                Copy Message
+              </button>
+            </>
+          ) : (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              No WhatsApp number is configured yet — activate a phone number preset in Settings first.
+            </p>
+          )}
+
+          <button
+            onClick={() => setPhotoShareResult(null)}
             className="w-full py-2.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"
           >
             Done

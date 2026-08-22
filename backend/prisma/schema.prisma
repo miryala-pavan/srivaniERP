@@ -85,6 +85,7 @@ model Business {
   waInternalNotes     WaInternalNote[]
   waCampaigns         WaCampaign[]
   waReminderRules     WaReminderRule[]
+  orderPhotos         OrderPhoto[]
   socialMessages      SocialMessage[]
   socialConversations SocialConversation[]
   commentCampaigns    CommentCampaign[]
@@ -634,6 +635,7 @@ model Customer {
   googleSync  CustomerGoogleSync?
   listEntries CustomerListEntry[]
   walletTxns  WalletTransaction[]
+  orderPhotos OrderPhoto[]
 
   @@unique([businessId, customerCode])
   @@index([businessId, phone])
@@ -646,6 +648,31 @@ enum CustomerChannel {
   POS
   ONLINE
   BOTH
+}
+
+// A staff-uploaded photo (e.g. a packed order, ready for pickup) shared with
+// a customer via a wa.me click-to-chat link rather than the Cloud API — see
+// OrderPhotosService for why: it sidesteps needing an approved template for
+// one-off photo content, and works even outside any open 24h session window.
+// Optionally attached to a SalesBill or OnlineOrder for a richer view page;
+// works standalone (both null) for anything not tied to a specific order.
+model OrderPhoto {
+  id            String   @id @default(cuid())
+  businessId    String
+  customerId    String
+  salesBillId   String?
+  onlineOrderId String?
+  token         String   @unique // short, human-readable — used in both the public URL and the WhatsApp Ref: code
+  imageUrl      String
+  caption       String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([businessId, token])
+  @@map("order_photo")
 }
 
 // ─── CUSTOMER WALLET ─────────────────────────────────

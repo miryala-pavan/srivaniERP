@@ -8,5 +8,6 @@ import { NotificationsModule } from '../notifications/notifications.module';
   imports:     [PrismaModule, NotificationsModule],
   providers:   [HistoryService],
   controllers: [HistoryController],
+  exports:     [HistoryService],
 })
 export class HistoryModule {}

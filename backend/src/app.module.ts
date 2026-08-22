@@ -57,6 +57,7 @@ import { LedgerApiModule } from './ledger/ledger-api.module';
 import { HistoryModule } from './history/history.module';
 import { WalletModule } from './wallet/wallet.module';
 import { StorefrontAuthModule } from './storefront-auth/storefront-auth.module';
+import { OrderPhotosModule } from './order-photos/order-photos.module';
 
 @Module({
   controllers: [AppController],
@@ -104,6 +105,7 @@ import { StorefrontAuthModule } from './storefront-auth/storefront-auth.module';
     HistoryModule,
     WalletModule,
     StorefrontAuthModule,
+    OrderPhotosModule,
 
     // Platform Core (Phase 0)
     HelpModule,

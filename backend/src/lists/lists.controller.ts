@@ -15,7 +15,14 @@ import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
 import { WhatsAppService } from '../notifications/whatsapp.service';
 import { PushService } from '../notifications/push.service';
+import { OrderPhotosService } from '../order-photos/order-photos.service';
+import { HistoryService } from '../history/history.service';
 import * as crypto from 'crypto';
+
+// Matches the short Ref: code embedded in the wa.me pre-filled message
+// (see OrderPhotosService's buildCustomerRefMessage) — case-insensitive
+// since a customer could retype it, though normally it arrives untouched.
+const ORDER_PHOTO_REF_RE = /\bRef:?\s*([A-Z0-9]{10})\b/i;
 
 const WH_VERIFY_TOKEN = process.env.WA_WEBHOOK_VERIFY_TOKEN ?? 'srivani-wa-verify-2026';
 const WH_APP_SECRET   = process.env.WA_APP_SECRET ?? '';
@@ -34,6 +41,8 @@ export class WebhookController implements OnModuleInit {
     private events: EventsService,
     private whatsapp: WhatsAppService,
     private push: PushService,
+    private orderPhotos: OrderPhotosService,
+    private history: HistoryService,
   ) {}
 
   onModuleInit() {
@@ -243,6 +252,34 @@ export class WebhookController implements OnModuleInit {
       if (isReorderTrigger) {
         await this.waOrdering.startReorder(businessId, senderPhone)
           .catch(err => this.logger.error(`WA reorder start failed for ${senderPhone}: ${err}`));
+        return;
+      }
+
+      // Order-photo share flow — a customer arriving via the wa.me
+      // click-to-chat link (see OrderPhotosService) sends a message carrying
+      // "Ref: <code>". Checked before the generic auto-reply for the same
+      // reason as the reorder flow above: this needs OrderPhotosModule,
+      // which whatsapp.service.ts can't depend on without a circular
+      // module dependency (OrderPhotosModule already depends on
+      // NotificationsModule).
+      const refMatch = messageBody?.match(ORDER_PHOTO_REF_RE);
+      if (refMatch) {
+        const photo = await this.orderPhotos.findByRefCode(businessId, refMatch[1]);
+        if (photo) {
+          await this.orderPhotos.sendPhotoReply(businessId, senderPhone, photo)
+            .catch(err => this.logger.error(`Order photo reply failed for ${senderPhone}: ${err}`));
+          return;
+        }
+      }
+
+      // "History Link" option from the order-photo follow-up menu — same
+      // circular-dependency reason as above (needs HistoryModule).
+      if (buttonId === 'WA_HISTORY_LINK' || listReplyId === 'WA_HISTORY_LINK') {
+        const customer = await this.prisma.customer.findFirst({ where: { businessId, phone: senderPhone } });
+        if (customer) {
+          await this.history.sendHistoryLink(customer.id, businessId)
+            .catch(err => this.logger.error(`History link send failed for ${senderPhone}: ${err}`));
+        }
         return;
       }
 
