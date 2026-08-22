@@ -527,7 +527,7 @@ export class WhatsAppService implements OnModuleInit {
     const trimmed = name.trim();
     if (!trimmed) throw new Error('Name is required');
 
-    const existing = await this.prisma.customer.findFirst({ where: { businessId, phone: to } });
+    const existing = await this.findCustomerByPhoneNormalized(businessId, to);
     if (existing) {
       await this.prisma.customer.update({ where: { id: existing.id }, data: { name: trimmed } });
     } else {
@@ -1190,7 +1190,7 @@ export class WhatsAppService implements OnModuleInit {
   private async autoReplyOptIn(businessId: string, phone: string, senderName?: string) {
     const to = this.e164(phone);
     if (!to) return;
-    const existing = await this.prisma.customer.findFirst({ where: { businessId, phone: to } });
+    const existing = await this.findCustomerByPhoneNormalized(businessId, to);
     if (existing) {
       if (!existing.whatsappOptIn) {
         await this.prisma.customer.update({ where: { id: existing.id }, data: { whatsappOptIn: true } });
@@ -1207,8 +1207,23 @@ export class WhatsAppService implements OnModuleInit {
   private async autoReplyOptOut(businessId: string, phone: string) {
     const to = this.e164(phone);
     if (!to) return;
-    await this.prisma.customer.updateMany({ where: { businessId, phone: to }, data: { whatsappOptIn: false } });
+    const digits = to.slice(-10);
+    await this.prisma.customer.updateMany({
+      where: { businessId, OR: [{ phone: digits }, { phone: `91${digits}` }] },
+      data: { whatsappOptIn: false },
+    });
     await this.autoReplyText(businessId, phone, "You've been unsubscribed from offers and updates. Message START anytime to opt back in.");
+  }
+
+  // Customer.phone is stored inconsistently across creation paths (bare
+  // 10-digit here, 91-prefixed there — see autoReplyOptIn/saveContactName
+  // history), so an exact match can miss an existing customer and create a
+  // duplicate row instead of finding them. Matches either known shape.
+  private async findCustomerByPhoneNormalized(businessId: string, phone: string) {
+    const digits = phone.replace(/\D/g, '').slice(-10);
+    return this.prisma.customer.findFirst({
+      where: { businessId, OR: [{ phone: digits }, { phone: `91${digits}` }] },
+    });
   }
 
   private async autoReplyWelcome(businessId: string, phone: string) {

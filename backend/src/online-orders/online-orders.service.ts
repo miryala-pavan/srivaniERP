@@ -1571,6 +1571,18 @@ export class OnlineOrdersService {
     return null;
   }
 
+  // Customer.phone is stored inconsistently across creation paths (bare
+  // 10-digit here, 91-prefixed in whatsapp.service.ts's auto-creation) — an
+  // exact match on one shape can miss an existing customer stored in the
+  // other and create a duplicate row. `phone` here is always the bare-10
+  // output of normalizePhone(); matches either known shape.
+  private async findCustomerByNormalizedPhone(businessId: string, phone: string) {
+    return this.prisma.customer.findFirst({
+      where: { businessId, OR: [{ phone }, { phone: `91${phone}` }] },
+      select: { id: true, channel: true, email: true },
+    });
+  }
+
   async backfillCustomers(businessId: string): Promise<{ created: number; upgraded: number; skipped: number }> {
     const orders = await this.prisma.onlineOrder.findMany({
       where:  { businessId, customerPhone: { not: null as any } },
@@ -1584,10 +1596,7 @@ export class OnlineOrdersService {
       const phone = this.normalizePhone(order.customerPhone!);
       if (!phone) { skipped++; continue; }
 
-      const existing = await this.prisma.customer.findFirst({
-        where: { businessId, phone },
-        select: { id: true, channel: true, email: true },
-      });
+      const existing = await this.findCustomerByNormalizedPhone(businessId, phone);
 
       if (existing) {
         const updates: Record<string, unknown> = {};
@@ -1619,10 +1628,7 @@ export class OnlineOrdersService {
     const phone = this.normalizePhone(rawPhone);
     if (!phone) return null;
 
-    const existing = await this.prisma.customer.findFirst({
-      where: { businessId, phone },
-      select: { id: true, channel: true, email: true },
-    });
+    const existing = await this.findCustomerByNormalizedPhone(businessId, phone);
 
     if (existing) {
       const updates: Record<string, unknown> = {};
