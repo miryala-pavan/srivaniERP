@@ -13,7 +13,7 @@ export class StorefrontProfileController {
   @Get()
   async get(@Query('email') email: string | undefined, @Request() req: any) {
     if (!email) throw new BadRequestException('email query param required');
-    const profile = await this.service.findByEmail(email, req.verifiedPhone);
+    const profile = await this.service.findByEmail(req.verifiedBusinessId, email, req.verifiedPhone);
     if (!profile) return null;
     return profile;
   }
@@ -29,7 +29,7 @@ export class StorefrontProfileController {
   ) {
     if (!email) throw new BadRequestException('email required');
     if (!name)  throw new BadRequestException('name required');
-    return this.service.upsert({ email, name, phone, alternatePhone, photoUrl }, req.verifiedPhone);
+    return this.service.upsert(req.verifiedBusinessId, { email, name, phone, alternatePhone, photoUrl }, req.verifiedPhone);
   }
 
   @Patch()
@@ -41,6 +41,6 @@ export class StorefrontProfileController {
     @Request() req: any,
   ) {
     if (!email) throw new BadRequestException('email query param required');
-    return this.service.update(email, { name, phone, alternatePhone }, req.verifiedPhone);
+    return this.service.update(req.verifiedBusinessId, email, { name, phone, alternatePhone }, req.verifiedPhone);
   }
 }

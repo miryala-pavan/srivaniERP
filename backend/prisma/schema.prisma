@@ -2197,9 +2197,16 @@ model OnlineOrderEvent {
 }
 
 // ─── STOREFRONT CUSTOMER PROFILE ────────────────────
+// businessId is nullable rather than a hard NOT NULL migration: existing
+// rows predate this column and need a backfill pass (the storefront JWT
+// already carries the customer's businessId — see StorefrontJwtPayload —
+// but old rows were written before any query filtered on it). All reads/
+// writes going forward always pass businessId; NULL only exists transiently
+// on pre-migration rows until backfilled.
 model StorefrontProfile {
   id             String   @id @default(cuid())
-  email          String   @unique
+  businessId     String?
+  email          String
   name           String
   phone          String?
   alternatePhone String?
@@ -2207,7 +2214,9 @@ model StorefrontProfile {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  @@unique([businessId, email])
   @@index([phone])
+  @@index([businessId])
   @@map("storefront_profile")
 }
 

@@ -312,9 +312,13 @@ export class CustomersService {
     });
     if (existing) return existing;
 
-    // 2. Check StorefrontProfile — online customer coming to the store
+    // 2. Check StorefrontProfile — online customer coming to the store.
+    // Scoped by businessId — this table is shared across every business on
+    // the platform, and without this filter a staff member at Business A
+    // could pull in name/email belonging to a same-phone customer of
+    // Business B.
     const profile = await this.prisma.storefrontProfile.findFirst({
-      where: { phone: dto.phone },
+      where: { businessId, phone: dto.phone },
     });
 
     return this.prisma.$transaction(async (tx) => {
@@ -344,7 +348,7 @@ export class CustomersService {
                   customerCode: true, channel: true, loyaltyPoints: true },
       }),
       this.prisma.storefrontProfile.findFirst({
-        where:  { phone },
+        where:  { businessId, phone },
         select: { name: true, email: true, phone: true, alternatePhone: true },
       }),
     ]);

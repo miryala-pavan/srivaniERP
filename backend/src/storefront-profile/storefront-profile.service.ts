@@ -34,23 +34,24 @@ export class StorefrontProfileService {
     }
   }
 
-  async findByEmail(email: string, verifiedPhone: string) {
-    const profile = await this.prisma.storefrontProfile.findUnique({ where: { email } });
+  async findByEmail(businessId: string, email: string, verifiedPhone: string) {
+    const profile = await this.prisma.storefrontProfile.findFirst({ where: { businessId, email } });
     if (!profile) return null;
     this.assertOwnsPhone(profile.phone, verifiedPhone);
     return profile;
   }
 
-  async upsert(dto: UpsertProfileDto, verifiedPhone: string) {
+  async upsert(businessId: string, dto: UpsertProfileDto, verifiedPhone: string) {
     if (dto.phone !== undefined && dto.phone !== '' && dto.phone !== verifiedPhone) {
       throw new ForbiddenException('Phone must match your verified number');
     }
-    const existing = await this.prisma.storefrontProfile.findUnique({ where: { email: dto.email } });
+    const existing = await this.prisma.storefrontProfile.findFirst({ where: { businessId, email: dto.email } });
     if (existing) this.assertOwnsPhone(existing.phone, verifiedPhone);
 
     return this.prisma.storefrontProfile.upsert({
-      where: { email: dto.email },
+      where: { businessId_email: { businessId, email: dto.email } },
       create: {
+        businessId,
         email:          dto.email,
         name:           dto.name,
         phone:          dto.phone          ?? null,
@@ -66,8 +67,8 @@ export class StorefrontProfileService {
     });
   }
 
-  async update(email: string, dto: UpdateProfileDto, verifiedPhone: string) {
-    const existing = await this.prisma.storefrontProfile.findUnique({ where: { email } });
+  async update(businessId: string, email: string, dto: UpdateProfileDto, verifiedPhone: string) {
+    const existing = await this.prisma.storefrontProfile.findFirst({ where: { businessId, email } });
     if (!existing) throw new NotFoundException('Profile not found');
     this.assertOwnsPhone(existing.phone, verifiedPhone);
     if (dto.phone !== undefined && dto.phone !== '' && dto.phone !== verifiedPhone) {
@@ -75,7 +76,7 @@ export class StorefrontProfileService {
     }
 
     return this.prisma.storefrontProfile.update({
-      where: { email },
+      where: { businessId_email: { businessId, email } },
       data: {
         ...(dto.name           !== undefined ? { name:           dto.name }           : {}),
         ...(dto.phone          !== undefined ? { phone:          dto.phone || null }   : {}),
