@@ -24,9 +24,17 @@ interface Entry {
   imageUrls: string[];
 }
 
+interface OrderPhoto {
+  id: string;
+  imageUrl: string;
+  caption: string | null;
+  createdAt: string;
+}
+
 interface HistoryData {
   customer: { name: string; phone: string | null };
   entries: Entry[];
+  orderPhotos: OrderPhoto[];
 }
 
 async function fetchHistory(token: string): Promise<HistoryData | null> {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Camera, Search, Copy, X } from 'lucide-react';
+import { Camera, Search, Copy, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
@@ -13,6 +13,19 @@ interface Customer {
   customerCode: string | null;
 }
 
+interface PhotoJob {
+  id: string;
+  file: File;
+  previewUrl: string;
+  progress: number; // 0-100
+  status: 'pending' | 'uploading' | 'done' | 'error';
+  waLink?: string | null;
+  staffMessage?: string | null;
+  errorMsg?: string;
+}
+
+let jobSeq = 0;
+
 export default function OrderPhotosPage() {
   const [custQuery, setCustQuery] = useState('');
   const [custResults, setCustResults] = useState<Customer[]>([]);
@@ -21,10 +34,9 @@ export default function OrderPhotosPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const custTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [jobs, setJobs] = useState<PhotoJob[]>([]);
   const [photoCaption, setPhotoCaption] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ waLink: string | null; staffMessage: string | null } | null>(null);
+  const [uploadingAll, setUploadingAll] = useState(false);
 
   // Doesn't require an existing WhatsApp conversation with a linked contact
   // (unlike the same action inside PaVa Connect's chat panel) — this page
@@ -52,43 +64,95 @@ export default function OrderPhotosPage() {
     setShowCustDrop(false);
   }
 
-  async function upload() {
-    if (!selectedCustomer || !photoFile) return;
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', photoFile);
-      fd.append('customerId', selectedCustomer.id);
-      if (photoCaption.trim()) fd.append('caption', photoCaption.trim());
-      const { data } = await api.post('/order-photos', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setResult({ waLink: data.waLink, staffMessage: data.staffMessage });
-      setPhotoFile(null);
-      setPhotoCaption('');
-      if (!data.waLink) toast.error('Photo uploaded, but no WhatsApp number is configured yet to build a share link');
-      else toast.success('Photo uploaded — message ready to copy');
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Failed to upload photo');
-    } finally {
-      setUploading(false);
+  function onFilesPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    const newJobs: PhotoJob[] = files.map(file => ({
+      id: `j${++jobSeq}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+      progress: 0,
+      status: 'pending',
+    }));
+    setJobs(prev => [...prev, ...newJobs]);
+    e.target.value = ''; // allow re-picking the same file(s) later
+  }
+
+  function removeJob(id: string) {
+    setJobs(prev => {
+      const job = prev.find(j => j.id === id);
+      if (job) URL.revokeObjectURL(job.previewUrl);
+      return prev.filter(j => j.id !== id);
+    });
+  }
+
+  function updateJob(id: string, patch: Partial<PhotoJob>) {
+    setJobs(prev => prev.map(j => (j.id === id ? { ...j, ...patch } : j)));
+  }
+
+  // Uploads one job at a time (not in parallel) so each file's progress bar
+  // fills independently and predictably, and one photo's failure never
+  // blocks the rest of the batch from uploading.
+  async function uploadAll() {
+    if (!selectedCustomer) return;
+    const pending = jobs.filter(j => j.status === 'pending' || j.status === 'error');
+    if (pending.length === 0) return;
+
+    setUploadingAll(true);
+    for (const job of pending) {
+      updateJob(job.id, { status: 'uploading', progress: 0, errorMsg: undefined });
+      try {
+        const fd = new FormData();
+        fd.append('file', job.file);
+        fd.append('customerId', selectedCustomer.id);
+        if (photoCaption.trim()) fd.append('caption', photoCaption.trim());
+
+        const { data } = await api.post('/order-photos', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          onUploadProgress: (evt) => {
+            if (!evt.total) return;
+            updateJob(job.id, { progress: Math.round((evt.loaded / evt.total) * 100) });
+          },
+        });
+
+        updateJob(job.id, {
+          status: 'done', progress: 100,
+          waLink: data.waLink, staffMessage: data.staffMessage,
+        });
+      } catch (e: any) {
+        updateJob(job.id, {
+          status: 'error',
+          errorMsg: e?.response?.data?.message ?? 'Upload failed',
+        });
+      }
     }
+    setUploadingAll(false);
+
+    const finished = jobs.length;
+    const failed = jobs.filter(j => j.status === 'error').length;
+    if (failed === 0) toast.success(finished === 1 ? 'Photo uploaded' : `All ${finished} photos uploaded`);
+    else toast.error(`${failed} photo${failed === 1 ? '' : 's'} failed to upload — you can retry below`);
   }
 
   function reset() {
+    jobs.forEach(j => URL.revokeObjectURL(j.previewUrl));
     setSelectedCustomer(null);
     setCustQuery('');
     setCustResults([]);
-    setPhotoFile(null);
+    setJobs([]);
     setPhotoCaption('');
-    setResult(null);
   }
+
+  const hasPending = jobs.some(j => j.status === 'pending' || j.status === 'error');
+  const allDone = jobs.length > 0 && jobs.every(j => j.status === 'done');
 
   return (
     <>
       <Header title="Order Photos" />
       <main className="flex-1 p-6 space-y-5 max-w-2xl">
         <p className="text-sm text-gray-500">
-          Upload a photo (e.g. a packed order) for any customer, then copy the ready-to-send
-          WhatsApp message — no need for an existing chat with them first.
+          Upload one or more photos (e.g. a packed order) for any customer, then copy each
+          ready-to-send WhatsApp message — no need for an existing chat with them first.
         </p>
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
@@ -139,51 +203,97 @@ export default function OrderPhotosPage() {
           )}
 
           <div>
-            <label className="label text-xs">Photo</label>
-            <input type="file" accept="image/jpeg,image/png,image/webp"
-              onChange={e => setPhotoFile(e.target.files?.[0] ?? null)}
+            <label className="label text-xs">Photos</label>
+            <input type="file" accept="image/jpeg,image/png,image/webp" multiple
+              onChange={onFilesPicked}
               className="input text-sm" />
+            <p className="text-[11px] text-gray-400 mt-1">You can select multiple photos at once.</p>
           </div>
 
           <div>
-            <label className="label text-xs">Caption (optional)</label>
+            <label className="label text-xs">Caption (optional, applied to all selected photos)</label>
             <input className="input text-sm" placeholder="e.g. Your order, packed and ready!"
               value={photoCaption} onChange={e => setPhotoCaption(e.target.value)} />
           </div>
 
           <button
-            onClick={upload}
-            disabled={!selectedCustomer || !photoFile || uploading}
+            onClick={uploadAll}
+            disabled={!selectedCustomer || !hasPending || uploadingAll}
             className="w-full btn-primary text-sm py-2.5 disabled:opacity-50 flex items-center justify-center gap-2"
           >
             <Camera size={15} />
-            {uploading ? 'Uploading…' : 'Upload & Generate Link'}
+            {uploadingAll ? 'Uploading…' : `Upload${jobs.length > 1 ? ` All (${jobs.length})` : ''} & Generate Link${jobs.length > 1 ? 's' : ''}`}
           </button>
         </div>
 
-        {result && (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-3">
-            <h2 className="text-sm font-semibold text-gray-900">Ready to Share</h2>
-            {result.staffMessage ? (
-              <>
-                <p className="text-xs text-gray-500">Copy this and send it to the customer from your own personal WhatsApp:</p>
-                <textarea readOnly value={result.staffMessage} rows={8}
-                  className="input text-xs w-full font-mono" onFocus={e => e.currentTarget.select()} />
-                <button
-                  onClick={() => { navigator.clipboard.writeText(result.staffMessage!); toast.success('Copied'); }}
-                  className="w-full btn-primary text-sm py-2.5 flex items-center justify-center gap-2"
-                >
-                  <Copy size={14} /> Copy Message
-                </button>
-              </>
-            ) : (
-              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                No WhatsApp number is configured yet — activate a phone number preset in Settings first.
-              </p>
+        {jobs.length > 0 && (
+          <div className="space-y-3">
+            {jobs.map(job => (
+              <div key={job.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+                <div className="flex items-start gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={job.previewUrl} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0 border border-gray-200" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm text-gray-700 truncate">{job.file.name}</p>
+                      {job.status === 'pending' && (
+                        <button onClick={() => removeJob(job.id)} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
+                          <X size={14} />
+                        </button>
+                      )}
+                      {job.status === 'done' && <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />}
+                      {job.status === 'error' && <AlertCircle size={16} className="text-red-500 flex-shrink-0" />}
+                    </div>
+
+                    {job.status === 'uploading' && (
+                      <div className="mt-2">
+                        <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-teal-500 transition-all duration-150"
+                            style={{ width: `${job.progress}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-1">{job.progress}%</p>
+                      </div>
+                    )}
+
+                    {job.status === 'pending' && (
+                      <p className="text-[11px] text-gray-400 mt-1">Waiting to upload…</p>
+                    )}
+
+                    {job.status === 'error' && (
+                      <p className="text-[11px] text-red-500 mt-1">{job.errorMsg} — will retry on next upload</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Only appears once THIS photo's upload has actually finished — never before. */}
+                {job.status === 'done' && (
+                  job.staffMessage ? (
+                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                      <textarea readOnly value={job.staffMessage} rows={6}
+                        className="input text-xs w-full font-mono" onFocus={e => e.currentTarget.select()} />
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(job.staffMessage!); toast.success('Copied'); }}
+                        className="w-full btn-primary text-sm py-2 flex items-center justify-center gap-2"
+                      >
+                        <Copy size={14} /> Copy Message
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-3 pt-3 border-t border-gray-100 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Uploaded, but no WhatsApp number is configured yet to build a share link.
+                    </p>
+                  )
+                )}
+              </div>
+            ))}
+
+            {allDone && (
+              <button onClick={reset} className="w-full py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors">
+                Share Another Batch
+              </button>
             )}
-            <button onClick={reset} className="w-full py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors">
-              Share Another Photo
-            </button>
           </div>
         )}
       </main>

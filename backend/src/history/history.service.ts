@@ -3,6 +3,8 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../notifications/whatsapp.service';
 
+const API_PUBLIC_URL = (process.env.API_PUBLIC_URL ?? 'http://localhost:4001').replace(/\/$/, '');
+
 @Injectable()
 export class HistoryService {
   constructor(
@@ -14,6 +16,7 @@ export class HistoryService {
     const customer = await this.prisma.customer.findUnique({
       where: { historyToken: token },
       select: {
+        id: true,
         name: true,
         phone: true,
         listEntries: {
@@ -35,6 +38,16 @@ export class HistoryService {
     // Falls back to local NestJS static serving for dev
     const filesBase = (process.env.FILES_BASE_URL ?? 'http://localhost:4001/shop-list').replace(/\/$/, '');
 
+    // Staff-shared "order photo" uploads (order-photos module) are a
+    // separate, newer feature from the legacy scanned-list `listEntries`
+    // above — same customer, different table, so they need their own
+    // fetch here to actually show up on this page.
+    const orderPhotos = await this.prisma.orderPhoto.findMany({
+      where: { customerId: customer.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, imageUrl: true, caption: true, createdAt: true },
+    });
+
     return {
       customer: {
         name: customer.name,
@@ -48,6 +61,12 @@ export class HistoryService {
         imageUrls: e.imageUrls.map(p =>
           `${filesBase}/${p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')}`,
         ),
+      })),
+      orderPhotos: orderPhotos.map(p => ({
+        id: p.id,
+        imageUrl: `${API_PUBLIC_URL}${p.imageUrl}`,
+        caption: p.caption,
+        createdAt: p.createdAt,
       })),
     };
   }

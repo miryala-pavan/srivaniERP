@@ -10,9 +10,17 @@ interface Entry {
   imageUrls: string[];
 }
 
+interface OrderPhoto {
+  id: string;
+  imageUrl: string;
+  caption: string | null;
+  createdAt: string;
+}
+
 interface HistoryData {
   customer: { name: string; phone: string | null };
   entries: Entry[];
+  orderPhotos: OrderPhoto[];
 }
 
 interface Slide { url: string | null; date: string; seed: number; pg: number; }
@@ -115,6 +123,30 @@ export default function HistoryClient({ data }: { data: HistoryData }) {
   const nameParts = displayName.split(/\s+/);
   const firstName = nameParts[0];
   const restName = nameParts.slice(1).join(' ');
+
+  // Order photos (separate feature from the scanned-list `entries` above —
+  // staff-shared photos of packed orders) — own lightweight lightbox so it
+  // doesn't have to be woven into the notebook-fallback slide logic below.
+  const orderPhotos = data.orderPhotos ?? [];
+  const [opOpen, setOpOpen] = useState(false);
+  const [opIdx, setOpIdx] = useState(0);
+  const openOp = useCallback((idx: number) => { setOpIdx(idx); setOpOpen(true); }, []);
+  const closeOp = useCallback(() => setOpOpen(false), []);
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => {
+      if (!opOpen) return;
+      if (e.key === 'Escape') { closeOp(); return; }
+      if (e.key === 'ArrowLeft') setOpIdx(i => Math.max(0, i - 1));
+      if (e.key === 'ArrowRight') setOpIdx(i => Math.min(orderPhotos.length - 1, i + 1));
+    };
+    document.addEventListener('keydown', fn);
+    return () => document.removeEventListener('keydown', fn);
+  }, [opOpen, closeOp, orderPhotos.length]);
+  const currentOrderPhoto = orderPhotos[opIdx];
+  const fmtPhotoDate = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  };
 
   // Lightbox
   const [lbOpen, setLbOpen] = useState(false);
@@ -439,6 +471,27 @@ export default function HistoryClient({ data }: { data: HistoryData }) {
           </div>
         </section>
 
+        {/* Recent order photos — staff-shared photos of packed orders */}
+        {orderPhotos.length > 0 && (
+          <div className="hp-photos-section">
+            <div className="hp-grid-label">Your recent order photos</div>
+            <div className="hp-photos-strip">
+              {orderPhotos.map((p, i) => (
+                <button
+                  key={p.id}
+                  className="hp-photo-card"
+                  onClick={() => openOp(i)}
+                  aria-label={`View order photo${p.caption ? `: ${p.caption}` : ''}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.imageUrl} alt={p.caption ?? 'Order photo'} loading="lazy" />
+                  <span className="hp-photo-date">{fmtPhotoDate(p.createdAt)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Trust banner */}
         <div className="hp-trust-banner">
           <div className="hp-trust-icon">🌿</div>
@@ -595,6 +648,38 @@ export default function HistoryClient({ data }: { data: HistoryData }) {
         </div>
       )}
 
+      {/* Order photo lightbox */}
+      {opOpen && currentOrderPhoto && (
+        <div
+          className="hp-lb"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Order photo viewer"
+          onClick={e => { if (e.target === e.currentTarget) closeOp(); }}
+        >
+          <div className="hp-lb-inner">
+            <button className="hp-lb-close" onClick={closeOp} aria-label="Close">×</button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={currentOrderPhoto.imageUrl}
+              alt={currentOrderPhoto.caption ?? 'Order photo'}
+              style={{maxWidth:'100%',maxHeight:'78vh',objectFit:'contain',borderRadius:'12px',margin:'0 auto',display:'block'}}
+            />
+            <div className="hp-lb-date">
+              {currentOrderPhoto.caption ? `${currentOrderPhoto.caption} · ` : ''}{fmtPhotoDate(currentOrderPhoto.createdAt)}
+            </div>
+            <div className="hp-lb-nav">
+              {opIdx > 0 && (
+                <button className="hp-lb-nav-btn" onClick={() => setOpIdx(i => i - 1)}>← Prev</button>
+              )}
+              {opIdx < orderPhotos.length - 1 && (
+                <button className="hp-lb-nav-btn" onClick={() => setOpIdx(i => i + 1)}>Next →</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tooltip for canvas dots */}
       <div ref={dotTipRef} className="hp-dot-tip" aria-hidden="true" />
     </>
@@ -656,6 +741,27 @@ body::before {
 }
 .hp-hero-name em { font-style: italic; color: #AE5E16; }
 .hp-hero-sub { font-size: 15px; color: #6A5340; margin: 0; }
+/* ── Recent order photos ── */
+.hp-photos-section { margin-bottom: 32px; }
+.hp-photos-strip {
+  display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none;
+}
+.hp-photos-strip::-webkit-scrollbar { display: none; }
+.hp-photo-card {
+  flex-shrink: 0; width: 128px; padding: 0; border: none; background: none; cursor: pointer;
+  display: flex; flex-direction: column; gap: 6px; text-align: left;
+}
+.hp-photo-card img {
+  width: 128px; height: 128px; object-fit: cover; border-radius: 14px;
+  border: 1px solid rgba(44,27,16,.14); background: #F3E8CF;
+  transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.hp-photo-card:hover img {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px -6px rgba(44,27,16,.22);
+  border-color: rgba(217,131,36,.4);
+}
+.hp-photo-date { font-size: 11px; color: #6A5340; padding-left: 2px; }
 /* ── Trust banner ── */
 .hp-trust-banner {
   display: flex; align-items: flex-start; gap: 14px;
