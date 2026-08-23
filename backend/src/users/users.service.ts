@@ -129,7 +129,14 @@ export class UsersService {
   }
 
   async resetPin(id: string, businessId: string, dto: ResetPinDto, resetBy: { id: string; fullName: string }) {
-    await this.findOne(id, businessId);
+    const user = await this.findOne(id, businessId);
+
+    // Same protection as update()/toggleActive() — without this, a
+    // BRANCH_MANAGER (allowed to call this endpoint) could reset the
+    // owner's login PIN to a known value and log in as the owner.
+    if (user.role === 'SUPER_ADMIN' && resetBy.id !== id) {
+      throw new ForbiddenException('Cannot reset the owner account\'s PIN');
+    }
 
     const pinHash = await argon2.hash(dto.newPin, { type: argon2.argon2id });
 

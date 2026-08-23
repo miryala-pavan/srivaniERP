@@ -136,8 +136,8 @@ export class TdsService {
     });
   }
 
-  async getLedgerEntry(id: string) {
-    const e = await this.prisma.tdsEntry.findUnique({ where: { id } });
+  async getLedgerEntry(id: string, businessId: string) {
+    const e = await this.prisma.tdsEntry.findFirst({ where: { id, businessId } });
     if (!e) throw new NotFoundException('TDS entry not found');
     return e;
   }

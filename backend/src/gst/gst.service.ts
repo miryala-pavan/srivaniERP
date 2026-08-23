@@ -259,8 +259,8 @@ export class GstService {
     return { taxPeriod, gstr1, gstr3b, returnId: gstr1Return.id };
   }
 
-  async getReturn(id: string) {
-    const r = await this.prisma.gstReturn.findUnique({ where: { id } });
+  async getReturn(id: string, businessId: string) {
+    const r = await this.prisma.gstReturn.findFirst({ where: { id, businessId } });
     if (!r) throw new NotFoundException('GST return not found');
     return r;
   }
@@ -272,8 +272,8 @@ export class GstService {
     });
   }
 
-  async markFiled(id: string) {
-    const r = await this.prisma.gstReturn.findUnique({ where: { id } });
+  async markFiled(id: string, businessId: string) {
+    const r = await this.prisma.gstReturn.findFirst({ where: { id, businessId } });
     if (!r) throw new NotFoundException('GST return not found');
     if (r.status !== 'COMPUTED')
       throw new BadRequestException('Only COMPUTED returns can be marked as filed');

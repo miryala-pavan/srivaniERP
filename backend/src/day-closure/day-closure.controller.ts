@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { DayClosureService } from './day-closure.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @UseGuards(JwtAuthGuard)
 @Controller('day-closure')
@@ -28,7 +30,12 @@ export class DayClosureController {
     return this.service.open(u.businessId, u.id ?? u.userId, u.fullName ?? u.username ?? 'Manager');
   }
 
+  // Forcibly ends every OTHER open shift for the business — a plain staff
+  // member forcing this can disrupt colleagues' active transactions or
+  // manipulate end-of-day cash-reconciliation timing.
   @Post('force-close-shifts')
+  @UseGuards(RolesGuard)
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   forceCloseShifts(@Request() req: any) {
     return this.service.forceCloseShifts(req.user.businessId, req.user.fullName ?? req.user.username ?? 'Manager');
   }

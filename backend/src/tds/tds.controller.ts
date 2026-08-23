@@ -9,10 +9,15 @@ import {
   Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { TdsService } from './tds.service';
 import type { TdsComputationInput } from './tds.service';
 
-@UseGuards(JwtAuthGuard)
+const TDS_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'];
+
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(...TDS_ROLES)
 @Controller('tds')
 export class TdsController {
   constructor(private readonly tds: TdsService) {}
@@ -52,8 +57,8 @@ export class TdsController {
   }
 
   @Get('ledger/:id')
-  getLedgerEntry(@Param('id') id: string) {
-    return this.tds.getLedgerEntry(id);
+  getLedgerEntry(@Param('id') id: string, @Request() req: any) {
+    return this.tds.getLedgerEntry(id, req.user.businessId);
   }
 
   @Post('ledger/:id/recompute')
