@@ -10,6 +10,8 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { canViewCost } from '../common/helpers/cost-visibility';
 
 @UseGuards(JwtAuthGuard)
@@ -343,7 +345,14 @@ export class ProductsController {
     return this.productsService.setDefaultPlu(req.user.businessId, id, pluId);
   }
 
+  // Deactivating a PLU that still holds stock silently drops that stock
+  // from every isActive:true aggregate (FEFO candidates, Product.totalStock)
+  // — the rest of this controller has no role gate at all (out of scope to
+  // add broadly here), but this specific action is stock-destructive enough
+  // to restrict on its own.
   @Post(':id/plus/:pluId/deactivate')
+  @UseGuards(RolesGuard)
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   deactivatePlu(
     @Request() req: any,
     @Param('id') id: string,

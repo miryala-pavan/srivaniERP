@@ -8,12 +8,17 @@ import {
   UseGuards,
   Request,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { JournalService } from '../platform/ledger/journal.service';
 import { ChartOfAccountsService } from '../platform/ledger/chart-of-accounts.service';
 import { FiscalPeriodService } from '../platform/ledger/fiscal-period.service';
 import { PrismaService } from '../prisma/prisma.service';
+
+const LEDGER_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'];
 
 /** Account type groupings for financial statements */
 const ASSET_TYPES = ['ASSET', 'CURRENT_ASSET', 'FIXED_ASSET', 'BANK', 'CASH'];
@@ -22,7 +27,11 @@ const EQUITY_TYPES = ['EQUITY', 'CAPITAL', 'RESERVE'];
 const REVENUE_TYPES = ['REVENUE', 'INCOME', 'OTHER_INCOME'];
 const EXPENSE_TYPES = ['EXPENSE', 'COGS', 'OPERATING_EXPENSE', 'OTHER_EXPENSE'];
 
-@UseGuards(JwtAuthGuard)
+// Was JwtAuthGuard only — any authenticated user of any role could post or
+// reverse arbitrary journal entries directly against the general ledger,
+// bypassing every business-logic check the rest of the app goes through.
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(...LEDGER_ROLES)
 @Controller('ledger')
 export class LedgerApiController {
   constructor(
@@ -71,6 +80,17 @@ export class LedgerApiController {
   ) {
     const businessId: string = req.user.businessId;
 
+    // A negative debit/credit can still satisfy the balance check (it's just
+    // arithmetic) while producing an effect opposite to what the sign
+    // implies — e.g. a "negative debit" to an asset account is really a
+    // credit in disguise. Reject rather than let that through as a manual
+    // journal.
+    for (const l of body.lines) {
+      if ((l.debit ?? 0) < 0 || (l.credit ?? 0) < 0) {
+        throw new BadRequestException('debit and credit amounts must not be negative');
+      }
+    }
+
     // Resolve account codes → IDs
     const lines = await Promise.all(
       body.lines.map(async (l) => {
@@ -116,9 +136,9 @@ export class LedgerApiController {
   }
 
   @Get('journals/:id')
-  async getJournal(@Param('id') id: string) {
-    const j = await this.prisma.journal.findUnique({
-      where: { id },
+  async getJournal(@Request() req: any, @Param('id') id: string) {
+    const j = await this.prisma.journal.findFirst({
+      where: { id, businessId: req.user.businessId },
       include: { lines: { include: { account: true } }, fiscalPeriod: true },
     });
     if (!j) throw new NotFoundException('Journal not found');
@@ -131,7 +151,7 @@ export class LedgerApiController {
     @Request() req: any,
     @Body() body: { reason: string },
   ) {
-    return this.journalSvc.reverse(id, body.reason ?? 'Manual reversal', req.user.sub);
+    return this.journalSvc.reverse(id, body.reason ?? 'Manual reversal', req.user.sub, req.user.businessId);
   }
 
   // ── Trial Balance ─────────────────────────────────────────────────────────

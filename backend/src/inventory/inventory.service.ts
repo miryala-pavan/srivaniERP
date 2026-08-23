@@ -161,67 +161,79 @@ export class InventoryService {
     const validIds = new Set(products.map(p => p.id));
 
     const errors: { productId: string; error: string }[] = [];
-    const creates: any[] = [];
-    const validItems: typeof dto.items = [];
+    let createdCount = 0;
 
+    // Stock-take is a reconciliation against a physical count, not a
+    // receipt — the frontend shows staff the current system stock next to
+    // the count they enter. Treating item.quantity as an increment (the
+    // previous behavior) added the counted amount on TOP of existing stock
+    // every time this ran, and could never record a downward correction
+    // (shrinkage/theft) at all. Now computed as counted-vs-current variance,
+    // applied per item in its own transaction so a failure partway through
+    // a large stock-take doesn't leave ledger rows without matching PLU
+    // updates for the items already processed.
     for (const item of dto.items) {
       if (!validIds.has(item.productId)) {
         errors.push({ productId: item.productId, error: 'Product not found' });
         continue;
       }
-      creates.push({
-        businessId,
-        branchId:      dto.branchId,
-        productId:     item.productId,
-        movementType:  'OPENING_STOCK' as any,
-        quantity:      item.quantity,
-        referenceType: 'STOCK_TAKE',
-        notes:         dto.sessionName ?? 'Opening Stock',
-      });
-      validItems.push(item);
-    }
 
-    if (creates.length > 0) {
-      await this.prisma.stockLedger.createMany({ data: creates });
-
-      // Also sync PLU.stockOnHand and Product.totalStock so POS sees the stock immediately
-      for (const item of validItems) {
-        const defaultPlu = await this.prisma.productPlu.findFirst({
+      await this.prisma.$transaction(async (tx) => {
+        const defaultPlu = await tx.productPlu.findFirst({
           where: { productId: item.productId, businessId, isDefault: true, isArchived: false },
           orderBy: { createdAt: 'desc' },
         });
+        const currentQty = defaultPlu ? Number(defaultPlu.stockOnHand) : 0;
+        const countedQty = Number(item.quantity);
+        const variance = countedQty - currentQty;
+
+        await tx.stockLedger.create({
+          data: {
+            businessId,
+            branchId:      dto.branchId,
+            productId:     item.productId,
+            movementType:  'OPENING_STOCK' as any,
+            quantity:      variance,
+            referenceType: 'STOCK_TAKE',
+            notes:         dto.sessionName ?? 'Stock Take',
+          },
+        });
+
         if (defaultPlu) {
-          await this.prisma.productPlu.update({
+          await tx.productPlu.update({
             where: { id: defaultPlu.id },
             data: {
-              stockOnHand: { increment: item.quantity },
-              receivedQty: { increment: item.quantity },
-              isActive:    true,
+              stockOnHand: countedQty,
+              // A downward correction isn't a receipt — only count positive
+              // variance toward the lifetime "total ever received" figure.
+              ...(variance > 0 ? { receivedQty: { increment: variance } } : {}),
+              isActive: true,
             },
           });
-          // Recalculate Product.totalStock from all active PLUs
-          const agg = await this.prisma.productPlu.aggregate({
+          const agg = await tx.productPlu.aggregate({
             where: { productId: item.productId, isActive: true, isArchived: false },
             _sum:  { stockOnHand: true },
           });
-          await this.prisma.product.update({
+          await tx.product.update({
             where: { id: item.productId },
             data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
           });
         }
-      }
+      });
+
+      createdCount++;
     }
 
     try {
       this.eventsService.emitToBusiness(businessId, Events.INVENTORY_STOCK_ADJUSTED, {
         stockTakeId,
-        productCount: creates.length,
+        productCount: createdCount,
         branchId:     dto.branchId,
         performedBy:  userId,
       });
     } catch (_err) { /* fire-and-forget */ }
 
-    return { created: creates.length, errors };
+    return { created: createdCount, errors };
   }
 
   async getStockTakeTemplate(businessId: string): Promise<string> {

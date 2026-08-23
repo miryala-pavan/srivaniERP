@@ -964,10 +964,18 @@ export class ProductsService {
           const seq = String(existingPlus + 1).padStart(3, '0');
           const newPluCode = `${updated.productCode}${seq}`;
 
+          // The old PLU's stockOnHand is real, physically-present stock —
+          // archiving it with stockOnHand left untouched silently dropped
+          // that stock from every isActive:true aggregate (FEFO candidates,
+          // Product.totalStock) with no code path to ever recover it. Carry
+          // it forward onto the new default PLU instead; zero it on the
+          // archived one so it can't also be double-counted if anything
+          // ever aggregates without an isArchived filter.
+          const carriedStock = Number(defaultPlu.stockOnHand);
           const [_archived, newPlu] = await this.prisma.$transaction([
             this.prisma.productPlu.update({
               where: { id: defaultPlu.id },
-              data: { isDefault: false, isActive: false, isArchived: true, archivedAt: new Date(), archivedReason: 'Price changed' },
+              data: { isDefault: false, isActive: false, isArchived: true, archivedAt: new Date(), archivedReason: 'Price changed', stockOnHand: 0 },
             }),
             this.prisma.productPlu.create({
               data: {
@@ -975,7 +983,7 @@ export class ProductsService {
                 costPrice: dto.costPrice ?? Number(product.costPrice ?? 0),
                 mrp: dto.mrp ?? Number(product.mrp),
                 sellingPrice: dto.sellingPrice ?? Number(product.sellingPrice),
-                receivedQty: 0, soldQty: 0, stockOnHand: 0,
+                receivedQty: 0, soldQty: 0, stockOnHand: carriedStock,
                 isDefault: true, isActive: true, isArchived: false,
                 createdByName: 'System (price change)',
                 // Carry forward unit info from the PLU being archived — it must not be silently lost on a price change.

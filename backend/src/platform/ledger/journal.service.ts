@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -67,11 +68,16 @@ export class JournalService {
     });
   }
 
-  async reverse(journalId: string, reason: string, userId?: string) {
-    const original = await this.prisma.journal.findUniqueOrThrow({
-      where: { id: journalId },
+  async reverse(journalId: string, reason: string, userId?: string, businessId?: string) {
+    // businessId scoping is optional here only so any other internal caller
+    // that doesn't have it handy still compiles — the one HTTP entry point
+    // (ledger-api.controller.ts) always passes it, closing what would
+    // otherwise be a cross-tenant reversal (any business's journal id).
+    const original = await this.prisma.journal.findFirst({
+      where: { id: journalId, ...(businessId ? { businessId } : {}) },
       include: { lines: true },
     });
+    if (!original) throw new NotFoundException('Journal not found');
 
     if (original.status !== 'POSTED') {
       throw new BadRequestException('Only POSTED journals can be reversed');
