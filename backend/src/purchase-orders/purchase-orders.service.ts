@@ -216,6 +216,17 @@ export class PurchaseOrdersService {
     });
     if (!po) throw new NotFoundException('Purchase order not found');
 
+    // itemId has no businessId of its own — without this, any caller with
+    // access to *some* PO could pass an arbitrary itemId belonging to a
+    // different PO (potentially a different business's) and overwrite its
+    // received quantity directly.
+    if (!po.items.some(i => i.id === itemId)) {
+      throw new BadRequestException('Item does not belong to this purchase order');
+    }
+    if (!Number.isFinite(qtyReceived) || qtyReceived < 0) {
+      throw new BadRequestException('qtyReceived must be a non-negative number');
+    }
+
     await this.prisma.purchaseOrderItem.update({
       where: { id: itemId },
       data: { qtyReceived },
@@ -341,6 +352,15 @@ export class PurchaseOrdersService {
     const grandTotal = this.r2(taxableTotal + cgstTotal + sgstTotal + igstTotal);
 
     const purchase = await this.prisma.$transaction(async (tx) => {
+      // Re-check status fresh inside the transaction — the `po` read above
+      // happened before this transaction opened, so a concurrent receive
+      // (double-click, or two invoices for one PO arriving close together)
+      // could have already changed it.
+      const freshPo = await tx.purchaseOrder.findFirst({ where: { id: poId, businessId } });
+      if (!freshPo || ['RECEIVED', 'CANCELLED'].includes(freshPo.status)) {
+        throw new ConflictException('This purchase order was already received or cancelled by another request');
+      }
+
       const created = await tx.purchase.create({
         data: {
           businessId,
@@ -377,10 +397,19 @@ export class PurchaseOrdersService {
       for (const item of po.items) {
         const remaining = remainingByItem.get(item.id) ?? 0;
         if (remaining > 0) {
-          await tx.purchaseOrderItem.update({
-            where: { id: item.id },
+          // Conditional write guarded by the qtyReceived we read before this
+          // transaction opened: if a concurrent request already changed it
+          // (e.g. a second createGrnFromPo/updateReceived call landed first),
+          // this matches 0 rows and the whole transaction — including the
+          // Purchase row already created above — rolls back, instead of
+          // silently double-receiving the same items.
+          const result = await tx.purchaseOrderItem.updateMany({
+            where: { id: item.id, qtyReceived: item.qtyReceived },
             data:  { qtyReceived: Number(item.qtyOrdered) },
           });
+          if (result.count === 0) {
+            throw new ConflictException('This purchase order was updated by another request — please retry');
+          }
         }
       }
 

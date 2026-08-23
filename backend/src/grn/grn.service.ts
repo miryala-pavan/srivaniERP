@@ -459,6 +459,29 @@ export class GrnService {
     if (!existing) throw new NotFoundException('GRN not found');
     if (existing.status === 'CANCELLED') throw new BadRequestException('Cannot edit a cancelled GRN');
 
+    // An APPROVED GRN has already added stock (via syncPluOnApproval, which does
+    // complex per-line PLU matching/creation — not a simple increment). Changing
+    // supplier/invoice number here used to reset status to DRAFT without reversing
+    // that stock, so re-approving added it a second time; changing item quantities
+    // updated the StockLedger audit row but never touched the live ProductPlu
+    // stock it's supposed to mirror, silently desyncing the two. Neither path can
+    // be made safe with a simple patch — a correct fix needs a real "amend an
+    // approved GRN" flow that properly reverses the original PLU-matching effects
+    // first, which doesn't exist yet. Block both until that's built.
+    if (existing.status === 'APPROVED') {
+      const changesSupplierOrInvoice =
+        (dto.supplierId !== undefined && dto.supplierId !== existing.supplierId) ||
+        (dto.invoiceNumber !== undefined && dto.invoiceNumber !== existing.invoiceNumber);
+      const changesItems = !!(dto.items && dto.items.length > 0);
+      if (changesSupplierOrInvoice || changesItems) {
+        throw new BadRequestException(
+          'Cannot change supplier, invoice number, or item quantities on an approved GRN — ' +
+          'it has already added stock, and editing those fields in place would corrupt live ' +
+          'stock counts. Contact support for a manual correction.',
+        );
+      }
+    }
+
     const existingStatus = existing.status;
     const majorChange = existingStatus === 'APPROVED' && (
       (dto.supplierId !== undefined && dto.supplierId !== existing.supplierId) ||
