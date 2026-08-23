@@ -112,12 +112,17 @@ export class CustomersController {
   }
 
   @Delete(':id/payments/:pid')
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   deletePayment(
     @Request() req: any,
     @Param('id') id: string,
     @Param('pid') pid: string,
   ) {
-    return this.customersService.deletePayment(req.user.businessId, id, pid);
+    return this.customersService.deletePayment(req.user.businessId, id, pid, {
+      userId:   req.user.userId,
+      userName: req.user.fullName ?? req.user.username ?? 'Unknown',
+      userRole: req.user.role,
+    });
   }
 
   @Get(':id/addresses')

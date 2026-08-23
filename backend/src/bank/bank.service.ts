@@ -673,11 +673,19 @@ export class BankService {
         });
       }
 
-      // Link every selected bank txn to this payment
-      await tx.bankTransaction.updateMany({
-        where: { id: { in: dto.bankTransactionIds } },
+      // Link every selected bank txn to this payment — conditional on still
+      // being UNMATCHED, closing the race where two concurrent match calls
+      // for the same transaction(s) could both pass the pre-transaction
+      // check above and each create a SupplierPayment for the same bank
+      // debit (the exact failure mode the earlier duplicate-payment fix
+      // addressed elsewhere, but not here).
+      const linked = await tx.bankTransaction.updateMany({
+        where: { id: { in: dto.bankTransactionIds }, matchStatus: 'UNMATCHED' },
         data: { matchStatus: 'MATCHED', supplierPaymentId: created.id, supplierId, matchedBySystem: false },
       });
+      if (linked.count !== dto.bankTransactionIds.length) {
+        throw new BadRequestException('One or more selected transactions were matched by another request — please retry');
+      }
 
       return created;
     });
@@ -749,14 +757,21 @@ export class BankService {
         });
       }
 
-      await tx.bankTransaction.update({
-        where: { id: txn.id },
+      // Conditional on still UNMATCHED — same race as matchGroup() above:
+      // this runs fire-and-forget after every GRN approval for the supplier,
+      // so two approvals close together could both reach here for the same
+      // bank transaction before either commits.
+      const linked = await tx.bankTransaction.updateMany({
+        where: { id: txn.id, matchStatus: 'UNMATCHED' },
         data: {
           matchStatus:       'MATCHED',
           supplierPaymentId: payment.id,
           matchedBySystem:   true,
         },
       });
+      if (linked.count === 0) {
+        throw new BadRequestException('Bank transaction was already matched by another request');
+      }
 
       return payment;
     });

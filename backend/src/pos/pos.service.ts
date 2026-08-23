@@ -306,10 +306,14 @@ export class PosService {
     });
     if (!counter) throw new NotFoundException('Counter not found');
 
+    // Scoped to the caller (cashierId) and the counter being billed against
+    // (already businessId-validated above) — dto.shiftId is client-supplied,
+    // so without this a cashier could bill against any other open shift's
+    // id and silently corrupt that shift's cash/sales totals.
     const shift = await this.prisma.posShift.findFirst({
-      where: { id: dto.shiftId, status: 'OPEN' },
+      where: { id: dto.shiftId, status: 'OPEN', cashierId: userId, counterId: dto.counterId },
     });
-    if (!shift) throw new NotFoundException('Shift not found or already closed');
+    if (!shift) throw new NotFoundException('Shift not found, already closed, or does not belong to you');
 
     // Block billing if day not opened or already closed
     const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
@@ -391,6 +395,17 @@ export class PosService {
         throw new BadRequestException(
           `GST rate ${gstRate}% for "${product.name}" is not a valid Indian GST rate. ` +
           `Valid rates: ${[...VALID_GST_RATES].sort((a, b) => a - b).join(', ')}%`,
+        );
+      }
+
+      // Selling above the printed MRP is illegal under the Legal Metrology
+      // (Packaged Commodities) Rules, 2011 — hard block, not a warning, and
+      // enforced here (not just client-side) so a direct API call can't
+      // bypass it.
+      const productMrp = Number(product.mrp ?? 0);
+      if (productMrp > 0 && item.unitPrice > productMrp + 0.01) {
+        throw new BadRequestException(
+          `Selling price ₹${item.unitPrice} for "${product.name}" exceeds its MRP of ₹${productMrp}`,
         );
       }
 
@@ -629,11 +644,15 @@ export class PosService {
           businessGstin:     business.gstin ?? null,
           businessAddress:   business.address ?? null,
           financialYearCode: fy.fyCode,
-          cashAmount: dto.paymentMode === PaymentModeEnum.CASH  ? r2(dto.cashAmount ?? grandTotal) :
+          // paidAmount, not grandTotal — dto.paidAmount can be less than
+          // grandTotal for partial/credit sales, and these snapshot fields
+          // (plus the shift totals below) must reflect what was actually
+          // collected, not the full bill value.
+          cashAmount: dto.paymentMode === PaymentModeEnum.CASH  ? r2(dto.cashAmount ?? paidAmount) :
                       dto.paymentMode === PaymentModeEnum.SPLIT ? r2(dto.cashAmount ?? 0) : null,
-          upiAmount:  dto.paymentMode === PaymentModeEnum.UPI   ? grandTotal :
+          upiAmount:  dto.paymentMode === PaymentModeEnum.UPI   ? r2(paidAmount) :
                       dto.paymentMode === PaymentModeEnum.SPLIT ? r2(dto.upiAmount ?? 0) : null,
-          cardAmount: dto.paymentMode === PaymentModeEnum.CARD  ? grandTotal :
+          cardAmount: dto.paymentMode === PaymentModeEnum.CARD  ? r2(paidAmount) :
                       dto.paymentMode === PaymentModeEnum.SPLIT ? r2(dto.cardAmount ?? 0) : null,
         },
       });
@@ -744,11 +763,11 @@ export class PosService {
         totalBills: { increment: 1 },
       };
       if (dto.paymentMode === PaymentModeEnum.CASH) {
-        shiftInc.totalCash = { increment: grandTotal };
+        shiftInc.totalCash = { increment: paidAmount };
       } else if (dto.paymentMode === PaymentModeEnum.UPI) {
-        shiftInc.totalUpi = { increment: grandTotal };
+        shiftInc.totalUpi = { increment: paidAmount };
       } else if (dto.paymentMode === PaymentModeEnum.CARD) {
-        shiftInc.totalCard = { increment: grandTotal };
+        shiftInc.totalCard = { increment: paidAmount };
       } else if (dto.paymentMode === PaymentModeEnum.SPLIT) {
         if (dto.cashAmount) shiftInc.totalCash = { increment: r2(dto.cashAmount) };
         if (dto.upiAmount)  shiftInc.totalUpi  = { increment: r2(dto.upiAmount) };
@@ -767,6 +786,19 @@ export class PosService {
       // 6g. Loyalty points earn/redeem — atomic with the bill itself, so a
       // redeemed discount is never granted without the debit actually landing.
       if (dto.customerId && (loyaltyNetDelta !== 0 || loyaltyPointsEarned > 0)) {
+        if (loyaltyPointsToRedeem > 0) {
+          // The redemption cap above was checked against a read taken before
+          // this transaction opened — re-verify fresh here so two nearly-
+          // simultaneous bills redeeming the same customer's full balance
+          // can't both pass and leave loyaltyPoints negative.
+          const freshCustomer = await tx.customer.findUnique({
+            where: { id: dto.customerId },
+            select: { loyaltyPoints: true },
+          });
+          if (!freshCustomer || freshCustomer.loyaltyPoints < loyaltyPointsToRedeem) {
+            throw new BadRequestException('Loyalty point balance changed — please retry this sale');
+          }
+        }
         await tx.customer.update({
           where: { id: dto.customerId },
           data: { loyaltyPoints: { increment: loyaltyNetDelta } },
@@ -1619,6 +1651,24 @@ export class PosService {
         await tx.posShift.update({ where: { id: bill.shiftId }, data: shiftDec });
       }
 
+      // Reverse this bill's effect on the customer — a credit sale's
+      // outstanding balance, and any loyalty points earned/redeemed on it.
+      // Without this, a voided sale permanently leaves the customer's
+      // balance and points as if the sale had gone through.
+      if (bill.customerId) {
+        const customerDec: Record<string, any> = {};
+        if (bill.saleType === 'CREDIT') {
+          customerDec.outstandingBalance = { decrement: Number(bill.balanceAmount) };
+        }
+        const netLoyaltyToReverse = Number(bill.loyaltyPointsEarned) - Number(bill.loyaltyPointsRedeemed);
+        if (netLoyaltyToReverse !== 0) {
+          customerDec.loyaltyPoints = { decrement: netLoyaltyToReverse };
+        }
+        if (Object.keys(customerDec).length > 0) {
+          await tx.customer.update({ where: { id: bill.customerId }, data: customerDec });
+        }
+      }
+
       await tx.auditLog.create({
         data: {
           businessId,
@@ -1708,15 +1758,29 @@ export class PosService {
     if (!originalBill) throw new NotFoundException('Original bill not found or not finalized');
     if (originalBill.isVoided) throw new BadRequestException('Cannot create credit note for a voided bill');
 
-    // Validate items exist in original bill
+    // Validate items exist in original bill, and cap against what's already
+    // been returned via earlier credit notes — without this, repeated credit
+    // notes against the same bill could each restore up to the full original
+    // quantity, over and over.
     const originalItemMap = new Map(originalBill.items.map((i) => [i.productId, i]));
+    const priorReturned = await this.prisma.creditNoteItem.groupBy({
+      by: ['productId'],
+      where: { creditNote: { originalBillId: dto.originalBillId, businessId } },
+      _sum: { quantity: true },
+    });
+    const priorReturnedMap = new Map(priorReturned.map((p) => [p.productId, Number(p._sum.quantity ?? 0)]));
     for (const item of dto.items) {
       const orig = originalItemMap.get(item.productId);
       if (!orig) throw new BadRequestException(`Product ${item.productId} not found in original bill`);
-      if (item.quantity > Number(orig.quantity)) {
-        throw new BadRequestException(`Cannot return more than purchased quantity for ${orig.productName}`);
+      const alreadyReturned = priorReturnedMap.get(item.productId) ?? 0;
+      if (alreadyReturned + item.quantity > Number(orig.quantity)) {
+        throw new BadRequestException(
+          `Cannot return more than purchased quantity for ${orig.productName} ` +
+          `(${alreadyReturned} of ${orig.quantity} already returned)`,
+        );
       }
     }
+    const isInterState = Number(originalBill.igstTotal) > 0;
 
     // Get or create CN bill series
     const fy = await this.prisma.financialYear.findFirst({
@@ -1729,11 +1793,11 @@ export class PosService {
 
     // Calculate amounts
     const r2 = (n: number) => Math.round(n * 100) / 100;
-    let subtotalAmount = 0, cgstAmount = 0, sgstAmount = 0, taxAmount = 0, totalAmount = 0;
+    let subtotalAmount = 0, cgstAmount = 0, sgstAmount = 0, igstAmount = 0, taxAmount = 0, totalAmount = 0;
     const cnItems: Array<{
       productId: string; productName: string; hsnCode: string | null;
       quantity: number; unitPrice: number; gstRatePercent: number;
-      cgstAmount: number; sgstAmount: number; totalAmount: number;
+      cgstAmount: number; sgstAmount: number; igstAmount: number; totalAmount: number;
     }> = [];
 
     for (const item of dto.items) {
@@ -1742,12 +1806,17 @@ export class PosService {
       const lineTotal = r2(item.unitPrice * item.quantity);
       const taxable  = r2(lineTotal / (1 + gstRate / 100));
       const tax      = r2(lineTotal - taxable);
-      const cgst     = r2(tax / 2);
-      const sgst     = r2(tax - cgst);
+      // Match the original bill's inter-/intra-state classification — a
+      // credit note against an interstate B2B invoice must book IGST, not
+      // CGST+SGST, or it misreports the tax head on GSTR-1.
+      const cgst = isInterState ? 0 : r2(tax / 2);
+      const sgst = isInterState ? 0 : r2(tax - cgst);
+      const igst = isInterState ? tax : 0;
 
       subtotalAmount += lineTotal;
       cgstAmount     += cgst;
       sgstAmount     += sgst;
+      igstAmount     += igst;
       taxAmount      += tax;
       totalAmount    += lineTotal;
 
@@ -1760,6 +1829,7 @@ export class PosService {
         gstRatePercent: gstRate,
         cgstAmount:     cgst,
         sgstAmount:     sgst,
+        igstAmount:     igst,
         totalAmount:    lineTotal,
       });
     }
@@ -1806,6 +1876,7 @@ export class PosService {
           taxAmount:      r2(taxAmount),
           cgstAmount:     r2(cgstAmount),
           sgstAmount:     r2(sgstAmount),
+          igstAmount:     r2(igstAmount),
           totalAmount:    r2(totalAmount),
           refundMode:     dto.refundMode,
           refundStatus:   'PENDING',
@@ -1821,6 +1892,7 @@ export class PosService {
               gstRatePercent: i.gstRatePercent,
               cgstAmount:     i.cgstAmount,
               sgstAmount:     i.sgstAmount,
+              igstAmount:     i.igstAmount,
               totalAmount:    i.totalAmount,
             })),
           },

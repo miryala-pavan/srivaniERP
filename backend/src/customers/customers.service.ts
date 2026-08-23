@@ -666,13 +666,27 @@ export class CustomersService {
 
   // ─── ENDPOINT J: DELETE PAYMENT ───────────────────────────────────────────────
 
-  async deletePayment(businessId: string, customerId: string, paymentId: string) {
+  async deletePayment(
+    businessId: string, customerId: string, paymentId: string,
+    actor: { userId: string; userName: string; userRole: string },
+  ) {
     const payment = await this.prisma.customerPayment.findFirst({
       where: { id: paymentId, customerId, businessId },
     });
     if (!payment) throw new NotFoundException('Payment not found');
 
     await this.prisma.customerPayment.delete({ where: { id: paymentId } });
+
+    // A cash-collection record disappearing with no trace is exactly the
+    // failure mode this is meant to catch — unlike the endpoint's role gate
+    // (which stops it happening), this is the forensic record if it does.
+    this.auditLog.log({ ...actor, businessId }, {
+      action: 'DELETE',
+      entity: 'CUSTOMER_PAYMENT',
+      entityId: paymentId,
+      description: `Deleted payment of ₹${Number(payment.amount).toFixed(2)} (${payment.paymentMode}) for customer ${customerId} by ${actor.userName}`,
+      meta: { customerId, amount: Number(payment.amount), paymentMode: payment.paymentMode },
+    }).catch(() => {});
 
     this.eventsService.emitToBusiness(businessId, Events.CUSTOMER_PAYMENT_DELETED, {
       paymentId,
