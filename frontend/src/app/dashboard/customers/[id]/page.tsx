@@ -11,6 +11,7 @@ import {
   ArrowRight, BookOpen, FileText,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { getUser } from '@/lib/auth';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
 import { BackButton } from '@/components/shared/BackButton';
@@ -211,6 +212,9 @@ export default function CustomerDetailPage() {
   const { id }        = useParams<{ id: string }>();
   const qc            = useQueryClient();
   const { connected } = useWebSocket();
+
+  const currentUser = getUser<{ role: string }>();
+  const canEditCreditLimit = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'].includes(currentUser?.role ?? '');
 
   const [activeTab, setActiveTab] = useState<Tab>('timeline');
   const [billPage,  setBillPage]  = useState(1);
@@ -1852,8 +1856,12 @@ export default function CustomerDetailPage() {
                     type="number" min={0}
                     value={editForm.creditLimit ?? 0}
                     onChange={e => setEditForm((f: any) => ({ ...f, creditLimit: Number(e.target.value) }))}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]"
+                    disabled={!canEditCreditLimit}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] disabled:bg-gray-50 disabled:text-gray-400"
                   />
+                  {!canEditCreditLimit && (
+                    <p className="text-[11px] text-gray-400">Only a manager or accounts staff can change the credit limit</p>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-gray-600">Status</label>

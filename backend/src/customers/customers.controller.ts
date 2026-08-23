@@ -199,7 +199,11 @@ export class CustomersController {
 
   @Put(':id')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateCustomerDto) {
-    return this.customersService.update(req.user.businessId, id, dto);
+    return this.customersService.update(req.user.businessId, id, dto, {
+      userId:   req.user.userId,
+      userName: req.user.fullName ?? req.user.username ?? 'Unknown',
+      userRole: req.user.role,
+    });
   }
 
   @Patch(':id/deactivate')

@@ -488,9 +488,16 @@ export class WhatsAppService implements OnModuleInit {
       where: { businessId, phone: to },
       select: {
         id: true, name: true, email: true, customerCode: true,
-        outstandingBalance: true, creditLimit: true, loyaltyPoints: true,
+        creditLimit: true, loyaltyPoints: true,
       },
     });
+    // Customer.outstandingBalance is a write-side cache that only ever gets
+    // incremented (credit sales) or decremented (voids) — recordPayment()/
+    // deletePayment() never touch it, so it drifts upward forever and never
+    // reflects a customer actually paying. computeCustomerOutstanding()
+    // recomputes from bills/payments/credit-notes fresh, matching what the
+    // Customer 360 page and credit-limit check already show/use.
+    const outstandingBalance = customer ? await this.computeCustomerOutstanding(businessId, customer.id) : null;
     const [orderCount, lastOrder, posBillCount, lastPosBill] = await Promise.all([
       this.prisma.onlineOrder.count({ where: { businessId, customerPhone: to } }),
       this.prisma.onlineOrder.findFirst({
@@ -511,7 +518,7 @@ export class WhatsAppService implements OnModuleInit {
       name:         customer?.name ?? null,
       email:        customer?.email ?? null,
       customerCode: customer?.customerCode ?? null,
-      outstandingBalance: customer?.outstandingBalance ?? null,
+      outstandingBalance,
       creditLimit:        customer?.creditLimit ?? null,
       loyaltyPoints:      customer?.loyaltyPoints ?? null,
       orderCount,
@@ -1586,6 +1593,29 @@ export class WhatsAppService implements OnModuleInit {
         relatedId: meta?.relatedId,
       },
     );
+  }
+
+  // Mirrors CustomersService.computeCustomerOutstanding() — see comment at
+  // its call site in getContactInfo() for why this can't just read
+  // Customer.outstandingBalance directly.
+  private async computeCustomerOutstanding(businessId: string, customerId: string): Promise<number> {
+    const [customer, billAgg, payAgg, creditNoteAgg] = await Promise.all([
+      this.prisma.customer.findFirst({ where: { id: customerId, businessId }, select: { openingBalance: true } }),
+      this.prisma.salesBill.aggregate({
+        where: { customerId, businessId, saleType: 'CREDIT' as any, status: 'FINAL' as any, isVoided: false },
+        _sum: { balanceAmount: true },
+      }),
+      this.prisma.customerPayment.aggregate({ where: { customerId, businessId }, _sum: { amount: true } }),
+      this.prisma.creditNote.aggregate({
+        where: { customerId, businessId, refundMode: 'STORE_CREDIT' },
+        _sum: { totalAmount: true },
+      }),
+    ]);
+    const opening       = Number(customer?.openingBalance ?? 0);
+    const totalBalance  = Number(billAgg._sum.balanceAmount ?? 0);
+    const totalPayments = Number(payAgg._sum.amount ?? 0);
+    const totalCredits  = Number(creditNoteAgg._sum.totalAmount ?? 0);
+    return opening + totalBalance - totalPayments - totalCredits;
   }
 
   // Normalize to E.164 Indian number (91XXXXXXXXXX)

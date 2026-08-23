@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, ConflictException, BadRequestException,
+  Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
@@ -362,9 +362,25 @@ export class CustomersService {
 
   // ─── ENDPOINT E: UPDATE ───────────────────────────────────────────────────────
 
-  async update(businessId: string, id: string, dto: UpdateCustomerDto) {
+  async update(
+    businessId: string, id: string, dto: UpdateCustomerDto,
+    actor?: { userId: string; userName: string; userRole: string },
+  ) {
     const customer = await this.prisma.customer.findFirst({ where: { id, businessId } });
     if (!customer) throw new NotFoundException('Customer not found');
+
+    // Credit limit controls how much unpaid CREDIT exposure this customer
+    // can carry — letting any cashier raise it with no trail is a direct
+    // fraud vector (inflate a limit, then run credit sales past what the
+    // business actually intended to risk on that customer).
+    const creditLimitChanged = dto.creditLimit !== undefined
+      && Number(dto.creditLimit) !== Number(customer.creditLimit);
+    if (creditLimitChanged) {
+      const allowedRoles = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'];
+      if (!actor || !allowedRoles.includes(actor.userRole)) {
+        throw new ForbiddenException('Only a manager or accounts staff can change a customer\'s credit limit');
+      }
+    }
 
     if (dto.phone && dto.phone !== customer.phone) {
       const conflict = await this.prisma.customer.findFirst({
@@ -403,6 +419,14 @@ export class CustomersService {
       customerId:   id,
       customerCode: updated.customerCode,
     });
+
+    if (creditLimitChanged && actor) {
+      this.auditLog.log({ ...actor, businessId }, {
+        action: 'UPDATE', entity: 'CUSTOMER_CREDIT_LIMIT', entityId: id,
+        description: `Credit limit changed from Rs.${customer.creditLimit} to Rs.${dto.creditLimit} for ${customer.name}`,
+        meta: { customerId: id, from: Number(customer.creditLimit), to: Number(dto.creditLimit) },
+      }).catch(() => {});
+    }
 
     return updated;
   }
