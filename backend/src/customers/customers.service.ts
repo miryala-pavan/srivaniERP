@@ -130,8 +130,14 @@ export class CustomersService {
         where: { customerId, businessId },
         _sum:  { amount: true },
       }),
+      // Only STORE_CREDIT notes create an ongoing account liability — a
+      // CASH/BANK_TRANSFER refund settles on the spot and was never added
+      // to outstandingBalance in the first place (createCreditNote only
+      // touches the customer record for STORE_CREDIT mode), so counting
+      // those here would subtract a debt that was never actually owed,
+      // artificially freeing up credit-limit headroom.
       this.prisma.creditNote.aggregate({
-        where: { customerId, businessId },
+        where: { customerId, businessId, refundMode: 'STORE_CREDIT' },
         _sum:  { totalAmount: true },
       }),
     ]);
