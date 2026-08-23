@@ -123,12 +123,20 @@ export class ReminderRuleCheckerService implements OnModuleInit, OnModuleDestroy
       // delivery success/failure is already tracked per-message on WaMessage
       // via logAndSend, same as every other outbound send. waSent here just
       // means "this rule fired for this customer" for cooldown/audit purposes.
-      await this.whatsapp.sendCreditReminder(businessId, {
-        customerName: c.name, customerPhone: c.phone, amountDue: outstanding,
-      });
-      await this.prisma.waReminderLog.create({
-        data: { ruleId, businessId, customerId: c.id, waSent: true },
-      });
+      // Wrapped per-customer so one throw (network blip, bad phone format)
+      // can't abort the rest of the batch — without this, everyone after
+      // the failing customer in this tick got silently skipped until the
+      // next hourly run.
+      try {
+        await this.whatsapp.sendCreditReminder(businessId, {
+          customerName: c.name, customerPhone: c.phone, amountDue: outstanding,
+        });
+        await this.prisma.waReminderLog.create({
+          data: { ruleId, businessId, customerId: c.id, waSent: true },
+        });
+      } catch (err) {
+        this.logger.error(`Credit reminder failed for customer ${c.id}: ${err}`);
+      }
     }
   }
 
@@ -149,12 +157,16 @@ export class ReminderRuleCheckerService implements OnModuleInit, OnModuleDestroy
 
     for (const c of candidates) {
       if (skip.has(c.id)) continue;
-      await this.whatsapp.sendReorderReminder(businessId, {
-        customerName: c.name, customerPhone: c.phone,
-      });
-      await this.prisma.waReminderLog.create({
-        data: { ruleId, businessId, customerId: c.id, waSent: true },
-      });
+      try {
+        await this.whatsapp.sendReorderReminder(businessId, {
+          customerName: c.name, customerPhone: c.phone,
+        });
+        await this.prisma.waReminderLog.create({
+          data: { ruleId, businessId, customerId: c.id, waSent: true },
+        });
+      } catch (err) {
+        this.logger.error(`Reorder reminder failed for customer ${c.id}: ${err}`);
+      }
     }
   }
 }

@@ -29,6 +29,7 @@ export class ReportsService {
     const conds: Prisma.Sql[] = [
       Prisma.sql`sb."businessId" = ${businessId}`,
       Prisma.sql`sb.status = 'FINAL'`,
+      Prisma.sql`sb."isVoided" = false`,
       Prisma.sql`sb."billDate" >= ${dayStart(start)}`,
       Prisma.sql`sb."billDate" <= ${dayEnd(end)}`,
     ];
@@ -256,6 +257,7 @@ export class ReportsService {
       where: {
         businessId,
         status: 'FINAL',
+        isVoided: false,
         billDate: { gte: dayStart(start), lte: dayEnd(end) },
       },
       _sum: {
@@ -307,7 +309,7 @@ export class ReportsService {
 
   // ─── 5. CASH vs SYSTEM (POS SHIFT SUMMARY) ────────────
 
-  async getCashSummary(businessId: string, query: CashSummaryDto) {
+  async getCashSummary(businessId: string, query: CashSummaryDto, restrictToCashierId?: string) {
     const targetDate = query.date ? new Date(query.date) : new Date();
 
     const conds: Prisma.Sql[] = [
@@ -316,6 +318,12 @@ export class ReportsService {
       Prisma.sql`ps."shiftDate" <= ${dayEnd(targetDate)}`,
     ];
     if (query.branchId) conds.push(Prisma.sql`ps."branchId" = ${query.branchId}`);
+    // A CASHIER-role caller only gets their own shifts — this endpoint has
+    // no @Roles guard (any authenticated staff member can hit it, by
+    // design, so a cashier can see their own shift without a manager),
+    // but that means without this filter a CASHIER got business-wide
+    // visibility into every other cashier's totals and cash mismatches.
+    if (restrictToCashierId) conds.push(Prisma.sql`ps."cashierId" = ${restrictToCashierId}`);
 
     type ShiftRow = {
       shift_id: string;
@@ -433,13 +441,13 @@ export class ReportsService {
       onlineTodayAgg,
     ] = await Promise.all([
       this.prisma.salesBill.aggregate({
-        where: { businessId, status: 'FINAL', billDate: { gte: todayS, lte: todayE } },
+        where: { businessId, status: 'FINAL', isVoided: false, billDate: { gte: todayS, lte: todayE } },
         _sum:   { grandTotal: true },
         _count: { id: true },
       }),
 
       this.prisma.salesBill.aggregate({
-        where: { businessId, status: 'FINAL', billDate: { gte: yS, lte: yE } },
+        where: { businessId, status: 'FINAL', isVoided: false, billDate: { gte: yS, lte: yE } },
         _sum:   { grandTotal: true },
         _count: { id: true },
       }),
@@ -516,6 +524,7 @@ export class ReportsService {
         JOIN product       p ON si."productId" = p.id
         WHERE sb."businessId" = ${businessId}
           AND sb.status       = 'FINAL'
+          AND sb."isVoided"   = false
           AND sb."billDate"  >= ${todayS}
           AND sb."billDate"  <= ${todayE}
         GROUP BY p.id, p.name, p.barcode
@@ -524,7 +533,7 @@ export class ReportsService {
       `),
 
       this.prisma.salesBill.aggregate({
-        where: { businessId, status: 'FINAL', billDate: { gte: monthStart, lte: todayE } },
+        where: { businessId, status: 'FINAL', isVoided: false, billDate: { gte: monthStart, lte: todayE } },
         _sum:   { grandTotal: true },
         _count: { id: true },
       }),
@@ -539,6 +548,7 @@ export class ReportsService {
         FROM sales_bill
         WHERE "businessId" = ${businessId}
           AND status       = 'FINAL'
+          AND "isVoided"    = false
           AND "billDate"  >= ${todayS}
           AND "billDate"  <= ${todayE}
       `),
@@ -769,6 +779,7 @@ export class ReportsService {
       LEFT JOIN category c ON c.id = p."categoryId"
       WHERE sb."businessId" = ${businessId}
         AND sb.status        = 'FINAL'
+        AND sb."isVoided"    = false
         AND sb."billDate"   >= ${dayStart(start)}
         AND sb."billDate"   <= ${dayEnd(end)}
         AND p."isActive"     = true
@@ -777,7 +788,26 @@ export class ReportsService {
       LIMIT ${limit}
     `);
 
-    const totalRevenue = rows.reduce((s, r) => s + n(r.total_revenue), 0);
+    // True period totals — NOT summed from `rows`, which is already
+    // LIMIT-truncated to the top N products. Summing the truncated rows
+    // silently understated "Total Revenue" for any store selling more than
+    // `limit` distinct SKUs in the period, with no indication in the UI
+    // that the figure was partial.
+    const [totalsRow] = await this.prisma.$queryRaw<Array<{ total_revenue: string; total_qty: string }>>(Prisma.sql`
+      SELECT
+        COALESCE(SUM(si."totalAmount"), 0)::text AS total_revenue,
+        COALESCE(SUM(si.quantity),      0)::text AS total_qty
+      FROM sales_item si
+      JOIN sales_bill sb ON sb.id = si."billId"
+      JOIN product    p  ON p.id  = si."productId"
+      WHERE sb."businessId" = ${businessId}
+        AND sb.status        = 'FINAL'
+        AND sb."isVoided"    = false
+        AND sb."billDate"   >= ${dayStart(start)}
+        AND sb."billDate"   <= ${dayEnd(end)}
+        AND p."isActive"     = true
+    `);
+    const totalRevenue = n(totalsRow?.total_revenue);
 
     const products = rows.map((r) => ({
       productId:     r.product_id,
@@ -799,7 +829,7 @@ export class ReportsService {
       summary: {
         totalProducts: products.length,
         totalRevenue,
-        totalQty: products.reduce((s, p) => s + p.totalQty, 0),
+        totalQty: n(totalsRow?.total_qty),
       },
     };
   }
@@ -1124,6 +1154,7 @@ export class ReportsService {
       LEFT JOIN category c ON p."categoryId" = c.id
       WHERE sb."businessId" = ${businessId}
         AND sb.status       = 'FINAL'
+        AND sb."isVoided"   = false
         AND sb."billDate"  >= ${dayStart(start)}
         AND sb."billDate"  <= ${dayEnd(end)}
       GROUP BY COALESCE(c.name, 'Uncategorized')
@@ -1167,6 +1198,7 @@ export class ReportsService {
       FROM sales_bill
       WHERE "businessId" = ${businessId}
         AND status       = 'FINAL'
+        AND "isVoided"    = false
         AND "billDate"  >= ${dayStart(start)}
         AND "billDate"  <= ${dayEnd(end)}
       GROUP BY "paymentMode"
@@ -1198,7 +1230,14 @@ export class ReportsService {
 
     const extraFilters: Prisma.Sql[] = [];
     if (query.supplierId) extraFilters.push(Prisma.sql`p."supplierId" = ${query.supplierId}`);
-    if (query.status)     extraFilters.push(Prisma.sql`p.status = ${query.status}`);
+    if (query.status) {
+      extraFilters.push(Prisma.sql`p.status = ${query.status}`);
+    } else {
+      // With no explicit status filter, this defaulted to "any status" —
+      // DRAFT/REJECTED/CANCELLED purchases (goods never accepted, no real
+      // liability) were being summed into the register's money totals.
+      extraFilters.push(Prisma.sql`p.status NOT IN ('DRAFT', 'REJECTED', 'CANCELLED')`);
+    }
 
     const extra = extraFilters.length > 0
       ? Prisma.sql` AND ${Prisma.join(extraFilters, ' AND ')}`
@@ -1365,7 +1404,7 @@ export class ReportsService {
       LEFT JOIN category c       ON p."categoryId"  = c.id
       LEFT JOIN stock_ledger sl  ON sl."productId"  = p.id
       LEFT JOIN sales_item si    ON si."productId"  = p.id
-      LEFT JOIN sales_bill sb    ON sb.id = si."billId" AND sb."businessId" = ${businessId} AND sb.status = 'FINAL'
+      LEFT JOIN sales_bill sb    ON sb.id = si."billId" AND sb."businessId" = ${businessId} AND sb.status = 'FINAL' AND sb."isVoided" = false
       WHERE p."businessId" = ${businessId}
         AND p."isActive"   = true
       GROUP BY p.id, p.name, p."productCode", p."hsnCode", c.name,

@@ -324,6 +324,18 @@ export class WaOrderingService {
   }
 
   private async confirmAndPlaceOrder(businessId: string, phone: string, sid: string): Promise<void> {
+    // Atomically claim the session before doing any real work — a double
+    // tap on "Place Order" (or Meta redelivering the same webhook) must not
+    // run whatsappCheckout() twice for the same cart. Whichever call's
+    // updateMany actually flips AWAITING_FINAL_CONFIRM -> COMPLETED wins;
+    // the loser sees count === 0 and no-ops instead of placing a duplicate
+    // order. Reverted back to AWAITING_FINAL_CONFIRM below if checkout fails.
+    const claimed = await this.prisma.waOrderSession.updateMany({
+      where: { id: sid, state: WaOrderSessionState.AWAITING_FINAL_CONFIRM },
+      data: { state: WaOrderSessionState.COMPLETED },
+    });
+    if (claimed.count === 0) return;
+
     const session = await this.prisma.waOrderSession.findUnique({ where: { id: sid } });
     if (!session) return;
     const cart = session.cart as unknown as CartItem[];
@@ -351,7 +363,7 @@ export class WaOrderingService {
 
       await this.prisma.waOrderSession.update({
         where: { id: sid },
-        data: { state: WaOrderSessionState.COMPLETED, resultOrderNumber: result.orderNumber },
+        data: { resultOrderNumber: result.orderNumber },
       });
       await this.whatsapp.sendTextMessage(
         businessId, phone,
@@ -364,7 +376,11 @@ export class WaOrderingService {
         : 'Something went wrong placing your order. Please try again in a moment.';
       this.logger.error(`WA reorder placement failed for session ${sid}: ${message}`);
       await this.whatsapp.sendTextMessage(businessId, phone, `⚠️ ${message}`);
-      // Session stays at AWAITING_FINAL_CONFIRM so the customer can retry or cancel.
+      // Release the claim so the customer can retry or cancel.
+      await this.prisma.waOrderSession.update({
+        where: { id: sid },
+        data: { state: WaOrderSessionState.AWAITING_FINAL_CONFIRM },
+      });
     }
   }
 }

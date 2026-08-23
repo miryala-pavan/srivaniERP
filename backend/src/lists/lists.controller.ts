@@ -77,8 +77,12 @@ export class WebhookController implements OnModuleInit {
     @Headers('x-hub-signature-256') sig: string,
     @Body()    body: any,
   ) {
-    // Verify signature if app secret is configured
-    if (WH_APP_SECRET && sig) {
+    // Verify signature if app secret is configured. A missing header must
+    // reject, not skip the check — otherwise an attacker defeats HMAC
+    // verification entirely just by omitting x-hub-signature-256, which is
+    // exactly as bad as not verifying at all.
+    if (WH_APP_SECRET) {
+      if (!sig) throw new BadRequestException('Missing signature');
       const expected = 'sha256=' + crypto
         .createHmac('sha256', WH_APP_SECRET)
         .update((req as any).rawBody ?? Buffer.alloc(0))

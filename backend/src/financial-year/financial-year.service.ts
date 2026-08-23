@@ -341,9 +341,9 @@ export class FinancialYearService {
     const results = await Promise.all(allFys.map(async fy => {
       const [salesAgg, purchaseAgg, paymentAgg, expenseAgg] = await Promise.all([
         this.prisma.salesBill.aggregate({
-          where: { businessId, financialYearId: fy.id, status: 'FINAL' },
+          where: { businessId, financialYearId: fy.id, status: 'FINAL', isVoided: false },
           _sum:  { grandTotal: true, taxableAmount: true,
-                   cgstTotal: true, sgstTotal: true },
+                   cgstTotal: true, sgstTotal: true, igstTotal: true },
           _count: { id: true },
         }),
         this.prisma.purchase.aggregate({
@@ -357,30 +357,32 @@ export class FinancialYearService {
             paymentDate: { gte: fy.startDate, lte: fy.endDate } },
           _sum:  { amount: true },
         }),
-        // Bank expenses
-        this.prisma.bankTransaction.aggregate({
-          where: {
-            businessId,
-            txnType: { in: ['EXPENSE_RENT','EXPENSE_OTHER','BANK_CHARGE'] },
-            txnDate: { gte: fy.startDate, lte: fy.endDate },
-          },
-          _sum: { debitAmount: true },
+        // Same source as the Expense Report / Day Book — the `expense`
+        // table is authoritative for total expenses regardless of payment
+        // mode. The old bank-transaction-only aggregate missed every
+        // cash-paid expense and anything outside its 3 hardcoded txnTypes.
+        this.prisma.expense.aggregate({
+          where: { businessId, expenseDate: { gte: fy.startDate, lte: fy.endDate } },
+          _sum: { amount: true },
         }),
       ]);
 
       // Payment mode breakdown for sales
       const modeBreakdown = await this.prisma.salesBill.groupBy({
         by:    ['paymentMode'],
-        where: { businessId, financialYearId: fy.id, status: 'FINAL' },
+        where: { businessId, financialYearId: fy.id, status: 'FINAL', isVoided: false },
         _sum:  { grandTotal: true },
         _count: { id: true },
       });
 
       const totalSales     = n(salesAgg._sum.grandTotal);
       const totalPurchases = n(purchaseAgg._sum.grandTotal);
-      const grossProfit    = n(salesAgg._sum.taxableAmount) - totalPurchases;
-      const totalTax       = n(salesAgg._sum.cgstTotal) + n(salesAgg._sum.sgstTotal);
-      const totalExpenses  = n(expenseAgg._sum.debitAmount);
+      // Both GST-inclusive (grandTotal), matching getProfitReport()'s basis —
+      // taxableAmount (GST-exclusive) minus grandTotal (GST-inclusive) was
+      // double-subtracting purchase-side GST and understating gross profit.
+      const grossProfit    = totalSales - totalPurchases;
+      const totalTax       = n(salesAgg._sum.cgstTotal) + n(salesAgg._sum.sgstTotal) + n(salesAgg._sum.igstTotal);
+      const totalExpenses  = n(expenseAgg._sum.amount);
 
       // Use snapshot if FY is closed
       return {

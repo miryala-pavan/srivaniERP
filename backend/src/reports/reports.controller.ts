@@ -57,11 +57,13 @@ export class ReportsController {
   }
 
   // ─── POS ──────────────────────────────────────────────
-  // CASHIER allowed here — they need to see their own shift summary
+  // CASHIER allowed here — but scoped to their own shifts only (see service);
+  // everyone else with an authenticated business role sees the full picture.
 
   @Get('pos/cash-summary')
   getCashSummary(@Request() req: any, @Query() query: CashSummaryDto) {
-    return this.reportsService.getCashSummary(req.user.businessId, query);
+    const restrictToCashierId = req.user.role === 'CASHIER' ? req.user.userId : undefined;
+    return this.reportsService.getCashSummary(req.user.businessId, query, restrictToCashierId);
   }
 
   // ─── PRODUCT SALES ────────────────────────────────────
@@ -83,6 +85,7 @@ export class ReportsController {
     return this.reportsService.getReceivablesAgeing(req.user.businessId, asOf);
   }
 
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON')
   @Get('payables/ageing')
   getPayablesAgeing(@Request() req: any, @Query('asOf') asOf?: string) {
     return this.reportsService.getPayablesAgeing(req.user.businessId, asOf);

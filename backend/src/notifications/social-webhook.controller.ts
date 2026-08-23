@@ -60,7 +60,11 @@ export class SocialWebhookController implements OnModuleInit {
     @Headers('x-hub-signature-256') sig: string,
     @Body()    body: any,
   ) {
-    if (FB_APP_SECRET && sig) {
+    // A missing header must reject, not skip the check — otherwise an
+    // attacker defeats HMAC verification entirely just by omitting
+    // x-hub-signature-256.
+    if (FB_APP_SECRET) {
+      if (!sig) throw new BadRequestException('Missing signature');
       const expected = 'sha256=' + crypto
         .createHmac('sha256', FB_APP_SECRET)
         .update((req as any).rawBody ?? Buffer.alloc(0))
@@ -182,6 +186,14 @@ export class SocialWebhookController implements OnModuleInit {
 
     const match = await this.social.matchCampaign(businessId, channel, postId, text);
     if (!match) return;
+
+    // Dedup — Meta redelivers webhooks at-least-once (same reasoning as
+    // handleMessagingEvent above), and without this a redelivery for the
+    // same comment fires a second/third private reply to the commenter.
+    const alreadyReplied = await this.prisma.socialMessage.findFirst({
+      where: { businessId, channel, triggeringCommentId: commentId },
+    }).catch(() => null);
+    if (alreadyReplied) return;
 
     await this.social.sendPrivateReply(businessId, channel, commentId, match.replyMessage, { triggeringPostId: postId });
   }

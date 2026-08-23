@@ -1533,8 +1533,14 @@ export class SuppliersService {
         by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'ISSUED' },
         _sum: { totalAmount: true },
       }),
+      // Aging must be keyed off the oldest STILL-OUTSTANDING invoice, not
+      // the oldest invoice ever recorded — otherwise a supplier with one
+      // old, fully-paid GRN and a brand-new unpaid one gets bucketed as
+      // 90+ days overdue on their entire current balance, which can wrongly
+      // trigger the Section 43B(h)/MSME-45-day warning.
       this.prisma.purchase.groupBy({
-        by: ['supplierId'], where: { businessId, supplierId: { in: ids }, status: 'APPROVED' },
+        by: ['supplierId'],
+        where: { businessId, supplierId: { in: ids }, status: 'APPROVED', amountPayable: { gt: 0 } },
         _min: { invoiceDate: true },
         _max: { invoiceDate: true },
       }),
