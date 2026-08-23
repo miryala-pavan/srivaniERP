@@ -99,13 +99,13 @@ export class NotificationsController {
   // the inbox but not manage templates) still needs to see what's available.
   @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/templates')
-  listTemplates() {
-    return this.whatsapp.listTemplates();
+  listTemplates(@Request() req: any) {
+    return this.whatsapp.listTemplates(req.user.businessId);
   }
 
   @Roles('SUPER_ADMIN')
   @Post('whatsapp/templates')
-  createTemplate(@Body() body: {
+  createTemplate(@Request() req: any, @Body() body: {
     name: string;
     category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
     language: string;
@@ -118,20 +118,20 @@ export class NotificationsController {
       | { type: 'URL'; text: string; url: string }
     >;
   }) {
-    return this.whatsapp.createTemplate(body);
+    return this.whatsapp.createTemplate(req.user.businessId, body);
   }
 
   @Roles('SUPER_ADMIN')
   @Delete('whatsapp/templates/:name')
-  deleteTemplate(@Param('name') name: string) {
-    return this.whatsapp.deleteTemplate(name);
+  deleteTemplate(@Request() req: any, @Param('name') name: string) {
+    return this.whatsapp.deleteTemplate(req.user.businessId, name);
   }
 
   /** One-time: subscribe Meta App to this WABA so webhook messages/statuses are delivered. */
   @Roles('SUPER_ADMIN')
   @Post('whatsapp/subscribe-app')
-  subscribeApp() {
-    return this.whatsapp.subscribeApp();
+  subscribeApp(@Request() req: any) {
+    return this.whatsapp.subscribeApp(req.user.businessId);
   }
 
   // ── Send any template to any number ───────────────────────────────────────
@@ -160,8 +160,8 @@ export class NotificationsController {
   // actually connected without being able to change or view credentials.
   @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/credentials')
-  getCredentials() {
-    return this.whatsapp.getCredentials();
+  getCredentials(@Request() req: any) {
+    return this.whatsapp.getCredentials(req.user.businessId);
   }
 
   @Roles('SUPER_ADMIN')
@@ -345,8 +345,8 @@ export class NotificationsController {
   // bearer token and can't be hotlinked directly.
   @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
   @Get('whatsapp/media/:mediaId')
-  async getMedia(@Param('mediaId') mediaId: string, @Res() res: Response) {
-    const media = await this.whatsapp.getMediaBuffer(mediaId);
+  async getMedia(@Request() req: any, @Param('mediaId') mediaId: string, @Res() res: Response) {
+    const media = await this.whatsapp.getMediaBuffer(req.user.businessId, mediaId);
     if (!media) { res.status(404).send(); return; }
     res.set({ 'Content-Type': media.mimeType, 'Cache-Control': 'private, max-age=86400' });
     res.send(media.buffer);
@@ -354,20 +354,20 @@ export class NotificationsController {
 
   @Roles('SUPER_ADMIN')
   @Post('whatsapp/register-number')
-  registerPhoneNumber(@Body() body: { pin: string }) {
-    return this.whatsapp.registerPhoneNumber(body.pin ?? '');
+  registerPhoneNumber(@Request() req: any, @Body() body: { pin: string }) {
+    return this.whatsapp.registerPhoneNumber(req.user.businessId, body.pin ?? '');
   }
 
   @Roles('SUPER_ADMIN')
   @Get('whatsapp/business-profile')
-  getBusinessProfile() {
-    return this.whatsapp.getBusinessProfile();
+  getBusinessProfile(@Request() req: any) {
+    return this.whatsapp.getBusinessProfile(req.user.businessId);
   }
 
   @Roles('SUPER_ADMIN')
   @Patch('whatsapp/business-profile')
-  updateBusinessProfile(@Body() body: { about?: string; address?: string; description?: string; email?: string; websites?: string[]; vertical?: string }) {
-    return this.whatsapp.updateBusinessProfile(body);
+  updateBusinessProfile(@Request() req: any, @Body() body: { about?: string; address?: string; description?: string; email?: string; websites?: string[]; vertical?: string }) {
+    return this.whatsapp.updateBusinessProfile(req.user.businessId, body);
   }
 
   @Roles('SUPER_ADMIN', 'BRANCH_MANAGER')
@@ -554,8 +554,8 @@ export class NotificationsController {
 
   @Roles('SUPER_ADMIN')
   @Get('social/credentials')
-  getSocialCredentials() {
-    return this.social.getCredentials();
+  getSocialCredentials(@Request() req: any) {
+    return this.social.getCredentials(req.user.businessId);
   }
 
   @Roles('SUPER_ADMIN')

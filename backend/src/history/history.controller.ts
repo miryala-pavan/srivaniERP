@@ -62,7 +62,7 @@ export class HistoryController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN')
   @Post('register-template')
-  registerTemplate() {
-    return this.historyService.registerHistoryTemplate();
+  registerTemplate(@Request() req: any) {
+    return this.historyService.registerHistoryTemplate(req.user.businessId);
   }
 }

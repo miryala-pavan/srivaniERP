@@ -235,9 +235,9 @@ export class HistoryService {
   }
 
   /** One-time: register the svn_history_link template with Meta for approval. */
-  async registerHistoryTemplate() {
+  async registerHistoryTemplate(businessId: string) {
     const shopUrl = (process.env.SHOP_URL ?? 'https://srivani.com').replace(/\/$/, '');
-    return this.wa.createTemplate({
+    return this.wa.createTemplate(businessId, {
       name: 'svn_history_link',
       category: 'UTILITY',
       language: 'en',

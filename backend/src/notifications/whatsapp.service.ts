@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
@@ -16,15 +16,24 @@ const WA_KEYS = {
   displayNumber: 'wa.display_phone_number',
 } as const;
 
+interface WaCreds {
+  token?:    string;
+  phoneId?:  string;
+  wabaId?:   string;
+  storeNum?: string;
+  source?:   'database' | 'env';
+}
+
 @Injectable()
-export class WhatsAppService implements OnModuleInit {
+export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
 
-  // Runtime cache — DB values override env vars
-  private _token:    string | undefined;
-  private _phoneId:  string | undefined;
-  private _wabaId:   string | undefined;
-  private _storeNum: string | undefined;
+  // Per-business credential cache — DB values override env vars. Keyed by
+  // businessId so two businesses' credentials can never cross-contaminate,
+  // even under concurrent requests (Node interleaves awaits across requests,
+  // so a shared mutable field would leak one business's creds into another's
+  // in-flight call). Lazily populated on first use per business.
+  private credsCache = new Map<string, WaCreds>();
 
   constructor(
     private prisma: PrismaService,
@@ -33,42 +42,53 @@ export class WhatsAppService implements OnModuleInit {
     private shop: ShopService,
   ) {}
 
-  async onModuleInit() {
-    await this.loadCredentialsFromDb();
-  }
+  /** Lazily resolves and caches one business's sending credentials (DB row, falling back to env vars). */
+  private async getCreds(businessId: string): Promise<WaCreds> {
+    const cached = this.credsCache.get(businessId);
+    if (cached) return cached;
 
-  private async loadCredentialsFromDb() {
+    let creds: WaCreds;
     try {
       const rows = await this.prisma.systemSetting.findMany({
-        where: { key: { in: Object.values(WA_KEYS) } },
+        where: { businessId, key: { in: [WA_KEYS.token, WA_KEYS.phoneId, WA_KEYS.wabaId, WA_KEYS.storeNum] } },
       });
-      for (const row of rows) {
-        if (row.key === WA_KEYS.token    && row.value) this._token    = row.value;
-        if (row.key === WA_KEYS.phoneId  && row.value) this._phoneId  = row.value;
-        if (row.key === WA_KEYS.wabaId   && row.value) this._wabaId   = row.value;
-        if (row.key === WA_KEYS.storeNum && row.value) this._storeNum = row.value;
-      }
-    } catch { /* DB not ready at boot — env fallback will be used */ }
+      const byKey = new Map(rows.map(r => [r.key, r.value]));
+      const dbToken = byKey.get(WA_KEYS.token) || undefined;
+      creds = {
+        token:    dbToken ?? process.env.WA_ACCESS_TOKEN,
+        phoneId:  byKey.get(WA_KEYS.phoneId)  || process.env.WA_PHONE_NUMBER_ID,
+        wabaId:   byKey.get(WA_KEYS.wabaId)   || process.env.WA_BUSINESS_ACCOUNT_ID,
+        storeNum: byKey.get(WA_KEYS.storeNum) || process.env.WA_STORE_NOTIFY_NUMBER,
+        source:   dbToken ? 'database' : 'env',
+      };
+    } catch {
+      // DB not ready — env fallback, not cached so the next call retries the DB.
+      return {
+        token:    process.env.WA_ACCESS_TOKEN,
+        phoneId:  process.env.WA_PHONE_NUMBER_ID,
+        wabaId:   process.env.WA_BUSINESS_ACCOUNT_ID,
+        storeNum: process.env.WA_STORE_NOTIFY_NUMBER,
+        source:   'env',
+      };
+    }
+    this.credsCache.set(businessId, creds);
+    return creds;
   }
 
-  private get token()    { return this._token    ?? process.env.WA_ACCESS_TOKEN; }
-  private get phoneId()  { return this._phoneId  ?? process.env.WA_PHONE_NUMBER_ID; }
-  private get wabaId()   { return this._wabaId   ?? process.env.WA_BUSINESS_ACCOUNT_ID; }
-  private get storeNum() { return this._storeNum ?? process.env.WA_STORE_NOTIFY_NUMBER; }
-
-  private get enabled() {
-    return !!(this.token && this.phoneId);
+  private isEnabled(creds: WaCreds): boolean {
+    return !!(creds.token && creds.phoneId);
   }
 
   // ── Credential management ───────────────────────────────────────────────────
 
-  getCredentials() {
+  async getCredentials(businessId: string) {
+    const creds = await this.getCreds(businessId);
     return {
-      tokenConfigured:  !!this.token,
-      phoneId:          this.phoneId  ?? null,
-      wabaId:           this.wabaId   ?? null,
-      storeNum:         this.storeNum ?? null,
-      source:           this._token ? 'database' : 'env',
+      tokenConfigured:  !!creds.token,
+      phoneId:          creds.phoneId  ?? null,
+      wabaId:           creds.wabaId   ?? null,
+      storeNum:         creds.storeNum ?? null,
+      source:           creds.source ?? 'env',
     };
   }
 
@@ -91,13 +111,17 @@ export class WhatsAppService implements OnModuleInit {
     const wabaId   = data.wabaId?.trim();
     const storeNum = data.storeNum?.trim();
 
-    if (token)    { ops.push(upsert(WA_KEYS.token,    token));    this._token    = token; }
-    if (phoneId)  { ops.push(upsert(WA_KEYS.phoneId,  phoneId));  this._phoneId  = phoneId; }
-    if (wabaId)   { ops.push(upsert(WA_KEYS.wabaId,   wabaId));   this._wabaId   = wabaId; }
-    if (storeNum) { ops.push(upsert(WA_KEYS.storeNum, storeNum)); this._storeNum = storeNum; }
+    const existing = await this.getCreds(businessId);
+    const updated: WaCreds = { ...existing };
+
+    if (token)    { ops.push(upsert(WA_KEYS.token,    token));    updated.token    = token; updated.source = 'database'; }
+    if (phoneId)  { ops.push(upsert(WA_KEYS.phoneId,  phoneId));  updated.phoneId  = phoneId; }
+    if (wabaId)   { ops.push(upsert(WA_KEYS.wabaId,   wabaId));   updated.wabaId   = wabaId; }
+    if (storeNum) { ops.push(upsert(WA_KEYS.storeNum, storeNum)); updated.storeNum = storeNum; }
 
     await Promise.all(ops);
-    return this.getCredentials();
+    this.credsCache.set(businessId, updated);
+    return this.getCredentials(businessId);
   }
 
   // ── Saved phone number presets ──────────────────────────────────────────────
@@ -110,14 +134,17 @@ export class WhatsAppService implements OnModuleInit {
    */
   async listPhoneNumbers(businessId: string) {
     const existing = await this.prisma.waPhoneNumber.count({ where: { businessId } });
-    if (existing === 0 && this.token && this.phoneId && this.wabaId) {
-      await this.prisma.waPhoneNumber.create({
-        data: {
-          businessId, label: 'Current Number',
-          accessToken: this.token, phoneNumberId: this.phoneId, businessAccountId: this.wabaId,
-          storeNotifyNumber: this.storeNum, isActive: true,
-        },
-      }).catch(() => null); // ignore races / unique conflicts
+    if (existing === 0) {
+      const creds = await this.getCreds(businessId);
+      if (creds.token && creds.phoneId && creds.wabaId) {
+        await this.prisma.waPhoneNumber.create({
+          data: {
+            businessId, label: 'Current Number',
+            accessToken: creds.token, phoneNumberId: creds.phoneId, businessAccountId: creds.wabaId,
+            storeNotifyNumber: creds.storeNum, isActive: true,
+          },
+        }).catch(() => null); // ignore races / unique conflicts
+      }
     }
     return this.prisma.waPhoneNumber.findMany({
       where: { businessId },
@@ -206,11 +233,12 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   private async refreshStoreDisplayNumber(businessId: string): Promise<string | null> {
-    if (!this.token || !this.phoneId) return null;
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.phoneId) return null;
     try {
       const res = await fetch(
-        `https://graph.facebook.com/${API_VERSION}/${this.phoneId}?fields=display_phone_number`,
-        { headers: { Authorization: `Bearer ${this.token}` } },
+        `https://graph.facebook.com/${API_VERSION}/${creds.phoneId}?fields=display_phone_number`,
+        { headers: { Authorization: `Bearer ${creds.token}` } },
       );
       const data = await res.json() as any;
       const raw = data?.display_phone_number as string | undefined; // e.g. "+91 84552 76355"
@@ -229,11 +257,12 @@ export class WhatsAppService implements OnModuleInit {
 
   // ── Business profile (Meta's own "About this business" panel) ─────────────────
 
-  async getBusinessProfile() {
-    if (!this.token || !this.phoneId) return { error: 'WhatsApp not configured' };
+  async getBusinessProfile(businessId: string) {
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.phoneId) return { error: 'WhatsApp not configured' };
     try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/whatsapp_business_profile?fields=about,address,description,email,profile_picture_url,websites,vertical`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+      const url = `https://graph.facebook.com/${API_VERSION}/${creds.phoneId}/whatsapp_business_profile?fields=about,address,description,email,profile_picture_url,websites,vertical`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${creds.token}` } });
       const data = await res.json();
       if (!res.ok) return { error: data };
       return data?.data?.[0] ?? {};
@@ -242,15 +271,16 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
-  async updateBusinessProfile(dto: {
+  async updateBusinessProfile(businessId: string, dto: {
     about?: string; address?: string; description?: string; email?: string; websites?: string[]; vertical?: string;
   }) {
-    if (!this.token || !this.phoneId) return { ok: false, error: 'WhatsApp not configured' };
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.phoneId) return { ok: false, error: 'WhatsApp not configured' };
     try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/whatsapp_business_profile`;
+      const url = `https://graph.facebook.com/${API_VERSION}/${creds.phoneId}/whatsapp_business_profile`;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${creds.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ messaging_product: 'whatsapp', ...dto }),
       });
       const data = await res.json();
@@ -568,11 +598,12 @@ export class WhatsAppService implements OnModuleInit {
 
     // Tell Meta so the customer sees blue read ticks — best-effort, doesn't
     // block the staff-side read tracking above if Meta's API is unavailable.
-    if (this.token && this.phoneId) {
+    const creds = await this.getCreds(businessId);
+    if (creds.token && creds.phoneId) {
       for (const m of unread) {
-        fetch(`https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`, {
+        fetch(`https://graph.facebook.com/${API_VERSION}/${creds.phoneId}/messages`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${creds.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: m.waMessageId }),
         }).catch(() => null);
       }
@@ -587,16 +618,17 @@ export class WhatsAppService implements OnModuleInit {
    * Best-effort/fire-and-forget: not worth failing the UI over.
    */
   async sendTypingIndicator(businessId: string, phone: string): Promise<void> {
-    if (!this.token || !this.phoneId) return;
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.phoneId) return;
     const lastInbound = await this.prisma.waMessage.findFirst({
       where: { businessId, phone: this.e164(phone) ?? phone, direction: 'INBOUND' },
       orderBy: { createdAt: 'desc' },
       select: { waMessageId: true },
     });
     if (!lastInbound) return;
-    fetch(`https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`, {
+    fetch(`https://graph.facebook.com/${API_VERSION}/${creds.phoneId}/messages`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${creds.token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         status: 'read',
@@ -665,7 +697,8 @@ export class WhatsAppService implements OnModuleInit {
     if (!window.open) {
       return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule). Send a template instead.' };
     }
-    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    const creds = await this.getCreds(businessId);
+    if (!this.isEnabled(creds)) return { ok: false, reason: 'WhatsApp not configured' };
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
 
@@ -673,9 +706,9 @@ export class WhatsAppService implements OnModuleInit {
       const form = new FormData();
       form.append('messaging_product', 'whatsapp');
       form.append('file', new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }), file.filename);
-      const uploadRes = await fetch(`https://graph.facebook.com/${API_VERSION}/${this.phoneId}/media`, {
+      const uploadRes = await fetch(`https://graph.facebook.com/${API_VERSION}/${creds.phoneId}/media`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: { Authorization: `Bearer ${creds.token}` },
         body: form,
       });
       const uploadData = await uploadRes.json() as { id?: string; error?: unknown };
@@ -702,7 +735,7 @@ export class WhatsAppService implements OnModuleInit {
   async sendReaction(businessId: string, phone: string, messageId: string, emoji: string): Promise<{ ok: boolean; reason?: string }> {
     const window = await this.getSessionWindowStatus(businessId, phone);
     if (!window.open) return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule).' };
-    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    if (!this.isEnabled(await this.getCreds(businessId))) return { ok: false, reason: 'WhatsApp not configured' };
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
 
@@ -723,7 +756,7 @@ export class WhatsAppService implements OnModuleInit {
   ): Promise<{ ok: boolean; reason?: string }> {
     const window = await this.getSessionWindowStatus(businessId, phone);
     if (!window.open) return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule).' };
-    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    if (!this.isEnabled(await this.getCreds(businessId))) return { ok: false, reason: 'WhatsApp not configured' };
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
 
@@ -752,7 +785,7 @@ export class WhatsAppService implements OnModuleInit {
   ): Promise<{ ok: boolean; reason?: string }> {
     const window = await this.getSessionWindowStatus(businessId, phone);
     if (!window.open) return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule).' };
-    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    if (!this.isEnabled(await this.getCreds(businessId))) return { ok: false, reason: 'WhatsApp not configured' };
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
 
@@ -776,17 +809,18 @@ export class WhatsAppService implements OnModuleInit {
    * browser — Meta's media URLs are short-lived and require the same bearer
    * token, so they can't be hotlinked directly in an <img> tag.
    */
-  async getMediaBuffer(mediaId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
-    if (!this.token) return null;
+  async getMediaBuffer(businessId: string, mediaId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    const creds = await this.getCreds(businessId);
+    if (!creds.token) return null;
     try {
       const metaRes = await fetch(`https://graph.facebook.com/${API_VERSION}/${mediaId}`, {
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: { Authorization: `Bearer ${creds.token}` },
       });
       if (!metaRes.ok) return null;
       const meta = await metaRes.json() as { url?: string; mime_type?: string };
       if (!meta.url) return null;
 
-      const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${this.token}` } });
+      const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${creds.token}` } });
       if (!fileRes.ok) return null;
       const buffer = Buffer.from(await fileRes.arrayBuffer());
       return { buffer, mimeType: meta.mime_type ?? 'application/octet-stream' };
@@ -1353,17 +1387,18 @@ export class WhatsAppService implements OnModuleInit {
 
   // ── Core sender ────────────────────────────────────────────────────────────
 
-  private async post(payload: object): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
-    if (!this.enabled) {
+  private async post(businessId: string, payload: object): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
+    const creds = await this.getCreds(businessId);
+    if (!this.isEnabled(creds)) {
       this.logger.warn('WhatsApp not configured — skipping (set WA_ACCESS_TOKEN + WA_PHONE_NUMBER_ID)');
       return { ok: false, skipped: true, data: null };
     }
     try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.phoneId}/messages`;
+      const url = `https://graph.facebook.com/${API_VERSION}/${creds.phoneId}/messages`;
       const res = await fetch(url, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${creds.token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ messaging_product: 'whatsapp', ...payload }),
@@ -1402,7 +1437,7 @@ export class WhatsAppService implements OnModuleInit {
       isAutoReply?: boolean;
     },
   ): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
-    const result = await this.post(payload);
+    const result = await this.post(businessId, payload);
     if (result.skipped) return result; // WhatsApp not configured — nothing to log
 
     try {
@@ -1449,7 +1484,7 @@ export class WhatsAppService implements OnModuleInit {
    * WhatsApp number to re-open the window. Email is the guaranteed channel.
    */
   async sendTextMessage(businessId: string, phone: string, body: string): Promise<void> {
-    if (!this.enabled) throw new Error('WhatsApp not configured (token/phoneId missing)');
+    if (!this.isEnabled(await this.getCreds(businessId))) throw new Error('WhatsApp not configured (token/phoneId missing)');
     const to = this.e164(phone);
     if (!to) throw new Error(`Invalid WhatsApp number: ${phone}`);
     await this.logAndSend(
@@ -1644,10 +1679,11 @@ export class WhatsAppService implements OnModuleInit {
     deliveryType: string;
     itemCount: number;
   }): Promise<void> {
-    if (!this.storeNum) return;
-    const to = this.e164(this.storeNum);
+    const creds = await this.getCreds(businessId);
+    if (!creds.storeNum) return;
+    const to = this.e164(creds.storeNum);
     if (!to) {
-      this.logger.warn(`Invalid WA_STORE_NOTIFY_NUMBER: ${this.storeNum}`);
+      this.logger.warn(`Invalid WA_STORE_NOTIFY_NUMBER: ${creds.storeNum}`);
       return;
     }
     const delivery = order.deliveryType === 'HOME_DELIVERY' ? 'Home Delivery' : 'Store Pickup';
@@ -1877,15 +1913,16 @@ export class WhatsAppService implements OnModuleInit {
   // ── WABA subscription ───────────────────────────────────────────────────────
 
   /** Subscribe the Meta App to this WABA so webhook events (messages, statuses) are delivered. */
-  async subscribeApp() {
-    if (!this.token || !this.wabaId) {
+  async subscribeApp(businessId: string) {
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.wabaId) {
       return { ok: false, error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
     }
     try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/subscribed_apps`;
+      const url = `https://graph.facebook.com/${API_VERSION}/${creds.wabaId}/subscribed_apps`;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: { Authorization: `Bearer ${creds.token}` },
       });
       const data = await res.json() as any;
       return res.ok ? { ok: true, data } : { ok: false, error: data?.error?.message ?? JSON.stringify(data) };
@@ -1897,19 +1934,20 @@ export class WhatsAppService implements OnModuleInit {
   // ── Template management (Meta Graph API) ────────────────────────────────────
 
   /** Resolve WABA ID: use saved value if set, otherwise look it up from the phone number. */
-  private async resolveWabaId(): Promise<string | null> {
-    if (this.wabaId) return this.wabaId;
-    if (!this.token || !this.phoneId) return null;
+  private async resolveWabaId(businessId: string): Promise<string | null> {
+    const creds = await this.getCreds(businessId);
+    if (creds.wabaId) return creds.wabaId;
+    if (!creds.token || !creds.phoneId) return null;
     try {
       const res = await fetch(
-        `https://graph.facebook.com/${API_VERSION}/${this.phoneId}?fields=whatsapp_business_account`,
-        { headers: { Authorization: `Bearer ${this.token}` } },
+        `https://graph.facebook.com/${API_VERSION}/${creds.phoneId}?fields=whatsapp_business_account`,
+        { headers: { Authorization: `Bearer ${creds.token}` } },
       );
       const data = await res.json() as any;
       const discovered = data?.whatsapp_business_account?.id as string | undefined;
       if (discovered) {
-        this._wabaId = discovered;
-        this.logger.log(`Auto-discovered WABA ID ${discovered} from phone number ${this.phoneId}`);
+        this.credsCache.set(businessId, { ...creds, wabaId: discovered });
+        this.logger.log(`Auto-discovered WABA ID ${discovered} from phone number ${creds.phoneId}`);
       }
       return discovered ?? null;
     } catch {
@@ -1917,12 +1955,13 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
-  async listTemplates() {
-    if (!this.token || !this.phoneId) {
+  async listTemplates(businessId: string) {
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.phoneId) {
       return { error: 'WA_ACCESS_TOKEN or WA_PHONE_NUMBER_ID not configured' };
     }
     try {
-      const wabaId = await this.resolveWabaId();
+      const wabaId = await this.resolveWabaId(businessId);
       if (!wabaId) return { error: 'Could not determine WhatsApp Business Account ID' };
 
       // Meta paginates aggressively when `components` is requested — follow all pages.
@@ -1931,7 +1970,7 @@ export class WhatsAppService implements OnModuleInit {
         `https://graph.facebook.com/${API_VERSION}/${wabaId}/message_templates?limit=20&fields=name,status,category,language,components,rejected_reason`;
 
       while (url) {
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${creds.token}` } });
         const page = await res.json() as any;
         if (page?.error) return page;
         if (Array.isArray(page?.data)) allTemplates.push(...page.data);
@@ -1944,7 +1983,7 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
-  async createTemplate(dto: {
+  async createTemplate(businessId: string, dto: {
     name: string;
     category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
     language: string;
@@ -1966,7 +2005,8 @@ export class WhatsAppService implements OnModuleInit {
       otpType?: 'COPY_CODE' | 'ONE_TAP';
     };
   }) {
-    if (!this.token || !this.wabaId) {
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.wabaId) {
       return { error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
     }
 
@@ -1978,10 +2018,10 @@ export class WhatsAppService implements OnModuleInit {
         { type: 'BUTTONS', buttons: [{ type: 'OTP', otp_type: auth.otpType ?? 'COPY_CODE' }] },
       ];
       try {
-        const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates`;
+        const url = `https://graph.facebook.com/${API_VERSION}/${creds.wabaId}/message_templates`;
         const res = await fetch(url, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${creds.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: dto.name, category: dto.category, language: dto.language, components }),
         });
         const data = await res.json();
@@ -2019,11 +2059,11 @@ export class WhatsAppService implements OnModuleInit {
       components.push({ type: 'BUTTONS', buttons: dto.buttons });
     }
     try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates`;
+      const url = `https://graph.facebook.com/${API_VERSION}/${creds.wabaId}/message_templates`;
       const res = await fetch(url, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${creds.token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -2043,15 +2083,16 @@ export class WhatsAppService implements OnModuleInit {
     }
   }
 
-  async deleteTemplate(name: string) {
-    if (!this.token || !this.wabaId) {
+  async deleteTemplate(businessId: string, name: string) {
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.wabaId) {
       return { error: 'WA_ACCESS_TOKEN or WA_BUSINESS_ACCOUNT_ID not configured' };
     }
     try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${this.wabaId}/message_templates?name=${encodeURIComponent(name)}`;
+      const url = `https://graph.facebook.com/${API_VERSION}/${creds.wabaId}/message_templates?name=${encodeURIComponent(name)}`;
       const res = await fetch(url, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: { Authorization: `Bearer ${creds.token}` },
       });
       return await res.json();
     } catch (err) {
@@ -2070,7 +2111,7 @@ export class WhatsAppService implements OnModuleInit {
   ) {
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
-    if (!this.enabled) return { ok: false, reason: 'WhatsApp not configured' };
+    if (!this.isEnabled(await this.getCreds(businessId))) return { ok: false, reason: 'WhatsApp not configured' };
 
     const components: object[] = [];
     if (params.length > 0) {
@@ -2105,7 +2146,7 @@ export class WhatsAppService implements OnModuleInit {
   async sendHelloWorld(businessId: string, phone: string): Promise<{ ok: boolean; to: string | null; reason?: string }> {
     const to = this.e164(phone);
     if (!to) return { ok: false, to: null, reason: 'Invalid phone number' };
-    if (!this.enabled) return { ok: false, to, reason: 'WhatsApp not configured — set WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID' };
+    if (!this.isEnabled(await this.getCreds(businessId))) return { ok: false, to, reason: 'WhatsApp not configured — set WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID' };
 
     const result = await this.logAndSend(
       businessId,
@@ -2124,14 +2165,15 @@ export class WhatsAppService implements OnModuleInit {
    * chooses) before a number can move out of "Pending" status — this is what
    * the "Register phone number" button in Meta's own UI does under the hood.
    */
-  async registerPhoneNumber(pin: string): Promise<{ ok: boolean; reason?: string }> {
-    if (!this.token || !this.phoneId) return { ok: false, reason: 'WhatsApp not configured' };
+  async registerPhoneNumber(businessId: string, pin: string): Promise<{ ok: boolean; reason?: string }> {
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.phoneId) return { ok: false, reason: 'WhatsApp not configured' };
     if (!/^\d{6}$/.test(pin)) return { ok: false, reason: 'PIN must be exactly 6 digits' };
     try {
-      const res = await fetch(`https://graph.facebook.com/${API_VERSION}/${this.phoneId}/register`, {
+      const res = await fetch(`https://graph.facebook.com/${API_VERSION}/${creds.phoneId}/register`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${creds.token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ messaging_product: 'whatsapp', pin }),

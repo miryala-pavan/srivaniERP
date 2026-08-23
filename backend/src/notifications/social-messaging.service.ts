@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
@@ -16,47 +16,67 @@ const SOCIAL_KEYS = {
   igId:      'fb.ig_business_account_id',
 } as const;
 
+interface SocialCreds {
+  pageToken?: string;
+  pageId?:    string;
+  igId?:      string;
+  source?:    'database' | 'env';
+}
+
 @Injectable()
-export class SocialMessagingService implements OnModuleInit {
+export class SocialMessagingService {
   private readonly logger = new Logger(SocialMessagingService.name);
 
-  private _pageToken: string | undefined;
-  private _pageId:    string | undefined;
-  private _igId:      string | undefined;
+  // Per-business credential cache — see WhatsAppService.credsCache for why
+  // this can't be a shared instance field in a multi-tenant process.
+  private credsCache = new Map<string, SocialCreds>();
 
   constructor(private prisma: PrismaService, private events: EventsService) {}
 
-  async onModuleInit() {
-    await this.loadCredentialsFromDb();
-  }
+  /** Lazily resolves and caches one business's Facebook/Instagram credentials (DB row, falling back to env vars). */
+  private async getCreds(businessId: string): Promise<SocialCreds> {
+    const cached = this.credsCache.get(businessId);
+    if (cached) return cached;
 
-  private async loadCredentialsFromDb() {
+    let creds: SocialCreds;
     try {
       const rows = await this.prisma.systemSetting.findMany({
-        where: { key: { in: Object.values(SOCIAL_KEYS) } },
+        where: { businessId, key: { in: Object.values(SOCIAL_KEYS) } },
       });
-      for (const row of rows) {
-        if (row.key === SOCIAL_KEYS.pageToken && row.value) this._pageToken = row.value;
-        if (row.key === SOCIAL_KEYS.pageId    && row.value) this._pageId    = row.value;
-        if (row.key === SOCIAL_KEYS.igId      && row.value) this._igId      = row.value;
-      }
-    } catch { /* DB not ready at boot — env fallback will be used */ }
+      const byKey = new Map(rows.map(r => [r.key, r.value]));
+      const dbPageToken = byKey.get(SOCIAL_KEYS.pageToken) || undefined;
+      creds = {
+        pageToken: dbPageToken ?? process.env.FB_PAGE_ACCESS_TOKEN,
+        pageId:    byKey.get(SOCIAL_KEYS.pageId) || process.env.FB_PAGE_ID,
+        igId:      byKey.get(SOCIAL_KEYS.igId)   || process.env.FB_IG_BUSINESS_ACCOUNT_ID,
+        source:    dbPageToken ? 'database' : 'env',
+      };
+    } catch {
+      // DB not ready — env fallback, not cached so the next call retries the DB.
+      return {
+        pageToken: process.env.FB_PAGE_ACCESS_TOKEN,
+        pageId:    process.env.FB_PAGE_ID,
+        igId:      process.env.FB_IG_BUSINESS_ACCOUNT_ID,
+        source:    'env',
+      };
+    }
+    this.credsCache.set(businessId, creds);
+    return creds;
   }
 
-  private get pageToken() { return this._pageToken ?? process.env.FB_PAGE_ACCESS_TOKEN; }
-  private get pageId()    { return this._pageId    ?? process.env.FB_PAGE_ID; }
-  private get igId()      { return this._igId      ?? process.env.FB_IG_BUSINESS_ACCOUNT_ID; }
-
-  private get enabled() { return !!(this.pageToken && this.pageId); }
+  private isEnabled(creds: SocialCreds): boolean {
+    return !!(creds.pageToken && creds.pageId);
+  }
 
   // ── Credential management ───────────────────────────────────────────────────
 
-  getCredentials() {
+  async getCredentials(businessId: string) {
+    const creds = await this.getCreds(businessId);
     return {
-      tokenConfigured: !!this.pageToken,
-      pageId:          this.pageId ?? null,
-      igId:            this.igId   ?? null,
-      source:          this._pageToken ? 'database' : 'env',
+      tokenConfigured: !!creds.pageToken,
+      pageId:          creds.pageId ?? null,
+      igId:            creds.igId   ?? null,
+      source:          creds.source ?? 'env',
     };
   }
 
@@ -73,12 +93,16 @@ export class SocialMessagingService implements OnModuleInit {
     const pageId    = data.pageId?.trim();
     const igId      = data.igId?.trim();
 
-    if (pageToken) { ops.push(upsert(SOCIAL_KEYS.pageToken, pageToken)); this._pageToken = pageToken; }
-    if (pageId)    { ops.push(upsert(SOCIAL_KEYS.pageId,    pageId));    this._pageId    = pageId; }
-    if (igId)      { ops.push(upsert(SOCIAL_KEYS.igId,      igId));     this._igId      = igId; }
+    const existing = await this.getCreds(businessId);
+    const updated: SocialCreds = { ...existing };
+
+    if (pageToken) { ops.push(upsert(SOCIAL_KEYS.pageToken, pageToken)); updated.pageToken = pageToken; updated.source = 'database'; }
+    if (pageId)    { ops.push(upsert(SOCIAL_KEYS.pageId,    pageId));    updated.pageId    = pageId; }
+    if (igId)      { ops.push(upsert(SOCIAL_KEYS.igId,      igId));      updated.igId      = igId; }
 
     await Promise.all(ops);
-    return this.getCredentials();
+    this.credsCache.set(businessId, updated);
+    return this.getCredentials(businessId);
   }
 
   // ── Saved Page presets ───────────────────────────────────────────────────────
@@ -148,13 +172,14 @@ export class SocialMessagingService implements OnModuleInit {
 
   // ── Low-level send ───────────────────────────────────────────────────────────
 
-  private async post(path: string, body: object): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
-    if (!this.enabled) {
+  private async post(businessId: string, path: string, body: object): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
+    const creds = await this.getCreds(businessId);
+    if (!this.isEnabled(creds)) {
       this.logger.warn('Facebook/Instagram not configured — skipping (set FB_PAGE_ACCESS_TOKEN + FB_PAGE_ID)');
       return { ok: false, skipped: true, data: null };
     }
     try {
-      const url = `https://graph.facebook.com/${API_VERSION}/${path}?access_token=${encodeURIComponent(this.pageToken!)}`;
+      const url = `https://graph.facebook.com/${API_VERSION}/${path}?access_token=${encodeURIComponent(creds.pageToken!)}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -187,7 +212,7 @@ export class SocialMessagingService implements OnModuleInit {
       triggeringPostId?: string;
     },
   ): Promise<{ ok: boolean; skipped?: boolean; data: any }> {
-    const result = await this.post(path, body);
+    const result = await this.post(businessId, path, body);
     if (result.skipped) return result;
 
     try {
@@ -220,8 +245,9 @@ export class SocialMessagingService implements OnModuleInit {
 
   /** POST /{page-id}/messages — same endpoint for Facebook Messenger and Instagram DM. */
   async sendDirectMessage(businessId: string, channel: SocialChannel, externalUserId: string, text: string) {
+    const creds = await this.getCreds(businessId);
     return this.logAndSend(
-      businessId, channel, `${this.pageId}/messages`,
+      businessId, channel, `${creds.pageId}/messages`,
       { recipient: { id: externalUserId }, messaging_type: 'RESPONSE', message: { text } },
       { externalUserId, messageType: 'TEXT', bodyPreview: text },
     );
@@ -241,9 +267,10 @@ export class SocialMessagingService implements OnModuleInit {
   async sendPrivateReply(businessId: string, channel: SocialChannel, commentId: string, text: string, opts?: {
     triggeringPostId?: string;
   }) {
+    const creds = await this.getCreds(businessId);
     const path = channel === 'FACEBOOK'
       ? `${commentId}/private_replies`
-      : `${this.pageId}/messages`; // TODO: confirm exact Instagram private-reply shape once the Meta App exists
+      : `${creds.pageId}/messages`; // TODO: confirm exact Instagram private-reply shape once the Meta App exists
     const body = channel === 'FACEBOOK'
       ? { message: text }
       : { recipient: { comment_id: commentId }, message: { text } };
@@ -265,8 +292,9 @@ export class SocialMessagingService implements OnModuleInit {
    * campaign, which would violate Messenger's promotional-content policy).
    */
   async sendRecommendationRequest(businessId: string, channel: SocialChannel, externalUserId: string) {
-    if (!this.pageId) return { ok: false, skipped: true, data: null };
-    const text = `Thank you! If you have a moment, we'd really appreciate a recommendation on Facebook: https://www.facebook.com/${this.pageId}/reviews/`;
+    const creds = await this.getCreds(businessId);
+    if (!creds.pageId) return { ok: false, skipped: true, data: null };
+    const text = `Thank you! If you have a moment, we'd really appreciate a recommendation on Facebook: https://www.facebook.com/${creds.pageId}/reviews/`;
     return this.sendDirectMessage(businessId, channel, externalUserId, text);
   }
 

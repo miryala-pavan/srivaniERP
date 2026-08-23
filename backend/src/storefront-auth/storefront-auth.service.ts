@@ -89,7 +89,8 @@ export class StorefrontAuthService {
 
   /** One-time: submit the AUTHENTICATION-category OTP template to Meta for approval. */
   async registerOtpTemplate() {
-    return this.whatsapp.createTemplate({
+    const businessId = await this.getBusinessId();
+    return this.whatsapp.createTemplate(businessId, {
       name: AUTH_TEMPLATE_NAME,
       category: 'AUTHENTICATION',
       language: 'en',
