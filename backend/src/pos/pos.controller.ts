@@ -221,8 +221,13 @@ export class PosController {
     @Request() req: any,
     @Param('id') id: string,
     @Body('targetBillType') targetBillType: string,
+    @Body('paidAmount') paidAmount?: number,
+    @Body('paymentMode') paymentMode?: string,
   ) {
-    return this.posService.convertEstimate(req.user.businessId, req.user.userId, id, targetBillType ?? 'TAX_INVOICE');
+    return this.posService.convertEstimate(
+      req.user.businessId, req.user.userId, id, targetBillType ?? 'TAX_INVOICE',
+      { paidAmount, paymentMode },
+    );
   }
 
   @Put('estimates/:id/cancel')

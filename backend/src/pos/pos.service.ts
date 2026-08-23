@@ -901,7 +901,10 @@ export class PosService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async convertEstimate(businessId: string, userId: string, estimateId: string, targetBillType: string) {
+  async convertEstimate(
+    businessId: string, userId: string, estimateId: string, targetBillType: string,
+    paymentDto?: { paidAmount?: number; paymentMode?: string },
+  ) {
     const estimate = await this.prisma.salesBill.findFirst({
       where: { id: estimateId, businessId, billType: 'ESTIMATE', estimateStatus: 'OPEN' },
       include: { items: true },
@@ -910,6 +913,46 @@ export class PosService {
 
     const counter = await this.prisma.posCounter.findFirst({ where: { id: estimate.counterId!, businessId } });
     if (!counter) throw new BadRequestException('Counter not found');
+
+    // Payment resolution — same pattern as create(): paidAmount defaults to
+    // the full amount (preserving old behavior for callers that don't pass
+    // it), saleType/balanceAmount are derived from what's actually short.
+    // Previously this was hardcoded to full CASH payment regardless of what
+    // actually happened at the counter — if goods left against an estimate
+    // without full payment, that debt was completely untracked (no CREDIT
+    // bill, no outstandingBalance change, invisible to the credit-limit
+    // check and every statement/report).
+    const grandTotal = Number(estimate.grandTotal);
+    let paidAmount = r2(paymentDto?.paidAmount ?? grandTotal);
+    if (paidAmount > grandTotal) throw new BadRequestException('Paid amount cannot exceed grand total');
+    if (paidAmount < 0) throw new BadRequestException('Paid amount cannot be negative');
+    const balanceAmount = r2(grandTotal - paidAmount);
+    const saleType: 'CASH' | 'CREDIT' = balanceAmount > 0 ? 'CREDIT' : 'CASH';
+    const requestedMode = paymentDto?.paymentMode ?? PaymentModeEnum.CASH;
+    if (!Object.values(PaymentModeEnum).includes(requestedMode as PaymentModeEnum)) {
+      throw new BadRequestException(`Invalid payment mode: ${requestedMode}`);
+    }
+    const paymentMode = requestedMode as PaymentModeEnum;
+    if (paymentMode === PaymentModeEnum.SPLIT) {
+      throw new BadRequestException('Split payment is not supported when converting an estimate — please use CASH, UPI, or CARD');
+    }
+
+    if (saleType === 'CREDIT' && estimate.customerId) {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: estimate.customerId, businessId },
+        select: { creditLimit: true, name: true },
+      });
+      const creditLimit = Number(customer?.creditLimit ?? 0);
+      if (creditLimit > 0) {
+        const currentOutstanding = await this.customers.computeCustomerOutstanding(businessId, estimate.customerId);
+        const projectedOutstanding = currentOutstanding + balanceAmount;
+        if (projectedOutstanding > creditLimit) {
+          throw new BadRequestException(
+            `Converting this estimate would take ${customer?.name ?? 'this customer'}'s outstanding balance to Rs.${r2(projectedOutstanding)}, over their credit limit of Rs.${creditLimit}.`,
+          );
+        }
+      }
+    }
 
     const fy = await this.prisma.financialYear.findFirst({ where: { businessId, isActive: true }, orderBy: { startDate: 'desc' } });
     if (!fy) throw new BadRequestException('No active financial year');
@@ -952,8 +995,8 @@ export class PosService {
           customerPhone:   estimate.customerPhone,
           customerGstin:   estimate.customerGstin,
           supplyStateCode: estimate.supplyStateCode,
-          saleType:        'CASH',
-          paymentMode:     'CASH',
+          saleType,
+          paymentMode,
           subtotalAmount:  estimate.subtotalAmount,
           discountAmount:  estimate.discountAmount,
           taxableAmount:   estimate.taxableAmount,
@@ -962,12 +1005,15 @@ export class PosService {
           igstTotal:       estimate.igstTotal,
           totalTaxAmount:  estimate.totalTaxAmount,
           grandTotal:      estimate.grandTotal,
-          paidAmount:      estimate.grandTotal,
-          balanceAmount:   0,
+          paidAmount,
+          balanceAmount,
           status:          'FINAL',
           counterId:       estimate.counterId,
           shiftId:         estimate.shiftId,
           createdById:     userId,
+          cashAmount: paymentMode === 'CASH' ? paidAmount : null,
+          upiAmount:  paymentMode === 'UPI'  ? paidAmount : null,
+          cardAmount: paymentMode === 'CARD' ? paidAmount : null,
         },
       });
 
@@ -1022,18 +1068,30 @@ export class PosService {
         await tx.product.update({ where: { id: productId }, data: { totalStock: Number(stockAgg._sum.stockOnHand ?? 0) } as any });
       }
 
-      // Update shift totals — a converted estimate is a real cash sale and
-      // must land in the cashier's shift the same way a normal bill does
-      // (create()'s step 6e), otherwise end-of-shift cash reconciliation
-      // would be short by exactly this amount.
+      // Update shift totals — a converted estimate is a real sale and must
+      // land in the cashier's shift the same way a normal bill does
+      // (create()'s step 6e), keyed by what was actually paid and how,
+      // not the full estimate value assumed as cash.
       if (estimate.shiftId) {
-        await tx.posShift.update({
-          where: { id: estimate.shiftId },
-          data: {
-            totalSales: { increment: Number(estimate.grandTotal) },
-            totalBills: { increment: 1 },
-            totalCash:  { increment: Number(estimate.grandTotal) },
-          },
+        const shiftInc: Record<string, any> = {
+          totalSales: { increment: grandTotal },
+          totalBills: { increment: 1 },
+        };
+        if (paidAmount > 0) {
+          if (paymentMode === 'UPI') shiftInc.totalUpi = { increment: paidAmount };
+          else if (paymentMode === 'CARD') shiftInc.totalCard = { increment: paidAmount };
+          else shiftInc.totalCash = { increment: paidAmount };
+        }
+        await tx.posShift.update({ where: { id: estimate.shiftId }, data: shiftInc });
+      }
+
+      // If CREDIT: update customer outstanding balance — mirrors create()'s
+      // step 6f, and is the piece that was entirely missing before (a
+      // partially/un-paid conversion left no trace of the debt anywhere).
+      if (saleType === 'CREDIT' && estimate.customerId) {
+        await tx.customer.update({
+          where: { id: estimate.customerId },
+          data: { outstandingBalance: { increment: balanceAmount } },
         });
       }
 
