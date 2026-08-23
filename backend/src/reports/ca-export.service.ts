@@ -494,6 +494,25 @@ export class CaExportService {
       gstMap[mo].purSgst    += n(p.sgstTotal);
       gstMap[mo].purIgst    += n(p.igstTotal);
     });
+    // Net off supplier credit/debit notes by month — without this, this
+    // sheet's month-wise numbers (the ones actually usable for month-by-month
+    // GSTR-3B prep) disagree with the cover sheet's own net total above.
+    supplierCreditNotes.forEach(c => {
+      const mo = getGstMo(c.cnDate);
+      if (!gstMap[mo]) gstMap[mo] = { salesTaxable:0,salesCgst:0,salesSgst:0,salesIgst:0,purTaxable:0,purCgst:0,purSgst:0,purIgst:0 };
+      gstMap[mo].purTaxable -= n(c.taxableAmount);
+      gstMap[mo].purCgst    -= n(c.cgstAmount);
+      gstMap[mo].purSgst    -= n(c.sgstAmount);
+      gstMap[mo].purIgst    -= n(c.igstAmount);
+    });
+    purchaseDebitNotes.forEach(d => {
+      const mo = getGstMo(d.debitNoteDate);
+      if (!gstMap[mo]) gstMap[mo] = { salesTaxable:0,salesCgst:0,salesSgst:0,salesIgst:0,purTaxable:0,purCgst:0,purSgst:0,purIgst:0 };
+      gstMap[mo].purTaxable -= n(d.taxableAmount);
+      gstMap[mo].purCgst    -= n(d.cgstAmount);
+      gstMap[mo].purSgst    -= n(d.sgstAmount);
+      gstMap[mo].purIgst    -= n(d.igstAmount);
+    });
 
     const gstRows: any[][] = [
       hdr(['Month',

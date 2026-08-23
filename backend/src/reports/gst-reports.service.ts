@@ -223,6 +223,50 @@ export class GstReportsService {
   // Algorithm: each month, excess ITC (itcAvailable - outwardTax) carries forward.
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ITC actually claimed on a purchase gets reversed when the supplier later
+  // issues a scheme/rebate credit note or a goods-return debit note marked
+  // itcReversal — without netting these off, every GST report (3B summary,
+  // purchase register, ITC carry-forward) overstates ITC by the full amount
+  // of every such note, indefinitely (nothing else in the filing pipeline
+  // ever corrects it). Status/date-field filters mirror ca-export.service.ts's
+  // existing supplier-notes query.
+  private async getItcReversalForPeriod(businessId: string, startDate: Date, endDate: Date) {
+    const [scn, pdn] = await Promise.all([
+      this.prisma.supplierCreditNote.aggregate({
+        where: { businessId, status: 'ACTIVE', itcReversal: true, cnDate: { gte: startDate, lte: endDate } },
+        _sum: { cgstAmount: true, sgstAmount: true, igstAmount: true, cessAmount: true },
+      }),
+      this.prisma.purchaseDebitNote.aggregate({
+        where: { businessId, status: 'ISSUED', itcReversal: true, debitNoteDate: { gte: startDate, lte: endDate } },
+        _sum: { cgstAmount: true, sgstAmount: true, igstAmount: true, cessAmount: true },
+      }),
+    ]);
+    return {
+      cgst: r2(Number(scn._sum.cgstAmount ?? 0) + Number(pdn._sum.cgstAmount ?? 0)),
+      sgst: r2(Number(scn._sum.sgstAmount ?? 0) + Number(pdn._sum.sgstAmount ?? 0)),
+      igst: r2(Number(scn._sum.igstAmount ?? 0) + Number(pdn._sum.igstAmount ?? 0)),
+      cess: r2(Number(scn._sum.cessAmount ?? 0) + Number(pdn._sum.cessAmount ?? 0)),
+    };
+  }
+
+  // Customer credit notes (partial returns) never adjust the original bill's
+  // stored tax fields — createCreditNote only creates a standalone record —
+  // so without this the business keeps reporting/paying the original bill's
+  // full output tax forever, even on goods that were returned. Nets the
+  // actual credit notes issued in this period off the period's output tax.
+  private async getOutputTaxReductionForPeriod(businessId: string, startDate: Date, endDate: Date) {
+    const agg = await this.prisma.creditNote.aggregate({
+      where: { businessId, createdAt: { gte: startDate, lte: endDate } },
+      _sum: { cgstAmount: true, sgstAmount: true, igstAmount: true, cessAmount: true },
+    });
+    return {
+      cgst: r2(Number(agg._sum.cgstAmount ?? 0)),
+      sgst: r2(Number(agg._sum.sgstAmount ?? 0)),
+      igst: r2(Number(agg._sum.igstAmount ?? 0)),
+      cess: r2(Number(agg._sum.cessAmount ?? 0)),
+    };
+  }
+
   private async computeOpeningITC(businessId: string, month: number, year: number): Promise<number> {
     const gstFromDate  = await this.getGstFromDate(businessId);
     // GST FY starts in April
@@ -236,7 +280,7 @@ export class GstReportsService {
     while (y < year || (y === year && m < month)) {
       const { startDate, endDate } = this.getPeriodDates(m, y, gstFromDate);
 
-      const [outAgg, itcAgg] = await Promise.all([
+      const [outAgg, itcAgg, itcReversal, outputReduction] = await Promise.all([
         this.prisma.salesBill.aggregate({
           where: {
             businessId,
@@ -257,15 +301,19 @@ export class GstReportsService {
           },
           _sum: { cgstTotal: true, sgstTotal: true, igstTotal: true, cessTotal: true },
         }),
+        this.getItcReversalForPeriod(businessId, startDate, endDate),
+        this.getOutputTaxReductionForPeriod(businessId, startDate, endDate),
       ]);
 
       const outTax = r2(
         Number(outAgg._sum.cgstTotal ?? 0) + Number(outAgg._sum.sgstTotal ?? 0) +
-        Number(outAgg._sum.igstTotal ?? 0) + Number(outAgg._sum.cessTotal ?? 0),
+        Number(outAgg._sum.igstTotal ?? 0) + Number(outAgg._sum.cessTotal ?? 0)
+        - outputReduction.cgst - outputReduction.sgst - outputReduction.igst - outputReduction.cess,
       );
       const itcAmt = r2(
         Number(itcAgg._sum.cgstTotal ?? 0) + Number(itcAgg._sum.sgstTotal ?? 0) +
-        Number(itcAgg._sum.igstTotal ?? 0) + Number(itcAgg._sum.cessTotal ?? 0),
+        Number(itcAgg._sum.igstTotal ?? 0) + Number(itcAgg._sum.cessTotal ?? 0)
+        - itcReversal.cgst - itcReversal.sgst - itcReversal.igst - itcReversal.cess,
       );
 
       // Positive net = excess ITC not yet used → carry forward
@@ -691,20 +739,25 @@ export class GstReportsService {
     const eligible   = purchases.filter((p) => p.itcEligibility !== 'NOT_ELIGIBLE');
     const ineligible = purchases.filter((p) => p.itcEligibility === 'NOT_ELIGIBLE');
 
+    // Net off ITC reversed via supplier credit/debit notes issued in this
+    // period — see getItcReversalForPeriod for why this matters.
+    const itcReversal = await this.getItcReversalForPeriod(businessId, startDate, endDate);
+
     const summary = {
       totalPurchases:  purchases.length,
       totalTaxable:    r2(purchases.reduce((s, p)  => s + Number(p.taxableAmount), 0)),
-      eligibleITC:     r2(eligible.reduce((s, p)   => s + Number(p.totalTaxAmount), 0)),
+      eligibleITC:     r2(eligible.reduce((s, p)   => s + Number(p.totalTaxAmount), 0) - itcReversal.cgst - itcReversal.sgst - itcReversal.igst - itcReversal.cess),
       ineligibleITC:   r2(ineligible.reduce((s, p) => s + Number(p.totalTaxAmount), 0)),
-      cgstITC:         r2(eligible.reduce((s, p)   => s + Number(p.cgstTotal), 0)),
-      sgstITC:         r2(eligible.reduce((s, p)   => s + Number(p.sgstTotal), 0)),
-      igstITC:         r2(eligible.reduce((s, p)   => s + Number(p.igstTotal), 0)),
-      cessITC:         r2(eligible.reduce((s, p)   => s + Number(p.cessTotal), 0)),
+      cgstITC:         r2(eligible.reduce((s, p)   => s + Number(p.cgstTotal), 0) - itcReversal.cgst),
+      sgstITC:         r2(eligible.reduce((s, p)   => s + Number(p.sgstTotal), 0) - itcReversal.sgst),
+      igstITC:         r2(eligible.reduce((s, p)   => s + Number(p.igstTotal), 0) - itcReversal.igst),
+      cessITC:         r2(eligible.reduce((s, p)   => s + Number(p.cessTotal), 0) - itcReversal.cess),
       // Per-head ineligible ITC — exposed as GSTR-3B Table 4(D)(2) disclosure
       ineligibleCgst:  r2(ineligible.reduce((s, p) => s + Number(p.cgstTotal), 0)),
       ineligibleSgst:  r2(ineligible.reduce((s, p) => s + Number(p.sgstTotal), 0)),
       ineligibleIgst:  r2(ineligible.reduce((s, p) => s + Number(p.igstTotal), 0)),
       ineligibleCess:  r2(ineligible.reduce((s, p) => s + Number(p.cessTotal), 0)),
+      itcReversedThisPeriod: itcReversal,
     };
 
     return { period, purchases: purchaseList, summary };
@@ -998,10 +1051,14 @@ export class GstReportsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async getGSTR3BSummary(businessId: string, month: number, year: number) {
-    const [sales, purchase, openingITC] = await Promise.all([
+    const gstFromDate3b = await this.getGstFromDate(businessId);
+    const { startDate: periodStart, endDate: periodEnd } = this.getPeriodDates(month, year, gstFromDate3b);
+
+    const [sales, purchase, openingITC, outputReduction] = await Promise.all([
       this.getSalesRegister(businessId, month, year),
       this.getPurchaseRegister(businessId, month, year),
       this.computeOpeningITC(businessId, month, year),
+      this.getOutputTaxReductionForPeriod(businessId, periodStart, periodEnd),
     ]);
 
     type TaxBox = { taxable: number; cgst: number; sgst: number; igst: number; cess: number };
@@ -1029,7 +1086,15 @@ export class GstReportsService {
           a2), acc), { ...zero });
 
     const b2cOut:   TaxBox = add(b2csOut, b2clOut);
-    const totalOut: TaxBox = add(b2bOut, b2cOut);
+    // Net off customer credit notes (partial returns) issued this period —
+    // see getOutputTaxReductionForPeriod for why this matters.
+    const totalOut: TaxBox = {
+      ...add(b2bOut, b2cOut),
+      cgst: r2(add(b2bOut, b2cOut).cgst - outputReduction.cgst),
+      sgst: r2(add(b2bOut, b2cOut).sgst - outputReduction.sgst),
+      igst: r2(add(b2bOut, b2cOut).igst - outputReduction.igst),
+      cess: r2(add(b2bOut, b2cOut).cess - outputReduction.cess),
+    };
 
     // 3.2 Inter-state supplies to unregistered
     const interSmall = sales.b2cs
@@ -1479,20 +1544,29 @@ export class GstReportsService {
       })),
     };
 
-    // ── nil (Table 8) — populated from rt=0 HSN items ───────────────────────
-    // Zero-rate items are excluded from HSN table (above) and must appear here instead.
-    const zeroRateHsn = salesData.hsnSummary.filter((h) => h.gstRate === 0);
+    // ── nil (Table 8) — populated from rt=0 lines ────────────────────────────
+    // Zero-rate items are excluded from HSN table (above) and must appear here
+    // instead. Classified from the already-invoice-level-classified b2b/b2cs/b2cl
+    // buckets (not the HSN summary, which is aggregated across invoices and
+    // loses per-invoice inter-state/B2B classification — igst is always 0 for
+    // an exempt line by construction, so deriving inter-state from "igst > 0"
+    // there was dead code that always fell through to intraB2C).
     const nilAmts = { intrB2B: 0, intrB2C: 0, intraB2B: 0, intraB2C: 0 };
-    for (const h of zeroRateHsn) {
-      // Classify by IGST presence (inter-state) and whether it appears in B2B sales data
-      const isInter = h.igst > 0 || (h.cgst === 0 && h.sgst === 0 && h.igst === 0);
-      // Use taxableAmount as the exempt supply amount
-      const amt = h.taxableAmount;
-      // Approximate split: if any IGST was recorded it was inter-state, else intra
-      if (h.igst > 0) {
-        nilAmts.intrB2B  = r2(nilAmts.intrB2B  + amt); // simplified: all inter as B2B
-      } else {
-        nilAmts.intraB2C = r2(nilAmts.intraB2C + amt); // simplified: all intra as B2C
+    for (const bill of salesData.b2b) {
+      const zeroRate = bill.itemsByRate.find((r) => r.rt === 0);
+      if (!zeroRate) continue;
+      if (bill.isInterState) nilAmts.intrB2B  = r2(nilAmts.intrB2B  + zeroRate.txval);
+      else                   nilAmts.intraB2B = r2(nilAmts.intraB2B + zeroRate.txval);
+    }
+    for (const entry of salesData.b2cs) {
+      if (entry.gstRate !== 0) continue;
+      if (entry.splyTp === 'INTER') nilAmts.intrB2C  = r2(nilAmts.intrB2C  + entry.taxableAmount);
+      else                          nilAmts.intraB2C = r2(nilAmts.intraB2C + entry.taxableAmount);
+    }
+    for (const grp of salesData.b2cl) {
+      for (const inv of grp.invoices) {
+        const zeroRate = inv.itemsByRate.find((r) => r.rt === 0);
+        if (zeroRate) nilAmts.intrB2C = r2(nilAmts.intrB2C + zeroRate.txval); // b2cl is always inter-state
       }
     }
     const nil = {

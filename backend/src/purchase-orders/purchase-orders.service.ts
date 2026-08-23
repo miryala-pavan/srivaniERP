@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { gstinStateCode } from '../common/gstin.util';
 
 const PO_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'ACCOUNTS_PERSON'];
 
@@ -291,11 +292,15 @@ export class PurchaseOrdersService {
     });
     if (dup) throw new ConflictException(`Invoice ${body.invoiceNumber} already recorded for this supplier`);
 
-    // Resolve inter-state from supplier GSTIN vs business state code
+    // Resolve inter-state from supplier GSTIN vs business state code —
+    // gstinStateCode() validates the format before trusting the substring,
+    // same as every other interstate check in the codebase; a raw
+    // substring here could silently produce a wrong CGST+SGST vs IGST
+    // split for a malformed/legacy supplier GSTIN.
     const biz = await this.prisma.business.findUnique({
       where: { id: businessId }, select: { stateCode: true },
     });
-    const supplierState  = po.supplier.gstin?.substring(0, 2) ?? null;
+    const supplierState  = po.supplier.gstin ? gstinStateCode(po.supplier.gstin, 'This supplier') : null;
     const isInterState   = !!(biz?.stateCode && supplierState && supplierState !== biz.stateCode);
 
     // GRN number from active bill series

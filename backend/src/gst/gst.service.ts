@@ -17,6 +17,12 @@ export interface GstLineItem {
   invoiceId?: string;
   invoiceNo?: string;
   invoiceDate?: Date;
+  // Actual tax amounts as invoiced — the source of truth for compute()'s
+  // totals. gstSlab is kept only for classification (nil/exempt bucketing),
+  // not for recomputing tax from a rate guess.
+  cgstAmount: number;
+  sgstAmount: number;
+  igstAmount: number;
 }
 
 export interface GstComputationResult {
@@ -86,6 +92,10 @@ export class GstService {
     }
   }
 
+  // Known gap: CESS isn't tracked anywhere in this engine — GstReturn has no
+  // cess columns, and neither GstLineItem nor gstr1/gstr3b below carry it.
+  // Only matters for cess-bearing categories (tobacco, aerated drinks, etc.);
+  // flagged rather than silently wrong if this business ever sells those.
   async compute(businessId: string, taxPeriod: string): Promise<GstComputationResult> {
     const [year, month] = taxPeriod.split('-').map(Number);
     if (!year || !month || month < 1 || month > 12)
@@ -113,8 +123,11 @@ export class GstService {
 
     for (const item of salesItems) {
       const taxable = Number(item.taxableAmount);
-      const rates = await this.computeRate(businessId, item.gstSlab, item.isInterState ?? false);
-      const tax = taxable * (rates.cgst + rates.sgst + rates.igst);
+      // Actual invoiced tax, not a rate-slab recomputation — the item's own
+      // cgst/sgst/igst amounts already reflect whatever was really charged
+      // (including any rounding, negotiated rate, or mid-period rate change),
+      // which a rules-engine/slab guess can silently drift from.
+      const tax = item.cgstAmount + item.sgstAmount + item.igstAmount;
 
       if (item.gstSlab === 'EXEMPT' || item.gstSlab === 'ZERO' || item.gstSlab === '0') {
         nilExempt += taxable;
@@ -123,15 +136,15 @@ export class GstService {
       } else if (item.supplyType === 'B2B') {
         b2bTaxable += taxable;
         b2bTax += tax;
-        outputCgst += taxable * rates.cgst;
-        outputSgst += taxable * rates.sgst;
-        outputIgst += taxable * rates.igst;
+        outputCgst += item.cgstAmount;
+        outputSgst += item.sgstAmount;
+        outputIgst += item.igstAmount;
       } else {
         b2cTaxable += taxable;
         b2cTax += tax;
-        outputCgst += taxable * rates.cgst;
-        outputSgst += taxable * rates.sgst;
-        outputIgst += taxable * rates.igst;
+        outputCgst += item.cgstAmount;
+        outputSgst += item.sgstAmount;
+        outputIgst += item.igstAmount;
       }
     }
 
@@ -150,11 +163,10 @@ export class GstService {
       itcIgst = 0;
 
     for (const item of purchaseItems) {
-      const taxable = Number(item.taxableAmount);
-      const rates = await this.computeRate(businessId, item.gstSlab, item.isInterState ?? false);
-      itcCgst += taxable * rates.cgst;
-      itcSgst += taxable * rates.sgst;
-      itcIgst += taxable * rates.igst;
+      // Actual invoiced tax, same reasoning as the sales-side loop above.
+      itcCgst += item.cgstAmount;
+      itcSgst += item.sgstAmount;
+      itcIgst += item.igstAmount;
     }
 
     const manualItc = await this.prisma.itcLedger.findMany({
@@ -382,34 +394,36 @@ export class GstService {
     };
   }
 
+  // No try/catch here — a query failure must surface as a thrown error, not
+  // silently become an empty list that compute() then happily upserts as a
+  // COMPUTED (or later FILED) return showing zero sales/purchases.
   private async fetchSalesItems(
     businessId: string,
     from: Date,
     to: Date,
   ): Promise<GstLineItem[]> {
-    try {
-      const bills = await this.prisma.salesBill.findMany({
-        where: { businessId, createdAt: { gte: from, lte: to }, isVoided: false },
-        include: { items: { include: { tax: true } } },
-      });
+    const bills = await this.prisma.salesBill.findMany({
+      where: { businessId, createdAt: { gte: from, lte: to }, isVoided: false },
+      include: { items: { include: { tax: true } } },
+    });
 
-      return bills.flatMap((bill) =>
-        bill.items.map(
-          (item): GstLineItem => ({
-            taxableAmount: Number(item.taxableAmount ?? 0),
-            gstSlab: this.taxRateToSlab(Number(item.tax?.taxRate ?? 0)),
-            supplyType: bill.isB2B ? 'B2B' : 'B2C',
-            partyGstin: bill.customerGstin ?? undefined,
-            isInterState: Number(item.igstAmount ?? 0) > 0,
-            invoiceId: bill.id,
-            invoiceNo: bill.billNumber ?? undefined,
-            invoiceDate: bill.createdAt,
-          }),
-        ),
-      );
-    } catch {
-      return [];
-    }
+    return bills.flatMap((bill) =>
+      bill.items.map(
+        (item): GstLineItem => ({
+          taxableAmount: Number(item.taxableAmount ?? 0),
+          gstSlab: this.taxRateToSlab(Number(item.tax?.taxRate ?? 0)),
+          supplyType: bill.isB2B ? 'B2B' : 'B2C',
+          partyGstin: bill.customerGstin ?? undefined,
+          isInterState: Number(item.igstAmount ?? 0) > 0,
+          invoiceId: bill.id,
+          invoiceNo: bill.billNumber ?? undefined,
+          invoiceDate: bill.createdAt,
+          cgstAmount: Number(item.cgstAmount ?? 0),
+          sgstAmount: Number(item.sgstAmount ?? 0),
+          igstAmount: Number(item.igstAmount ?? 0),
+        }),
+      ),
+    );
   }
 
   private async fetchPurchaseItems(
@@ -417,29 +431,28 @@ export class GstService {
     from: Date,
     to: Date,
   ): Promise<GstLineItem[]> {
-    try {
-      const bills = await this.prisma.purchase.findMany({
-        where: { businessId, createdAt: { gte: from, lte: to }, status: 'APPROVED' },
-        include: { items: { include: { tax: true } } },
-      });
+    const bills = await this.prisma.purchase.findMany({
+      where: { businessId, createdAt: { gte: from, lte: to }, status: 'APPROVED' },
+      include: { items: { include: { tax: true } } },
+    });
 
-      return bills.flatMap((bill) =>
-        bill.items.map(
-          (item): GstLineItem => ({
-            taxableAmount: Number(item.taxableAmount ?? 0),
-            gstSlab: this.taxRateToSlab(Number(item.tax?.taxRate ?? 0)),
-            supplyType: 'B2B',
-            partyGstin: bill.supplierGstin ?? undefined,
-            isInterState: Number(item.igstAmount ?? 0) > 0,
-            invoiceId: bill.id,
-            invoiceNo: bill.grnNumber ?? undefined,
-            invoiceDate: bill.createdAt,
-          }),
-        ),
-      );
-    } catch {
-      return [];
-    }
+    return bills.flatMap((bill) =>
+      bill.items.map(
+        (item): GstLineItem => ({
+          taxableAmount: Number(item.taxableAmount ?? 0),
+          gstSlab: this.taxRateToSlab(Number(item.tax?.taxRate ?? 0)),
+          supplyType: 'B2B',
+          partyGstin: bill.supplierGstin ?? undefined,
+          isInterState: Number(item.igstAmount ?? 0) > 0,
+          invoiceId: bill.id,
+          invoiceNo: bill.grnNumber ?? undefined,
+          invoiceDate: bill.createdAt,
+          cgstAmount: Number(item.cgstAmount ?? 0),
+          sgstAmount: Number(item.sgstAmount ?? 0),
+          igstAmount: Number(item.igstAmount ?? 0),
+        }),
+      ),
+    );
   }
 
   private taxRateToSlab(rate: number): GstLineItem['gstSlab'] {
