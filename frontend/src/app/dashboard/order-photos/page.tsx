@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Camera, Search, Copy, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Camera, Search, Copy, X, CheckCircle2, AlertCircle, Images } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
@@ -37,6 +37,8 @@ export default function OrderPhotosPage() {
   const [jobs, setJobs] = useState<PhotoJob[]>([]);
   const [photoCaption, setPhotoCaption] = useState('');
   const [uploadingAll, setUploadingAll] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // Doesn't require an existing WhatsApp conversation with a linked contact
   // (unlike the same action inside PaVa Connect's chat panel) — this page
@@ -204,10 +206,33 @@ export default function OrderPhotosPage() {
 
           <div>
             <label className="label text-xs">Photos</label>
-            <input type="file" accept="image/jpeg,image/png,image/webp" multiple
-              onChange={onFilesPicked}
-              className="input text-sm" />
-            <p className="text-[11px] text-gray-400 mt-1">You can select multiple photos at once.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-xl transition-colors"
+              >
+                <Camera size={15} /> Take Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                className="flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition-colors"
+              >
+                <Images size={15} /> Choose Photos
+              </button>
+            </div>
+            {/* capture="environment" opens the device's back camera directly
+                on mobile instead of a file/gallery picker. Kept as a separate
+                input (no `multiple`) since browsers treat capture-mode inputs
+                as one shot per tap — tapping "Take Photo" again after a shot
+                adds another job, so multiple photos still works, just one
+                capture at a time like a real camera app. */}
+            <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+              capture="environment" onChange={onFilesPicked} className="hidden" />
+            <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+              multiple onChange={onFilesPicked} className="hidden" />
+            <p className="text-[11px] text-gray-400 mt-1">Take photos one at a time, or choose several from your gallery at once.</p>
           </div>
 
           <div>
