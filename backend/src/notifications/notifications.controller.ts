@@ -358,6 +358,15 @@ export class NotificationsController {
     return this.whatsapp.registerPhoneNumber(req.user.businessId, body.pin ?? '');
   }
 
+  // Broader than most Settings routes (SUPER_ADMIN-only) — this feeds a warning
+  // banner on bulk-send screens (History Blast, Contacts bulk-send) that staff
+  // below SUPER_ADMIN can already reach, so they need it too.
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'FLOOR_SUPERVISOR', 'SALES_REP', 'CASHIER')
+  @Get('whatsapp/messaging-limits')
+  getMessagingLimits(@Request() req: any) {
+    return this.whatsapp.getMessagingLimits(req.user.businessId);
+  }
+
   @Roles('SUPER_ADMIN')
   @Get('whatsapp/business-profile')
   getBusinessProfile(@Request() req: any) {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
 import { HistoryService } from './history.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -9,6 +9,11 @@ const STAFF_ROLES = [
   'SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON',
   'FLOOR_SUPERVISOR', 'SALES_REP', 'CASHIER',
 ];
+
+// Corrections here directly rewrite live customer history data (reassigning
+// an entry to a different customer, deleting one outright) — narrower than
+// the general STAFF_ROLES used for read/send actions elsewhere in this file.
+const HISTORY_ADMIN_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER'];
 
 @Controller('history')
 export class HistoryController {
@@ -64,5 +69,37 @@ export class HistoryController {
   @Post('register-template')
   registerTemplate(@Request() req: any) {
     return this.historyService.registerHistoryTemplate(req.user.businessId);
+  }
+
+  // ─── Admin: view/correct pre-existing history entries ─────────────────────
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HISTORY_ADMIN_ROLES)
+  @Get('admin/entries')
+  adminListEntries(@Query() q: any, @Request() req: any) {
+    return this.historyService.adminListEntries(req.user.businessId, {
+      customerId: q.customerId || undefined,
+      search:     q.search     || undefined,
+      page:       q.page  ? parseInt(q.page, 10)  : 1,
+      limit:      q.limit ? parseInt(q.limit, 10) : 30,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HISTORY_ADMIN_ROLES)
+  @Patch('admin/entries/:id')
+  adminUpdateEntry(
+    @Param('id') id: string,
+    @Body() body: { entryDate?: string; imagePaths?: string[]; customerId?: string },
+    @Request() req: any,
+  ) {
+    return this.historyService.adminUpdateEntry(req.user.businessId, id, body);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HISTORY_ADMIN_ROLES)
+  @Delete('admin/entries/:id')
+  adminDeleteEntry(@Param('id') id: string, @Request() req: any) {
+    return this.historyService.adminDeleteEntry(req.user.businessId, id);
   }
 }

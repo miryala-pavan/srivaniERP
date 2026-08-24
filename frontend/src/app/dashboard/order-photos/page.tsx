@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Camera, Search, Copy, X, CheckCircle2, AlertCircle, Images } from 'lucide-react';
+import { Camera, Search, Copy, X, CheckCircle2, AlertCircle, Images, ImagePlus, Loader2, MessageCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
@@ -26,6 +26,12 @@ interface PhotoJob {
 
 let jobSeq = 0;
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase();
+}
+
 export default function OrderPhotosPage() {
   const [custQuery, setCustQuery] = useState('');
   const [custResults, setCustResults] = useState<Customer[]>([]);
@@ -39,6 +45,8 @@ export default function OrderPhotosPage() {
   const [uploadingAll, setUploadingAll] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [copiedJobId, setCopiedJobId] = useState<string | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // Doesn't require an existing WhatsApp conversation with a linked contact
   // (unlike the same action inside PaVa Connect's chat panel) — this page
@@ -90,6 +98,17 @@ export default function OrderPhotosPage() {
 
   function updateJob(id: string, patch: Partial<PhotoJob>) {
     setJobs(prev => prev.map(j => (j.id === id ? { ...j, ...patch } : j)));
+  }
+
+  // Re-fires on every press, not just the first — clearing and restarting
+  // the timer means pressing again while "Copied!" is still showing resets
+  // the 2s window instead of getting stuck or silently doing nothing.
+  function copyMessage(jobId: string, text: string) {
+    navigator.clipboard.writeText(text);
+    toast.success('Message copied');
+    clearTimeout(copiedTimer.current);
+    setCopiedJobId(jobId);
+    copiedTimer.current = setTimeout(() => setCopiedJobId(null), 2000);
   }
 
   // Uploads one job at a time (not in parallel) so each file's progress bar
@@ -147,180 +166,269 @@ export default function OrderPhotosPage() {
 
   const hasPending = jobs.some(j => j.status === 'pending' || j.status === 'error');
   const allDone = jobs.length > 0 && jobs.every(j => j.status === 'done');
+  const doneCount = jobs.filter(j => j.status === 'done').length;
 
   return (
     <>
-      <Header title="Order Photos" />
-      <main className="flex-1 p-6 space-y-5 max-w-2xl">
-        <p className="text-sm text-gray-500">
-          Upload one or more photos (e.g. a packed order) for any customer, then copy each
-          ready-to-send WhatsApp message — no need for an existing chat with them first.
-        </p>
+      <Header
+        title="Order Photos"
+        icon={
+          <span className="w-7 h-7 rounded-lg bg-[#1B4F8A]/10 flex items-center justify-center">
+            <ImagePlus className="w-4 h-4 text-[#1B4F8A]" />
+          </span>
+        }
+      />
+      <main className="flex-1 bg-gray-50 min-h-[calc(100vh-56px)]">
+        <div className="max-w-3xl mx-auto p-6 space-y-6">
 
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
-          <div className="relative">
-            <label className="label text-xs">Customer</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                className="input text-sm pl-9"
-                placeholder="Search by name, phone, or code…"
-                value={custQuery}
-                onChange={onCustInput}
-                onFocus={() => custResults.length > 0 && setShowCustDrop(true)}
-              />
-            </div>
-            {showCustDrop && (
-              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                {custLoading ? (
-                  <div className="px-3 py-2 text-xs text-gray-400">Searching…</div>
-                ) : custResults.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-400">No customers found</div>
-                ) : (
-                  custResults.map(c => (
-                    <button
-                      key={c.id}
-                      onClick={() => pickCustomer(c)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between"
-                    >
-                      <span className="text-gray-800">{c.name}</span>
-                      <span className="text-xs text-gray-400">{c.phone ? `+91 ${c.phone}` : c.customerCode}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
+          {/* Intro strip */}
+          <div className="rounded-2xl bg-gradient-to-br from-[#1B4F8A] to-[#123a68] px-6 py-5 text-white shadow-sm">
+            <h1 className="text-lg font-bold">Share a packed order photo</h1>
+            <p className="text-sm text-blue-100 mt-1 max-w-xl">
+              Pick a customer, snap or choose photos, then copy the ready-to-send WhatsApp message —
+              no existing chat with them needed.
+            </p>
           </div>
 
-          {selectedCustomer && (
-            <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-lg px-3 py-2">
-              <div>
-                <p className="text-sm font-medium text-teal-800">{selectedCustomer.name}</p>
-                {selectedCustomer.phone && <p className="text-xs text-teal-600">+91 {selectedCustomer.phone}</p>}
-              </div>
-              <button onClick={() => { setSelectedCustomer(null); setCustQuery(''); }} className="text-teal-500 hover:text-teal-700">
-                <X size={16} />
-              </button>
+          {/* Step 1: Customer */}
+          <section className="relative z-20 bg-white rounded-2xl border border-gray-200 shadow-sm">
+            <div className="flex items-center gap-2.5 px-5 pt-5">
+              <span className="w-6 h-6 rounded-full bg-[#1B4F8A] text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
+              <h2 className="text-sm font-semibold text-gray-800">Choose customer</h2>
             </div>
-          )}
-
-          <div>
-            <label className="label text-xs">Photos</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => cameraInputRef.current?.click()}
-                className="flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-xl transition-colors"
-              >
-                <Camera size={15} /> Take Photo
-              </button>
-              <button
-                type="button"
-                onClick={() => galleryInputRef.current?.click()}
-                className="flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition-colors"
-              >
-                <Images size={15} /> Choose Photos
-              </button>
-            </div>
-            {/* capture="environment" opens the device's back camera directly
-                on mobile instead of a file/gallery picker. Kept as a separate
-                input (no `multiple`) since browsers treat capture-mode inputs
-                as one shot per tap — tapping "Take Photo" again after a shot
-                adds another job, so multiple photos still works, just one
-                capture at a time like a real camera app. */}
-            <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp"
-              capture="environment" onChange={onFilesPicked} className="hidden" />
-            <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp"
-              multiple onChange={onFilesPicked} className="hidden" />
-            <p className="text-[11px] text-gray-400 mt-1">Take photos one at a time, or choose several from your gallery at once.</p>
-          </div>
-
-          <div>
-            <label className="label text-xs">Caption (optional, applied to all selected photos)</label>
-            <input className="input text-sm" placeholder="e.g. Your order, packed and ready!"
-              value={photoCaption} onChange={e => setPhotoCaption(e.target.value)} />
-          </div>
-
-          <button
-            onClick={uploadAll}
-            disabled={!selectedCustomer || !hasPending || uploadingAll}
-            className="w-full btn-primary text-sm py-2.5 disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <Camera size={15} />
-            {uploadingAll ? 'Uploading…' : `Upload${jobs.length > 1 ? ` All (${jobs.length})` : ''} & Generate Link${jobs.length > 1 ? 's' : ''}`}
-          </button>
-        </div>
-
-        {jobs.length > 0 && (
-          <div className="space-y-3">
-            {jobs.map(job => (
-              <div key={job.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
-                <div className="flex items-start gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={job.previewUrl} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0 border border-gray-200" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm text-gray-700 truncate">{job.file.name}</p>
-                      {job.status === 'pending' && (
-                        <button onClick={() => removeJob(job.id)} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
-                          <X size={14} />
-                        </button>
-                      )}
-                      {job.status === 'done' && <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />}
-                      {job.status === 'error' && <AlertCircle size={16} className="text-red-500 flex-shrink-0" />}
-                    </div>
-
-                    {job.status === 'uploading' && (
-                      <div className="mt-2">
-                        <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-teal-500 transition-all duration-150"
-                            style={{ width: `${job.progress}%` }}
-                          />
-                        </div>
-                        <p className="text-[11px] text-gray-400 mt-1">{job.progress}%</p>
+            <div className="p-5 pt-3">
+              <div className="relative">
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    className="w-full pl-10 pr-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors"
+                    placeholder="Search by name, phone, or code…"
+                    value={custQuery}
+                    onChange={onCustInput}
+                    onFocus={() => custResults.length > 0 && setShowCustDrop(true)}
+                  />
+                </div>
+                {showCustDrop && (
+                  <div className="absolute z-10 mt-1.5 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                    {custLoading ? (
+                      <div className="px-4 py-3 text-xs text-gray-400 flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Searching…
                       </div>
-                    )}
-
-                    {job.status === 'pending' && (
-                      <p className="text-[11px] text-gray-400 mt-1">Waiting to upload…</p>
-                    )}
-
-                    {job.status === 'error' && (
-                      <p className="text-[11px] text-red-500 mt-1">{job.errorMsg} — will retry on next upload</p>
+                    ) : custResults.length === 0 ? (
+                      <div className="px-4 py-3 text-xs text-gray-400">No customers found</div>
+                    ) : (
+                      custResults.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => pickCustomer(c)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                        >
+                          <span className="w-8 h-8 rounded-full bg-[#1B4F8A]/10 text-[#1B4F8A] text-xs font-bold flex items-center justify-center shrink-0">
+                            {initials(c.name)}
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-sm text-gray-800 font-medium truncate">{c.name}</span>
+                          </span>
+                          <span className="text-xs text-gray-400 shrink-0">{c.phone ? `+91 ${c.phone}` : c.customerCode}</span>
+                        </button>
+                      ))
                     )}
                   </div>
-                </div>
-
-                {/* Only appears once THIS photo's upload has actually finished — never before. */}
-                {job.status === 'done' && (
-                  job.staffMessage ? (
-                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-                      <textarea readOnly value={job.staffMessage} rows={6}
-                        className="input text-xs w-full font-mono" onFocus={e => e.currentTarget.select()} />
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(job.staffMessage!); toast.success('Copied'); }}
-                        className="w-full btn-primary text-sm py-2 flex items-center justify-center gap-2"
-                      >
-                        <Copy size={14} /> Copy Message
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="mt-3 pt-3 border-t border-gray-100 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      Uploaded, but no WhatsApp number is configured yet to build a share link.
-                    </p>
-                  )
                 )}
               </div>
-            ))}
 
-            {allDone && (
-              <button onClick={reset} className="w-full py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors">
-                Share Another Batch
+              {selectedCustomer && (
+                <div className="mt-3 flex items-center gap-3 bg-teal-50 border border-teal-200 rounded-xl px-4 py-3">
+                  <span className="w-9 h-9 rounded-full bg-teal-600 text-white text-sm font-bold flex items-center justify-center shrink-0">
+                    {initials(selectedCustomer.name)}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-teal-900 truncate">{selectedCustomer.name}</p>
+                    {selectedCustomer.phone && <p className="text-xs text-teal-600">+91 {selectedCustomer.phone}</p>}
+                  </div>
+                  <button
+                    onClick={() => { setSelectedCustomer(null); setCustQuery(''); }}
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-teal-500 hover:text-teal-700 hover:bg-teal-100 transition-colors shrink-0"
+                    aria-label="Clear selected customer"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Step 2: Photos */}
+          <section className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden transition-opacity ${!selectedCustomer ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div className="flex items-center gap-2.5 px-5 pt-5">
+              <span className="w-6 h-6 rounded-full bg-[#1B4F8A] text-white text-xs font-bold flex items-center justify-center shrink-0">2</span>
+              <h2 className="text-sm font-semibold text-gray-800">Add photos</h2>
+              {jobs.length > 0 && (
+                <span className="text-xs font-medium text-gray-400 ml-auto">{jobs.length} selected</span>
+              )}
+            </div>
+
+            <div className="p-5 pt-3 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center gap-2 py-5 rounded-2xl border-2 border-dashed border-teal-200 bg-teal-50/60 hover:bg-teal-50 hover:border-teal-300 transition-colors"
+                >
+                  <span className="w-11 h-11 rounded-full bg-teal-600 flex items-center justify-center shadow-sm">
+                    <Camera className="w-5 h-5 text-white" />
+                  </span>
+                  <span className="text-sm font-semibold text-teal-800">Take Photo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center gap-2 py-5 rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50/60 hover:bg-gray-100 hover:border-gray-300 transition-colors"
+                >
+                  <span className="w-11 h-11 rounded-full bg-gray-500 flex items-center justify-center shadow-sm">
+                    <Images className="w-5 h-5 text-white" />
+                  </span>
+                  <span className="text-sm font-semibold text-gray-700">Choose Photos</span>
+                </button>
+              </div>
+              {/* capture="environment" opens the device's back camera directly
+                  on mobile instead of a file/gallery picker. Kept as a separate
+                  input (no `multiple`) since browsers treat capture-mode inputs
+                  as one shot per tap — tapping "Take Photo" again after a shot
+                  adds another job, so multiple photos still works, just one
+                  capture at a time like a real camera app. */}
+              <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+                capture="environment" onChange={onFilesPicked} className="hidden" />
+              <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+                multiple onChange={onFilesPicked} className="hidden" />
+              <p className="text-xs text-gray-400 -mt-1">Take photos one at a time, or choose several from your gallery at once.</p>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Caption <span className="font-normal text-gray-400">(optional, applied to all selected photos)</span></label>
+                <input
+                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors"
+                  placeholder="e.g. Your order, packed and ready!"
+                  value={photoCaption} onChange={e => setPhotoCaption(e.target.value)}
+                />
+              </div>
+
+              <button
+                onClick={uploadAll}
+                disabled={!selectedCustomer || !hasPending || uploadingAll}
+                className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-[#1B4F8A] hover:bg-[#163f70] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors shadow-sm"
+              >
+                {uploadingAll ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} />}
+                {uploadingAll ? 'Uploading…' : `Upload${jobs.length > 1 ? ` All (${jobs.length})` : ''} & Generate Link${jobs.length > 1 ? 's' : ''}`}
               </button>
-            )}
-          </div>
-        )}
+            </div>
+          </section>
+
+          {/* Step 3: Results */}
+          {jobs.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2.5 px-1">
+                <span className="w-6 h-6 rounded-full bg-[#1B4F8A] text-white text-xs font-bold flex items-center justify-center shrink-0">3</span>
+                <h2 className="text-sm font-semibold text-gray-800">Ready to share</h2>
+                {jobs.length > 0 && (
+                  <span className="text-xs font-medium text-gray-400 ml-auto">{doneCount}/{jobs.length} done</span>
+                )}
+              </div>
+
+              {jobs.map(job => (
+                <div
+                  key={job.id}
+                  className={`bg-white rounded-2xl border shadow-sm p-4 transition-colors ${
+                    job.status === 'error' ? 'border-red-200' : job.status === 'done' ? 'border-emerald-200' : 'border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-start gap-3.5">
+                    <div className="relative shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={job.previewUrl} alt="" className="w-16 h-16 rounded-xl object-cover border border-gray-200" />
+                      {job.status === 'uploading' && (
+                        <div className="absolute inset-0 rounded-xl bg-black/40 flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">{job.progress}%</span>
+                        </div>
+                      )}
+                      {job.status === 'done' && (
+                        <span className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
+                          <CheckCircle2 size={11} className="text-white" />
+                        </span>
+                      )}
+                      {job.status === 'error' && (
+                        <span className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 border-2 border-white flex items-center justify-center">
+                          <AlertCircle size={11} className="text-white" />
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm text-gray-700 font-medium truncate">{job.file.name}</p>
+                        {job.status === 'pending' && (
+                          <button onClick={() => removeJob(job.id)} className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors">
+                            <X size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      {job.status === 'uploading' && (
+                        <div className="mt-2.5">
+                          <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-[#1B4F8A] transition-all duration-150" style={{ width: `${job.progress}%` }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {job.status === 'pending' && (
+                        <p className="text-xs text-gray-400 mt-1">Waiting to upload…</p>
+                      )}
+
+                      {job.status === 'error' && (
+                        <p className="text-xs text-red-500 mt-1">{job.errorMsg} — will retry on next upload</p>
+                      )}
+
+                      {job.status === 'done' && !job.staffMessage && (
+                        <p className="text-xs text-amber-600 mt-1">No WhatsApp number configured — can&apos;t build a share link</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Only appears once THIS photo's upload has actually finished — never before. */}
+                  {job.status === 'done' && job.staffMessage && (
+                    <div className="mt-4 pt-4 border-t border-gray-100 space-y-2.5">
+                      <div className="flex items-start gap-2 text-xs text-gray-400">
+                        <MessageCircle size={13} className="mt-0.5 shrink-0" />
+                        <span>Copy this and send it to the customer from your own personal WhatsApp:</span>
+                      </div>
+                      <textarea readOnly value={job.staffMessage} rows={5}
+                        className="w-full px-3 py-2.5 text-xs font-mono rounded-xl border border-gray-200 bg-gray-50 outline-none resize-none"
+                        onFocus={e => e.currentTarget.select()} />
+                      <button
+                        onClick={() => copyMessage(job.id, job.staffMessage!)}
+                        className={`w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
+                          copiedJobId === job.id
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-[#1B4F8A] text-white hover:bg-[#163f70]'
+                        }`}
+                      >
+                        {copiedJobId === job.id
+                          ? <><CheckCircle2 size={14} /> Copied!</>
+                          : <><Copy size={14} /> Copy Message</>}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {allDone && (
+                <button onClick={reset} className="w-full py-2.5 text-sm bg-white border border-gray-200 hover:bg-gray-100 text-gray-600 rounded-xl font-medium transition-colors">
+                  Share Another Batch
+                </button>
+              )}
+            </section>
+          )}
+        </div>
       </main>
     </>
   );

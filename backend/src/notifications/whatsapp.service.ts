@@ -7,6 +7,22 @@ import { ShopService } from '../shop/shop.service';
 
 const API_VERSION = 'v25.0';
 
+// Sentinel recognized (and substituted per-recipient) by sendTemplateToCustomers.
+// Kept as a plain string, not an enum, so the frontend can reference the exact
+// same literal without a shared types package.
+const PERSONALIZE_NAME_TOKEN = '{{customer.name}}';
+
+// Meta's messaging_limit_tier values, mapped to the actual 24-hour unique-
+// recipient cap they represent — used to warn staff before a bulk/broadcast
+// send silently exceeds it.
+const MESSAGING_TIER_LIMITS: Record<string, number> = {
+  TIER_50: 50,
+  TIER_250: 250,
+  TIER_1K: 1_000,
+  TIER_10K: 10_000,
+  TIER_100K: 100_000,
+};
+
 // DB keys for WhatsApp credentials stored in SystemSetting
 const WA_KEYS = {
   token:         'wa.access_token',
@@ -266,6 +282,32 @@ export class WhatsAppService {
       const data = await res.json();
       if (!res.ok) return { error: data };
       return data?.data?.[0] ?? {};
+    } catch (err) {
+      return { error: String(err) };
+    }
+  }
+
+  /**
+   * Meta's own per-phone-number 24-hour unique-recipient cap, fetched live
+   * (not cached — quality rating/tier can change and this is only called
+   * when staff open a bulk-send screen, so a stale cache isn't worth the
+   * complexity). Used to warn before a bulk/broadcast selection silently
+   * exceeds the account's current tier.
+   */
+  async getMessagingLimits(businessId: string) {
+    const creds = await this.getCreds(businessId);
+    if (!creds.token || !creds.phoneId) return { error: 'WhatsApp not configured' };
+    try {
+      const url = `https://graph.facebook.com/${API_VERSION}/${creds.phoneId}?fields=quality_rating,messaging_limit_tier`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${creds.token}` } });
+      const data = await res.json();
+      if (!res.ok) return { error: data };
+      const tier = data.messaging_limit_tier as string | undefined;
+      return {
+        qualityRating: data.quality_rating ?? null,
+        tier: tier ?? null,
+        limit: tier ? (MESSAGING_TIER_LIMITS[tier] ?? null) : null,
+      };
     } catch (err) {
       return { error: String(err) };
     }
@@ -774,10 +816,20 @@ export class WhatsAppService {
   }
 
   /**
-   * Sends an image by public URL (Meta fetches it directly) rather than the
-   * media-upload flow — used for auto-reply content we're already hosting
-   * publicly (e.g. an OrderPhoto share), so no separate upload-to-Meta round
-   * trip is needed. Same 24h session-window rule as free text/location.
+   * Sends an image we're already hosting publicly (e.g. an OrderPhoto
+   * share) to a customer.
+   *
+   * Uploads the bytes to Meta first and sends by the resulting media id,
+   * rather than handing Meta the URL and letting THEM fetch it — the
+   * link-fetch approach this used to use intermittently failed with Meta's
+   * own "131053 Media upload error" even though our URL was perfectly
+   * reachable (confirmed against real customer sends — see the
+   * order-photos link audit: 2 customers never received a shared photo
+   * because that failure had no retry). Uploading bytes we already fetched
+   * ourselves is the same reliable pattern sendMediaReply() already uses
+   * for staff-sent chat images. One retry on top, since even the upload
+   * step can hit a transient blip — after that it's a real failure, not
+   * silently swallowed.
    */
   async sendImageByLink(
     businessId: string, phone: string, imageUrl: string,
@@ -785,23 +837,53 @@ export class WhatsAppService {
   ): Promise<{ ok: boolean; reason?: string }> {
     const window = await this.getSessionWindowStatus(businessId, phone);
     if (!window.open) return { ok: false, reason: 'Session window closed — customer must message first (Meta 24h rule).' };
-    if (!this.isEnabled(await this.getCreds(businessId))) return { ok: false, reason: 'WhatsApp not configured' };
+    const creds = await this.getCreds(businessId);
+    if (!this.isEnabled(creds)) return { ok: false, reason: 'WhatsApp not configured' };
     const to = this.e164(phone);
     if (!to) return { ok: false, reason: 'Invalid phone number' };
 
-    const result = await this.logAndSend(
-      businessId,
-      { to, type: 'image', image: { link: imageUrl, caption: opts?.caption } },
-      {
-        phone: to, messageType: 'IMAGE',
-        bodyPreview: opts?.caption ?? '[Image]',
-        mediaUrl: imageUrl,
-        isAutoReply: opts?.isAutoReply,
-        relatedType: opts?.relatedType, relatedId: opts?.relatedId,
-      },
-    );
-    if (!result.ok) return { ok: false, reason: JSON.stringify(result.data) };
-    return { ok: true };
+    const attemptOnce = async (): Promise<{ ok: boolean; reason?: string }> => {
+      try {
+        const imgRes = await fetch(imageUrl);
+        if (!imgRes.ok) return { ok: false, reason: `Could not fetch image (HTTP ${imgRes.status})` };
+        const buffer = Buffer.from(await imgRes.arrayBuffer());
+        const mimeType = imgRes.headers.get('content-type') ?? 'image/jpeg';
+
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), 'photo.jpg');
+        const uploadRes = await fetch(`https://graph.facebook.com/${API_VERSION}/${creds.phoneId}/media`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${creds.token}` },
+          body: form,
+        });
+        const uploadData = await uploadRes.json() as { id?: string; error?: unknown };
+        if (!uploadRes.ok || !uploadData.id) return { ok: false, reason: JSON.stringify(uploadData) };
+
+        const result = await this.logAndSend(
+          businessId,
+          { to, type: 'image', image: { id: uploadData.id, caption: opts?.caption } },
+          {
+            phone: to, messageType: 'IMAGE',
+            bodyPreview: opts?.caption ?? '[Image]',
+            mediaId: uploadData.id, mediaUrl: imageUrl,
+            isAutoReply: opts?.isAutoReply,
+            relatedType: opts?.relatedType, relatedId: opts?.relatedId,
+          },
+        );
+        if (!result.ok) return { ok: false, reason: JSON.stringify(result.data) };
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, reason: String(err) };
+      }
+    };
+
+    const first = await attemptOnce();
+    if (first.ok) return first;
+    await new Promise(r => setTimeout(r, 1500));
+    const second = await attemptOnce();
+    if (!second.ok) this.logger.warn(`sendImageByLink failed after retry for ${phone}: ${second.reason}`);
+    return second;
   }
 
   /**
@@ -901,9 +983,16 @@ export class WhatsAppService {
     businessId: string, templateName: string, language: string, params: string[],
     related?: { type: string; id: string },
   ) {
+    // Any param slot staff marked "use customer's name" (PERSONALIZE_NAME_TOKEN)
+    // gets that recipient's own name substituted in, instead of one literal
+    // value going out identical to everyone.
+    const hasPersonalized = params.some(p => p === PERSONALIZE_NAME_TOKEN);
     let sent = 0, failed = 0;
     for (const c of customers) {
-      const result = await this.sendTemplateToNumber(businessId, c.phone, templateName, language, params, undefined, related);
+      const recipientParams = hasPersonalized
+        ? params.map(p => p === PERSONALIZE_NAME_TOKEN ? (c.name?.trim() || 'Customer') : p)
+        : params;
+      const result = await this.sendTemplateToNumber(businessId, c.phone, templateName, language, recipientParams, undefined, related);
       if (result.ok) sent++; else failed++;
     }
     return { total: customers.length, sent, failed };

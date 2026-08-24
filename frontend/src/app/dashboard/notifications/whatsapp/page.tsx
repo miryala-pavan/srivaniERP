@@ -15,6 +15,8 @@ import { getUser } from '@/lib/auth';
 import WhatsAppChat from './WhatsAppChat';
 import ContactsTab from './ContactsTab';
 import HistoryBlastTab from './HistoryBlastTab';
+import { MessagingLimitWarning } from '@/components/shared/MessagingLimitWarning';
+import { fetchMessagingLimits, PERSONALIZE_NAME_TOKEN, type MessagingLimits } from '@/lib/waMessagingLimits';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -230,6 +232,8 @@ export default function WhatsAppTemplatesPage() {
   const [birthdayTemplatePick, setBirthdayTemplatePick] = useState<Record<string, string>>({});
   const [segments, setSegments]           = useState<Segment[]>([]);
   const [segmentsLoaded, setSegmentsLoaded] = useState(false);
+  const [msgLimits, setMsgLimits] = useState<MessagingLimits | null>(null);
+  const [msgLimitsLoaded, setMsgLimitsLoaded] = useState(false);
   const [selectedSegment, setSelectedSegment] = useState('');
   const [broadcastTemplateName, setBroadcastTemplateName] = useState('');
   const [broadcastParams, setBroadcastParams] = useState<string[]>([]);
@@ -427,6 +431,15 @@ export default function WhatsAppTemplatesPage() {
   useEffect(() => {
     if (tab === 'campaigns' && !segmentsLoaded) loadSegments();
   }, [tab, segmentsLoaded, loadSegments]);
+
+  // Not gated to the campaigns tab — the shared Send Template modal's bulk
+  // mode (opened from Contacts) needs this too, and it's a cheap one-time
+  // fetch either way.
+  useEffect(() => {
+    if (!msgLimitsLoaded) {
+      fetchMessagingLimits().then(setMsgLimits).finally(() => setMsgLimitsLoaded(true));
+    }
+  }, [msgLimitsLoaded]);
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -1801,7 +1814,7 @@ export default function WhatsAppTemplatesPage() {
             <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
               Broadcast Campaign
               <span
-                title="Sends an approved template to every customer in the chosen segment. Only reaches customers with WhatsApp opt-in enabled on their profile. If the template has {{1}}, {{2}} etc. variables, the same value is sent to every recipient — not personalized per name."
+                title="Sends an approved template to every customer in the chosen segment. Only reaches customers with WhatsApp opt-in enabled on their profile. If the template has {{1}}, {{2}} etc. variables, each one is either one fixed value sent to everyone, or (tick 'Use name') that customer's own name."
                 className="cursor-help text-gray-400 font-normal">ⓘ</span>
             </p>
           </div>
@@ -1831,16 +1844,41 @@ export default function WhatsAppTemplatesPage() {
           </div>
           {broadcastVarCount > 0 && (
             <div className="mt-3 space-y-1.5">
-              <label className="label text-xs">Template variables <span className="text-gray-400 font-normal">(same value sent to everyone)</span></label>
-              {Array.from({ length: broadcastVarCount }, (_, i) => (
-                <input key={i} className="input text-sm" placeholder={`Value for {{${i + 1}}}`}
-                  value={broadcastParams[i] ?? ''}
-                  onChange={e => setBroadcastParams(p => { const next = [...p]; next[i] = e.target.value; return next; })} />
-              ))}
+              <label className="label text-xs">Template variables <span className="text-gray-400 font-normal">(tick "Use name" to send each customer their own name instead of one fixed value)</span></label>
+              {Array.from({ length: broadcastVarCount }, (_, i) => {
+                const personalized = broadcastParams[i] === PERSONALIZE_NAME_TOKEN;
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 w-8 text-right font-mono shrink-0">{`{{${i + 1}}}`}</span>
+                    <input
+                      className="input text-sm flex-1 disabled:bg-gray-50 disabled:text-gray-400"
+                      placeholder={personalized ? "Each customer's own name" : `Value for {{${i + 1}}}`}
+                      value={personalized ? '' : (broadcastParams[i] ?? '')}
+                      disabled={personalized}
+                      onChange={e => setBroadcastParams(p => { const next = [...p]; next[i] = e.target.value; return next; })}
+                    />
+                    <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={personalized}
+                        onChange={e => setBroadcastParams(p => {
+                          const next = [...p];
+                          next[i] = e.target.checked ? PERSONALIZE_NAME_TOKEN : '';
+                          return next;
+                        })}
+                      />
+                      Use name
+                    </label>
+                  </div>
+                );
+              })}
             </div>
           )}
           {selectedSegmentObj && selectedSegmentObj.count === 0 && (
             <p className="text-xs text-amber-600 mt-2">No customers currently match this segment.</p>
+          )}
+          {selectedSegmentObj && selectedSegmentObj.count > 0 && (
+            <div className="mt-3"><MessagingLimitWarning count={selectedSegmentObj.count} limits={msgLimits} /></div>
           )}
         </div>
       </div>
@@ -2335,6 +2373,7 @@ export default function WhatsAppTemplatesPage() {
                 <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                   {sendModal.ids.length} selected contact{sendModal.ids.length !== 1 ? 's' : ''}
                 </p>
+                <div className="mt-2"><MessagingLimitWarning count={sendModal.ids.length} limits={msgLimits} /></div>
               </>
             ) : (
               <>
@@ -2358,20 +2397,47 @@ export default function WhatsAppTemplatesPage() {
 
           {sendModal.params.length > 0 && (
             <div className="space-y-2">
-              <label className="label text-sm">Fill in the variables</label>
-              {sendModal.params.map((p, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-8 text-right font-mono shrink-0">{`{{${i + 1}}}`}</span>
-                  <input className="input flex-1 text-sm" placeholder={`Value for {{${i + 1}}}`}
-                    value={p}
-                    onChange={e => setSendModal(m => {
-                      if (!m) return null;
-                      const params = [...m.params];
-                      params[i] = e.target.value;
-                      return { ...m, params };
-                    })} />
-                </div>
-              ))}
+              <label className="label text-sm">
+                Fill in the variables
+                {sendModal.mode === 'bulk' && (
+                  <span className="text-gray-400 font-normal"> ("Use name" sends each contact their own name)</span>
+                )}
+              </label>
+              {sendModal.params.map((p, i) => {
+                const personalized = sendModal.mode === 'bulk' && p === PERSONALIZE_NAME_TOKEN;
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 w-8 text-right font-mono shrink-0">{`{{${i + 1}}}`}</span>
+                    <input
+                      className="input flex-1 text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                      placeholder={personalized ? "Each contact's own name" : `Value for {{${i + 1}}}`}
+                      value={personalized ? '' : p}
+                      disabled={personalized}
+                      onChange={e => setSendModal(m => {
+                        if (!m) return null;
+                        const params = [...m.params];
+                        params[i] = e.target.value;
+                        return { ...m, params };
+                      })}
+                    />
+                    {sendModal.mode === 'bulk' && (
+                      <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={personalized}
+                          onChange={e => setSendModal(m => {
+                            if (!m) return null;
+                            const params = [...m.params];
+                            params[i] = e.target.checked ? PERSONALIZE_NAME_TOKEN : '';
+                            return { ...m, params };
+                          })}
+                        />
+                        Use name
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

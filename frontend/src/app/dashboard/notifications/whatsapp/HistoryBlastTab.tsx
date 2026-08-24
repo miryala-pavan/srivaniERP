@@ -9,6 +9,8 @@ import {
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { Avatar } from '@/components/shared/Avatar';
+import { MessagingLimitWarning } from '@/components/shared/MessagingLimitWarning';
+import { fetchMessagingLimits, type MessagingLimits } from '@/lib/waMessagingLimits';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const LIMIT = 50;
@@ -107,6 +109,9 @@ export default function HistoryBlastTab() {
   const [sending, setSending]       = useState(false);
   const [justSent, setJustSent]     = useState<Set<string>>(new Set());
   const [previewLoading, setPreviewLoading] = useState<Set<string>>(new Set());
+  const [msgLimits, setMsgLimits] = useState<MessagingLimits | null>(null);
+
+  useEffect(() => { fetchMessagingLimits().then(setMsgLimits); }, []);
 
   // Debounce search
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -271,6 +276,8 @@ export default function HistoryBlastTab() {
           </button>
         </div>
       </div>
+
+      {selected.size > 0 && <MessagingLimitWarning count={selected.size} limits={msgLimits} />}
 
       {/* Filters */}
       <div className="flex items-center gap-2 flex-wrap">

@@ -1,9 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../notifications/whatsapp.service';
 
 const API_PUBLIC_URL = (process.env.API_PUBLIC_URL ?? 'http://localhost:4001').replace(/\/$/, '');
+const FILES_BASE = (process.env.FILES_BASE_URL ?? 'http://localhost:4001/shop-list').replace(/\/$/, '');
+
+function resolveImageUrl(p: string): string {
+  return `${FILES_BASE}/${p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')}`;
+}
 
 @Injectable()
 export class HistoryService {
@@ -34,10 +39,6 @@ export class HistoryService {
 
     if (!customer) throw new NotFoundException('History not found');
 
-    // FILES_BASE_URL in prod = https://www.srivani.com/list (Hostinger)
-    // Falls back to local NestJS static serving for dev
-    const filesBase = (process.env.FILES_BASE_URL ?? 'http://localhost:4001/shop-list').replace(/\/$/, '');
-
     // Staff-shared "order photo" uploads (order-photos module) are a
     // separate, newer feature from the legacy scanned-list `listEntries`
     // above — same customer, different table, so they need their own
@@ -58,9 +59,7 @@ export class HistoryService {
         entryDate: e.entryDate,
         pageCount: e.pageCount,
         source: e.source,
-        imageUrls: e.imageUrls.map(p =>
-          `${filesBase}/${p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')}`,
-        ),
+        imageUrls: e.imageUrls.map(resolveImageUrl),
       })),
       orderPhotos: orderPhotos.map(p => ({
         id: p.id,
@@ -251,6 +250,97 @@ export class HistoryService {
       failed: results.filter(r => !r.waSent).length,
       results,
     };
+  }
+
+  // ─── Admin: view/correct pre-existing history entries ─────────────────────
+  // The legacy bulk-migrated CustomerListEntry photos (from before this
+  // feature existed in the app) can be misattributed — wrong customer, wrong
+  // date, or an extra/duplicate page. Nothing before this let staff see or
+  // fix that; they could only view the final customer-facing page.
+
+  /**
+   * Browse entries across the business, optionally filtered to one customer
+   * or by a name/phone search — lets staff scan for an obviously wrong entry
+   * without already knowing which customer it belongs to.
+   */
+  async adminListEntries(businessId: string, opts: { customerId?: string; search?: string; page?: number; limit?: number }) {
+    const page  = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, opts.limit ?? 30);
+
+    const where: any = { businessId };
+    if (opts.customerId) where.customerId = opts.customerId;
+    if (opts.search?.trim()) {
+      where.customer = {
+        OR: [
+          { name:  { contains: opts.search.trim(), mode: 'insensitive' } },
+          { phone: { contains: opts.search.trim() } },
+        ],
+      };
+    }
+
+    const [entries, total] = await Promise.all([
+      this.prisma.customerListEntry.findMany({
+        where,
+        orderBy: { entryDate: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { customer: { select: { id: true, name: true, phone: true } } },
+      }),
+      this.prisma.customerListEntry.count({ where }),
+    ]);
+
+    return {
+      entries: entries.map(e => ({
+        id: e.id,
+        entryDate: e.entryDate,
+        pageCount: e.pageCount,
+        source: e.source,
+        imagePaths: e.imageUrls, // raw relative paths — needed to edit, not just display
+        imageUrls: e.imageUrls.map(resolveImageUrl),
+        customer: e.customer,
+      })),
+      total, page, limit,
+    };
+  }
+
+  async adminUpdateEntry(businessId: string, entryId: string, dto: { entryDate?: string; imagePaths?: string[]; customerId?: string }) {
+    const entry = await this.prisma.customerListEntry.findFirst({ where: { id: entryId, businessId } });
+    if (!entry) throw new NotFoundException('Entry not found');
+
+    if (dto.customerId) {
+      const target = await this.prisma.customer.findFirst({ where: { id: dto.customerId, businessId } });
+      if (!target) throw new BadRequestException('Target customer not found');
+    }
+    if (dto.imagePaths && dto.imagePaths.length === 0) {
+      throw new BadRequestException('An entry needs at least one image — delete it instead if it should be removed entirely');
+    }
+
+    const updated = await this.prisma.customerListEntry.update({
+      where: { id: entryId },
+      data: {
+        ...(dto.entryDate  ? { entryDate: new Date(dto.entryDate) } : {}),
+        ...(dto.imagePaths ? { imageUrls: dto.imagePaths, pageCount: dto.imagePaths.length } : {}),
+        ...(dto.customerId ? { customerId: dto.customerId } : {}),
+      },
+      include: { customer: { select: { id: true, name: true, phone: true } } },
+    });
+
+    return {
+      id: updated.id,
+      entryDate: updated.entryDate,
+      pageCount: updated.pageCount,
+      source: updated.source,
+      imagePaths: updated.imageUrls,
+      imageUrls: updated.imageUrls.map(resolveImageUrl),
+      customer: updated.customer,
+    };
+  }
+
+  async adminDeleteEntry(businessId: string, entryId: string) {
+    const entry = await this.prisma.customerListEntry.findFirst({ where: { id: entryId, businessId } });
+    if (!entry) throw new NotFoundException('Entry not found');
+    await this.prisma.customerListEntry.delete({ where: { id: entryId } });
+    return { ok: true };
   }
 
   /** One-time: register the svn_history_link template with Meta for approval. */
