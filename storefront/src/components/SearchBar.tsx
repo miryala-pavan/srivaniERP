@@ -5,9 +5,11 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { getProductSuggestions } from '@/lib/shop';
 import type { SuggestResult } from '@/lib/shop';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 export default function SearchBar() {
   const router = useRouter();
+  const { catalogueMode } = useStoreConfig();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SuggestResult | null>(null);
   const [open, setOpen] = useState(false);
@@ -149,7 +151,9 @@ export default function SearchBar() {
                       <div style={{ fontSize: '13px', fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
                       <div style={{ fontSize: '11px', color: '#6b7280' }}>Code: {p.code}</div>
                     </div>
-                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#16a34a', flexShrink: 0 }}>₹{p.sellingPrice.toFixed(2)}</div>
+                    {!catalogueMode && (
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#16a34a', flexShrink: 0 }}>₹{p.sellingPrice.toFixed(2)}</div>
+                    )}
                   </button>
                 );
               })}

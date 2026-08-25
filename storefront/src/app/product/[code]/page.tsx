@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getProduct, getProducts, getFrequentlyBoughtWith } from '@/lib/shop';
+import { getProduct, getProducts, getFrequentlyBoughtWith, getStoreConfig } from '@/lib/shop';
 import type { ShopProduct } from '@/lib/shop';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import ProductImage from '@/components/ProductImage';
@@ -19,7 +19,7 @@ const LOW_STOCK_THRESHOLD = 5;   // show "Only X left" only if stock ≤ this (a
 
 const fmtDeliveryDate = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
-function buildJsonLd(product: ShopProduct) {
+function buildJsonLd(product: ShopProduct, catalogueMode: boolean) {
   const inStockPacks = product.packs.filter(p => p.inStock);
   const allPacks     = product.packs;
 
@@ -56,7 +56,9 @@ function buildJsonLd(product: ShopProduct) {
     ...(product.imageUrl    ? { image: product.imageUrl }           : {}),
     brand: { '@type': 'Brand', name: 'Srivani Stores' },
     ...(inStockPacks.length > 0 ? { keywords: product.keywords ?? undefined } : {}),
-    offers,
+    // Catalogue mode: no real price/purchase to advertise — omit offers
+    // entirely rather than publish a misleading ₹0 to search engines.
+    ...(catalogueMode ? {} : { offers }),
   };
 }
 
@@ -65,14 +67,21 @@ interface Props {
 }
 
 export async function generateMetadata({ params }: Props) {
-  const product = await getProduct(params.code);
+  const [product, { catalogueMode }] = await Promise.all([
+    getProduct(params.code),
+    getStoreConfig(),
+  ]);
   if (!product) return { title: 'Product not found — Srivani Stores' };
 
   const price = product.fromPrice;
   const cat = [product.categoryName, product.subcategoryName].filter(Boolean).join(' › ');
-  const metaDesc = product.description
-    ? `${product.description.slice(0, 140)}… Buy at Srivani Stores from ₹${price}.`
-    : `Buy ${product.name}${cat ? ` (${cat})` : ''} at Srivani Stores, Sangareddy. From ₹${price}. Order via WhatsApp for home delivery.`;
+  const metaDesc = catalogueMode
+    ? (product.description
+        ? `${product.description.slice(0, 140)}… Browse at Srivani Stores, Sangareddy.`
+        : `${product.name}${cat ? ` (${cat})` : ''} — browse our catalogue at Srivani Stores, Sangareddy.`)
+    : product.description
+      ? `${product.description.slice(0, 140)}… Buy at Srivani Stores from ₹${price}.`
+      : `Buy ${product.name}${cat ? ` (${cat})` : ''} at Srivani Stores, Sangareddy. From ₹${price}. Order via WhatsApp for home delivery.`;
 
   return {
     title: `${product.name} — Srivani Stores`,
@@ -102,11 +111,12 @@ export default async function ProductPage({ params }: Props) {
 
   // Related + FBT — parallel fetches
   const firstPlu = product.packs[0]?.pluBarcode ?? '';
-  const [relatedResult, fbtProducts] = await Promise.all([
+  const [relatedResult, fbtProducts, { catalogueMode }] = await Promise.all([
     product.categoryCode
       ? getProducts({ subCategoryCode: product.categoryCode, limit: 7 })
       : Promise.resolve(null),
     firstPlu ? getFrequentlyBoughtWith(firstPlu, 4) : Promise.resolve([]),
+    getStoreConfig(),
   ]);
   const related = (relatedResult?.data ?? []).filter(p => p.code !== product.code).slice(0, 6);
 
@@ -114,7 +124,7 @@ export default async function ProductPage({ params }: Props) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(product)) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(product, catalogueMode)) }}
       />
       <RecentlyViewedTracker
         code={product.code}
@@ -206,9 +216,11 @@ export default async function ProductPage({ params }: Props) {
                         <span style={{ fontSize: '13px', fontWeight: 700, color: isCurrent ? 'var(--saffron-deep)' : 'var(--ink)' }}>
                           {v.label}
                         </span>
-                        <span style={{ fontSize: '11px', color: 'var(--ink-soft)' }}>
-                          ₹{v.fromPrice % 1 === 0 ? String(v.fromPrice) : v.fromPrice.toFixed(2)}
-                        </span>
+                        {!catalogueMode && (
+                          <span style={{ fontSize: '11px', color: 'var(--ink-soft)' }}>
+                            ₹{v.fromPrice % 1 === 0 ? String(v.fromPrice) : v.fromPrice.toFixed(2)}
+                          </span>
+                        )}
                         {!v.inStock && (
                           <span style={{ fontSize: '9px', color: '#aaa', letterSpacing: '0.3px' }}>Out of stock</span>
                         )}
@@ -264,15 +276,17 @@ export default async function ProductPage({ params }: Props) {
                 >
                   <div className="pack-info">
                     <div className="pack-label">{pack.packLabel}</div>
-                    <div className="pack-pricing">
-                      <span className="pack-price">₹{formatPrice(pack.price)}</span>
-                      {pack.mrp !== null && pack.mrp > pack.price && (
-                        <span className="pack-mrp">MRP ₹{formatPrice(pack.mrp)}</span>
-                      )}
-                    </div>
+                    {!catalogueMode && (
+                      <div className="pack-pricing">
+                        <span className="pack-price">₹{formatPrice(pack.price)}</span>
+                        {pack.mrp !== null && pack.mrp > pack.price && (
+                          <span className="pack-mrp">MRP ₹{formatPrice(pack.mrp)}</span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Volume discount tiers */}
-                    {pack.volumeTiers && pack.volumeTiers.length > 0 && (
+                    {!catalogueMode && pack.volumeTiers && pack.volumeTiers.length > 0 && (
                       <div style={{ marginTop: '8px' }}>
                         <p style={{ fontSize: '10px', fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '5px' }}>
                           Bulk discounts
@@ -311,7 +325,7 @@ export default async function ProductPage({ params }: Props) {
                       className={`pack-stock-dot ${pack.inStock ? 'in' : 'out'}`}
                       title={pack.inStock ? 'In stock' : 'Out of stock'}
                     />
-                    {pack.inStock ? (
+                    {!catalogueMode && (pack.inStock ? (
                       <a
                         href={buildWhatsAppUrl(product.name, pack.packLabel, pack.price)}
                         className="pack-order-btn"
@@ -329,16 +343,18 @@ export default async function ProductPage({ params }: Props) {
                         productName={product.name}
                         packLabel={pack.packLabel}
                       />
+                    ))}
+                    {!catalogueMode && (
+                      <ProductDetailListButton
+                        code={pack.pluBarcode}
+                        name={product.name}
+                        packLabel={pack.packLabel}
+                        sellingPrice={pack.price}
+                        imageUrl={product.imageUrl}
+                        inStock={pack.inStock}
+                        volumeTiers={pack.volumeTiers}
+                      />
                     )}
-                    <ProductDetailListButton
-                      code={pack.pluBarcode}
-                      name={product.name}
-                      packLabel={pack.packLabel}
-                      sellingPrice={pack.price}
-                      imageUrl={product.imageUrl}
-                      inStock={pack.inStock}
-                      volumeTiers={pack.volumeTiers}
-                    />
                   </div>
                 </div>
               ))}
@@ -366,7 +382,7 @@ export default async function ProductPage({ params }: Props) {
 
         {/* ── Frequently bought together ──────────────────────────── */}
         {fbtProducts.length > 0 && (
-          <FrequentlyBoughtWith products={fbtProducts} />
+          <FrequentlyBoughtWith products={fbtProducts} catalogueMode={catalogueMode} />
         )}
 
         {/* ── Related products ────────────────────────────────────────── */}

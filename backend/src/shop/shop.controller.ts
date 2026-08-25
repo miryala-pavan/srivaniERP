@@ -30,6 +30,13 @@ export class ShopController {
     return this.shopService.getNavTree();
   }
 
+  // GET /shop/store-config — storefront reads this at load to know whether
+  // to show prices/cart or run browse-only (catalogue mode).
+  @Get('store-config')
+  getStoreConfig() {
+    return this.shopService.getStoreConfig();
+  }
+
   // GET /shop/products?categoryCode=&subCategoryCode=&deptCode=&search=&inStock=&sort=&page=&limit=&minPrice=&maxPrice=
   @Get('products')
   getProducts(

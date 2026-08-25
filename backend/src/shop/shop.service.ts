@@ -208,6 +208,43 @@ export class ShopService {
     private settings: SettingsService,
   ) {}
 
+  // Public — the storefront reads this at load to decide whether to show
+  // prices and shopping actions, or run as a browse-only visual catalogue.
+  async getStoreConfig(): Promise<{ catalogueMode: boolean }> {
+    return { catalogueMode: await this.isCatalogueMode() };
+  }
+
+  /** Server-side source of truth for catalogue mode — used by every price/order-blocking check. */
+  private async isCatalogueMode(): Promise<boolean> {
+    const businessId = await this.getBusinessId();
+    const { features } = await this.settings.getFeatures(businessId);
+    return !!features.catalogueModeEnabled;
+  }
+
+  /**
+   * Zeroes out every price field on a ShopProduct — used when catalogue
+   * mode is on. Returns a new object; never mutates the input, since callers
+   * may pass a cached object that must stay real-priced for when the mode
+   * is later turned off.
+   */
+  private redactProductPrices(p: ShopProduct): ShopProduct {
+    return {
+      ...p,
+      fromPrice: 0,
+      packs: p.packs.map(pk => ({ ...pk, price: 0, mrp: null, volumeTiers: [] })),
+      ...(p.groupVariants ? { groupVariants: p.groupVariants.map(v => ({ ...v, fromPrice: 0 })) } : {}),
+    };
+  }
+
+  private async redactIfCatalogueMode(data: ShopProduct[]): Promise<ShopProduct[]>;
+  private async redactIfCatalogueMode(data: ShopProduct): Promise<ShopProduct>;
+  private async redactIfCatalogueMode(data: ShopProduct | ShopProduct[]): Promise<ShopProduct | ShopProduct[]> {
+    if (!(await this.isCatalogueMode())) return data;
+    return Array.isArray(data)
+      ? data.map(p => this.redactProductPrices(p))
+      : this.redactProductPrices(data);
+  }
+
   // Public — used by storefront checkout before an order is placed.
   async checkPincode(pincode: string): Promise<{ serviceable: boolean }> {
     const businessId = await this.getBusinessId();
@@ -554,7 +591,7 @@ export class ShopService {
 
     await this.attachRatings(businessId, data);
 
-    return { data, total, page, totalPages: Math.ceil(total / limit) };
+    return { data: await this.redactIfCatalogueMode(data), total, page, totalPages: Math.ceil(total / limit) };
   }
 
   // Batch-fetches average rating + review count for a page of products in one
@@ -584,7 +621,7 @@ export class ShopService {
   async getProductByCode(code: string): Promise<ShopProduct> {
     const cacheKey = `shop:product:${code}`;
     const cached = await this.cache.get<ShopProduct>(cacheKey);
-    if (cached) return cached;
+    if (cached) return this.redactIfCatalogueMode(cached);
 
     const businessId = await this.getBusinessId();
 
@@ -732,7 +769,7 @@ export class ShopService {
     };
     await this.attachRatings(businessId, [result]);
     await this.cache.set(cacheKey, result, CACHE_TTL.product);
-    return result;
+    return this.redactIfCatalogueMode(result);
   }
 
   // ─── Autocomplete suggest ────────────────────────────────────────────────────
@@ -744,6 +781,7 @@ export class ShopService {
     limit = Math.min(20, Math.max(1, limit || 6)); // autocomplete dropdown, not a full listing
     const businessId = await this.getBusinessId();
     const term = q.trim();
+    const catalogueMode = await this.isCatalogueMode();
 
     const [products, categories] = await Promise.all([
       this.prisma.product.findMany({
@@ -810,7 +848,7 @@ export class ShopService {
         return {
           code: p.productCode ?? '',
           name: p.name,
-          sellingPrice: price,
+          sellingPrice: catalogueMode ? 0 : price,
           iconUrl: p.imageUrl ?? null,
           subcategory: subLabel,
         };
@@ -987,9 +1025,10 @@ export class ShopService {
 
     // Return in co-occurrence order
     const rankMap = new Map(codes.map((c, i) => [c, i]));
-    return shopProducts
+    const ranked = shopProducts
       .sort((a, b) => (rankMap.get(a.code) ?? 999) - (rankMap.get(b.code) ?? 999))
       .slice(0, limit);
+    return this.redactIfCatalogueMode(ranked);
   }
 
   // ─── Meta (Facebook/Instagram) Commerce Catalog data feed ───────────────────

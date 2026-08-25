@@ -7,15 +7,19 @@ const FEATURE_KEYS = [
   'onlineOrdersEnabled',
   'whatsappEnabled',
   'autoPOEnabled',
+  'catalogueModeEnabled',
 ] as const;
 
 type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 const DEFAULTS: Record<FeatureKey, boolean> = {
-  smartCartEnabled:    false,
-  onlineOrdersEnabled: false,
-  whatsappEnabled:     false,
-  autoPOEnabled:       false,
+  smartCartEnabled:     false,
+  onlineOrdersEnabled:  false,
+  whatsappEnabled:      false,
+  autoPOEnabled:        false,
+  // When true, the public storefront hides all pricing and blocks
+  // cart/checkout — browse-only "visual catalogue" mode.
+  catalogueModeEnabled: false,
 };
 
 const SHORTCUT_DEFAULTS: Record<string, string> = {

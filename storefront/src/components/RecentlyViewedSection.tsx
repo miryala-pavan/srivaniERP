@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { loadRecentlyViewed, type RecentProduct } from './RecentlyViewedTracker';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 const IMG_BASE = process.env.NEXT_PUBLIC_IMG_BASE ?? 'http://localhost:4001';
 
@@ -17,6 +18,7 @@ function fmtPrice(n: number) {
 }
 
 export default function RecentlyViewedSection() {
+  const { catalogueMode } = useStoreConfig();
   const [products, setProducts] = useState<RecentProduct[]>([]);
 
   useEffect(() => {
@@ -68,9 +70,11 @@ export default function RecentlyViewedSection() {
                 overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                 {p.name}
               </p>
-              <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--saffron-deep)', margin: '4px 0 0' }}>
-                ₹{fmtPrice(p.fromPrice)}
-              </p>
+              {!catalogueMode && (
+                <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--saffron-deep)', margin: '4px 0 0' }}>
+                  ₹{fmtPrice(p.fromPrice)}
+                </p>
+              )}
             </div>
           </Link>
         ))}

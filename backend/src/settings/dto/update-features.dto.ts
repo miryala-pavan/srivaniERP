@@ -16,4 +16,8 @@ export class UpdateFeaturesDto {
   @IsOptional()
   @IsBoolean()
   autoPOEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  catalogueModeEnabled?: boolean;
 }

@@ -15,6 +15,7 @@ import {
 } from '@/lib/orders';
 import { fetchAddresses, createAddress, type SavedAddress } from '@/lib/addresses';
 import { checkPincodeServiceable, getDeliverySlots, type DeliverySlotOption } from '@/lib/shop';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 declare global {
   interface Window {
@@ -176,14 +177,19 @@ export default function CheckoutClient() {
   const { items, subtotal, totalItems, clearAll } = useCart();
   const { isLoggedIn, isLoading, user } = useAuth();
   const { verifiedPhone, phoneReady } = useVerifiedPhone();
+  const { catalogueMode } = useStoreConfig();
   const router = useRouter();
 
   useEffect(() => {
     if (isLoading || !phoneReady) return;
-    if (!isLoggedIn) router.replace('/login?redirect=/checkout');
+    // Server-side createOrder/whatsappCheckout already hard-block while
+    // catalogue mode is on — this just keeps a stale checkout page from
+    // rendering the (now pointless) form.
+    if (catalogueMode) router.replace('/cart');
+    else if (!isLoggedIn) router.replace('/login?redirect=/checkout');
     else if (!verifiedPhone) router.replace('/complete-profile?redirect=/checkout');
     else if (totalItems === 0) router.replace('/cart');
-  }, [isLoggedIn, isLoading, verifiedPhone, phoneReady, totalItems, router]);
+  }, [isLoggedIn, isLoading, verifiedPhone, phoneReady, totalItems, catalogueMode, router]);
 
   // Contact details
   const [name, setName] = useState('');
@@ -406,7 +412,7 @@ export default function CheckoutClient() {
       </section>
     </div>
   );
-  if (!isLoggedIn || totalItems === 0) return null;
+  if (catalogueMode || !isLoggedIn || totalItems === 0) return null;
 
   return (
     <div className="wrap">

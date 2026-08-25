@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 const HomeIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -46,6 +47,7 @@ export default function BottomNav() {
   const path = usePathname();
   const { totalItems } = useCart();
   const { isLoggedIn, user } = useAuth();
+  const { catalogueMode } = useStoreConfig();
 
   const openCategories = () => {
     document.dispatchEvent(new CustomEvent('openMobileNav'));
@@ -73,6 +75,7 @@ export default function BottomNav() {
           Search
         </Link>
 
+        {!catalogueMode && (
         <Link
           href="/cart"
           title={totalItems > 0 ? `Your cart — ${totalItems} item${totalItems !== 1 ? 's' : ''}` : 'Your cart is empty'}
@@ -94,6 +97,7 @@ export default function BottomNav() {
             </span>
           )}
         </Link>
+        )}
 
         <Link
           href={isLoggedIn ? '/login' : `/login?redirect=${encodeURIComponent(path)}`}

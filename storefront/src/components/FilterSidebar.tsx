@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useCallback } from 'react';
 import type { ShopDepartment, SortOption } from '@/lib/shop';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 const SORT_LABELS: Record<string, string> = {
   nameAsc:   'Name A–Z',
@@ -10,6 +11,9 @@ const SORT_LABELS: Record<string, string> = {
   priceDesc: 'Price: High to Low',
   savings:   'Best Savings',
 };
+
+// Sort options and price filters are meaningless once pricing is hidden.
+const PRICE_SORT_KEYS = new Set(['priceAsc', 'priceDesc', 'savings']);
 
 interface Props {
   departments: ShopDepartment[];
@@ -34,6 +38,7 @@ export default function FilterSidebar({
 }: Props) {
   const router        = useRouter();
   const searchParams  = useSearchParams();
+  const { catalogueMode } = useStoreConfig();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [minPriceInput, setMinPriceInput] = useState(currentMinPrice);
   const [maxPriceInput, setMaxPriceInput] = useState(currentMaxPrice);
@@ -61,9 +66,11 @@ export default function FilterSidebar({
           value={currentSort}
           onChange={e => navigate({ sort: e.target.value === 'nameAsc' ? undefined : e.target.value })}
         >
-          {Object.entries(SORT_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>{label}</option>
-          ))}
+          {Object.entries(SORT_LABELS)
+            .filter(([val]) => !catalogueMode || !PRICE_SORT_KEYS.has(val))
+            .map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
         </select>
       </div>
 
@@ -79,7 +86,8 @@ export default function FilterSidebar({
         </label>
       </div>
 
-      {/* Price range */}
+      {/* Price range — hidden entirely in catalogue mode */}
+      {!catalogueMode && (
       <div className="sidebar-section">
         <p className="sidebar-label">Price range (₹)</p>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -102,6 +110,7 @@ export default function FilterSidebar({
           />
         </div>
       </div>
+      )}
 
       {/* Department filter */}
       <div className="sidebar-section">

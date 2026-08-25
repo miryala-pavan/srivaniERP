@@ -9,9 +9,10 @@ function fmtPrice(n: number) {
 
 interface Props {
   products: ShopProduct[];
+  catalogueMode?: boolean;
 }
 
-export default function FrequentlyBoughtWith({ products }: Props) {
+export default function FrequentlyBoughtWith({ products, catalogueMode = false }: Props) {
   if (!products.length) return null;
 
   return (
@@ -57,22 +58,26 @@ export default function FrequentlyBoughtWith({ products }: Props) {
                     overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                     {p.name}
                   </p>
-                  <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--saffron-deep)', margin: '4px 0 6px' }}>
-                    ₹{fmtPrice(bestPack?.price ?? p.fromPrice)}
-                  </p>
+                  {!catalogueMode && (
+                    <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--saffron-deep)', margin: '4px 0 6px' }}>
+                      ₹{fmtPrice(bestPack?.price ?? p.fromPrice)}
+                    </p>
+                  )}
                 </div>
               </Link>
-              <div style={{ padding: '0 10px 10px' }} onClick={e => e.stopPropagation()}>
-                <AddToListButton
-                  code={bestPack?.pluBarcode ?? p.code}
-                  name={p.name}
-                  packLabel={bestPack?.packLabel ?? ''}
-                  sellingPrice={bestPack?.price ?? p.fromPrice}
-                  imageUrl={p.imageUrl}
-                  disabled={!inStock}
-                  volumeTiers={bestPack?.volumeTiers}
-                />
-              </div>
+              {!catalogueMode && (
+                <div style={{ padding: '0 10px 10px' }} onClick={e => e.stopPropagation()}>
+                  <AddToListButton
+                    code={bestPack?.pluBarcode ?? p.code}
+                    name={p.name}
+                    packLabel={bestPack?.packLabel ?? ''}
+                    sellingPrice={bestPack?.price ?? p.fromPrice}
+                    imageUrl={p.imageUrl}
+                    disabled={!inStock}
+                    volumeTiers={bestPack?.volumeTiers}
+                  />
+                </div>
+              )}
             </div>
           );
         })}

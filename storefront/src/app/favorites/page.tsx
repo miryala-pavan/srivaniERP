@@ -5,6 +5,7 @@ import Link from 'next/link';
 import ProductImage from '@/components/ProductImage';
 import WishlistButton from '@/components/WishlistButton';
 import { useWishlist } from '@/context/WishlistContext';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 function fmtPrice(n: number) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
@@ -12,6 +13,7 @@ function fmtPrice(n: number) {
 
 export default function FavoritesPage() {
   const { items, count } = useWishlist();
+  const { catalogueMode } = useStoreConfig();
 
   return (
     <div className="wrap">
@@ -109,14 +111,16 @@ export default function FavoritesPage() {
                     }}>
                       {item.name}
                     </p>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{
-                        fontFamily: 'var(--font-fraunces), serif',
-                        fontWeight: 700, fontSize: '15px',
-                        color: 'var(--saffron-deep)',
-                      }}>
-                        ₹{fmtPrice(item.fromPrice)}
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: catalogueMode ? 'flex-end' : 'space-between' }}>
+                      {!catalogueMode && (
+                        <span style={{
+                          fontFamily: 'var(--font-fraunces), serif',
+                          fontWeight: 700, fontSize: '15px',
+                          color: 'var(--saffron-deep)',
+                        }}>
+                          ₹{fmtPrice(item.fromPrice)}
+                        </span>
+                      )}
                       <span style={{
                         fontSize: '11px', fontWeight: 600,
                         color: 'var(--saffron)',

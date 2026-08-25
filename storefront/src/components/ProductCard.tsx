@@ -5,6 +5,7 @@ import type { ShopProduct } from '@/lib/shop';
 import ProductImage from './ProductImage';
 import AddToListButton from './AddToListButton';
 import WishlistButton from './WishlistButton';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 const TRIVIAL_LABELS = new Set(['', '1 unit', 'default', 'pcs', '1']);
 
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export default function ProductCard({ product }: Props) {
+  const { catalogueMode } = useStoreConfig();
   const inStock = product.packs.some(p => p.inStock);
 
   // cheapest in-stock pack first, otherwise any cheapest pack
@@ -165,52 +167,54 @@ export default function ProductCard({ product }: Props) {
           </div>
         )}
 
-        {/* Pricing + Add to list */}
-        <div className="mt-auto" style={{ paddingTop: '8px' }}>
-          <div className="flex items-baseline flex-wrap" style={{ gap: '6px', marginBottom: '8px' }}>
-            <span style={{
-              fontFamily: 'var(--font-fraunces), serif',
-              fontWeight: 700,
-              fontSize:   '15px',
-              color:      'var(--saffron-deep)',
-            }}>
-              &#8377;{fmtPrice(sp)}
-            </span>
-
-            {hasDisc && (
+        {/* Pricing + Add to list — hidden entirely in catalogue (browse-only) mode */}
+        {!catalogueMode && (
+          <div className="mt-auto" style={{ paddingTop: '8px' }}>
+            <div className="flex items-baseline flex-wrap" style={{ gap: '6px', marginBottom: '8px' }}>
               <span style={{
-                fontSize:       '12px',
-                color:          '#bbb',
-                textDecoration: 'line-through',
-              }}>
-                &#8377;{fmtPrice(mrp!)}
-              </span>
-            )}
-
-            {savings > 0 && (
-              <span style={{
-                fontSize:   '9px',
+                fontFamily: 'var(--font-fraunces), serif',
                 fontWeight: 700,
-                color:      '#2d7a2d',
-                background: 'rgba(45,122,45,0.10)',
-                borderRadius: '4px',
-                padding:    '1px 5px',
+                fontSize:   '15px',
+                color:      'var(--saffron-deep)',
               }}>
-                {pctOff > 0 ? `${pctOff}% off` : `Save ₹${savings}`}
+                &#8377;{fmtPrice(sp)}
               </span>
-            )}
+
+              {hasDisc && (
+                <span style={{
+                  fontSize:       '12px',
+                  color:          '#bbb',
+                  textDecoration: 'line-through',
+                }}>
+                  &#8377;{fmtPrice(mrp!)}
+                </span>
+              )}
+
+              {savings > 0 && (
+                <span style={{
+                  fontSize:   '9px',
+                  fontWeight: 700,
+                  color:      '#2d7a2d',
+                  background: 'rgba(45,122,45,0.10)',
+                  borderRadius: '4px',
+                  padding:    '1px 5px',
+                }}>
+                  {pctOff > 0 ? `${pctOff}% off` : `Save ₹${savings}`}
+                </span>
+              )}
+            </div>
+            <div onClick={e => e.preventDefault()}>
+              <AddToListButton
+                code={bestPack?.pluBarcode ?? product.code}
+                name={product.name}
+                packLabel={packLabel || product.packs[0]?.unit || ''}
+                sellingPrice={sp}
+                imageUrl={product.imageUrl}
+                disabled={!inStock}
+              />
+            </div>
           </div>
-          <div onClick={e => e.preventDefault()}>
-            <AddToListButton
-              code={bestPack?.pluBarcode ?? product.code}
-              name={product.name}
-              packLabel={packLabel || product.packs[0]?.unit || ''}
-              sellingPrice={sp}
-              imageUrl={product.imageUrl}
-              disabled={!inStock}
-            />
-          </div>
-        </div>
+        )}
       </div>
     </Link>
   );

@@ -2,9 +2,12 @@
 
 import Link from 'next/link';
 import { useCart } from '@/context/CartContext';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 export default function CartIcon() {
   const { totalItems } = useCart();
+  const { catalogueMode } = useStoreConfig();
+  if (catalogueMode) return null;
 
   return (
     <Link

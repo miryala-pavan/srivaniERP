@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useCart, effectiveUnitPrice } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useVerifiedPhone } from '@/hooks/useVerifiedPhone';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 import { whatsappCheckout } from '@/lib/orders';
 import { STORE_WA_NUMBER as WA_NUMBER } from '@/lib/constants';
 
@@ -21,6 +22,7 @@ export default function CartPageClient() {
   const [waError, setWaError] = useState('');
   const { user, isLoggedIn } = useAuth();
   const { verifiedPhone } = useVerifiedPhone();
+  const { catalogueMode } = useStoreConfig();
   const router = useRouter();
 
   async function handleWhatsAppOrder() {
@@ -71,6 +73,32 @@ export default function CartPageClient() {
     } else {
       router.push('/checkout');
     }
+  }
+
+  // ── Catalogue mode: shopping is switched off ────────────────────────────────
+  if (catalogueMode) {
+    return (
+      <div className="wrap">
+        <section className="sec" style={{ textAlign: 'center', paddingTop: '80px', paddingBottom: '80px' }}>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>👀</div>
+          <h1 style={{ fontSize: '26px', marginBottom: '10px' }}>Browsing only right now</h1>
+          <p style={{ color: 'var(--ink-soft)', fontSize: '15px', marginBottom: '32px' }}>
+            Ordering is temporarily switched off. Please check back soon, or call the store directly.
+          </p>
+          <Link
+            href="/products"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '12px 28px', borderRadius: '12px',
+              background: 'var(--saffron)', color: '#fff',
+              fontWeight: 700, fontSize: '14px', textDecoration: 'none',
+            }}
+          >
+            Browse Products
+          </Link>
+        </section>
+      </div>
+    );
   }
 
   // ── Empty state ────────────────────────────────────────────────────────────

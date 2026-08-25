@@ -8,8 +8,10 @@ import ScrollWatcher from '@/components/ScrollWatcher';
 import { CartProvider } from '@/context/CartContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { WishlistProvider } from '@/context/WishlistContext';
+import { StoreConfigProvider } from '@/context/StoreConfigContext';
 import CartPanel from '@/components/CartPanel';
 import SentryInit from '@/components/SentryInit';
+import CatalogueModeBanner from '@/components/CatalogueModeBanner';
 import { STORE_CALL_NUMBER, STORE_WA_NUMBER } from '@/lib/constants';
 
 const fraunces = Fraunces({
@@ -144,10 +146,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="grain" aria-hidden="true" />
         <SentryInit />
+        <StoreConfigProvider>
         <WishlistProvider>
         <AuthProvider>
           <CartProvider>
             <ScrollWatcher />
+            <CatalogueModeBanner />
             <SiteHeader />
             <main>{children}</main>
             <SiteFooter />
@@ -156,6 +160,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </CartProvider>
         </AuthProvider>
         </WishlistProvider>
+        </StoreConfigProvider>
       </body>
     </html>
   );

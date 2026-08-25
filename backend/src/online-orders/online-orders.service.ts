@@ -12,6 +12,7 @@ import { WhatsAppService } from '../notifications/whatsapp.service';
 import { EmailService } from '../notifications/email.service';
 import { ServiceablePincodesService } from '../serviceable-pincodes/serviceable-pincodes.service';
 import { WalletService } from '../wallet/wallet.service';
+import { SettingsService } from '../settings/settings.service';
 import { Events } from '../events/event-types';
 import { lockPluById } from '../common/helpers/stock-lock.util';
 import {
@@ -47,6 +48,7 @@ export class OnlineOrdersService {
     private readonly email: EmailService,
     private readonly serviceablePincodes: ServiceablePincodesService,
     private readonly wallet: WalletService,
+    private readonly settings: SettingsService,
   ) {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -54,6 +56,21 @@ export class OnlineOrdersService {
       keyId && keySecret
         ? new Razorpay({ key_id: keyId, key_secret: keySecret })
         : null;
+  }
+
+  /**
+   * Hard server-side block on order creation when the storefront is in
+   * catalogue mode — defense in depth alongside the UI hiding the buy
+   * buttons, so a cached page or a direct API call can't sneak an order
+   * through while pricing/ordering is meant to be switched off.
+   */
+  private async assertShoppingEnabled(businessId: string): Promise<void> {
+    const { features } = await this.settings.getFeatures(businessId);
+    if (features.catalogueModeEnabled) {
+      throw new BadRequestException(
+        'Ordering is temporarily unavailable — the store is currently in browse-only mode.',
+      );
+    }
   }
 
   private async getBusinessId(): Promise<string> {
@@ -268,6 +285,7 @@ export class OnlineOrdersService {
     }
 
     const businessId = await this.getBusinessId();
+    await this.assertShoppingEnabled(businessId);
 
     if (dto.deliveryType === DeliveryType.HOME_DELIVERY && dto.deliveryAddress) {
       const serviceable = await this.serviceablePincodes.isServiceable(businessId, dto.deliveryAddress.pincode);
@@ -612,6 +630,7 @@ export class OnlineOrdersService {
     }
 
     const businessId = await this.getBusinessId();
+    await this.assertShoppingEnabled(businessId);
 
     if (dto.deliveryType === DeliveryType.HOME_DELIVERY && dto.deliveryAddress) {
       const serviceable = await this.serviceablePincodes.isServiceable(businessId, dto.deliveryAddress.pincode);

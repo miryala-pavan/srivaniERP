@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Settings, Receipt, Save, RefreshCw, CheckCircle2, Keyboard, AlertCircle, Store, Clock, FileText, Star, Truck, Trash2, Plus } from 'lucide-react';
+import { Settings, Receipt, Save, RefreshCw, CheckCircle2, Keyboard, AlertCircle, Store, Clock, FileText, Star, Truck, Trash2, Plus, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 
@@ -195,7 +195,7 @@ function KeyCapture({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type TabId = 'billing' | 'shortcuts' | 'pos' | 'gst' | 'system' | 'loyalty' | 'delivery';
+type TabId = 'billing' | 'shortcuts' | 'pos' | 'gst' | 'system' | 'loyalty' | 'delivery' | 'storefront';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('billing');
@@ -232,6 +232,12 @@ export default function SettingsPage() {
   const [savedSingleCashierMode, setSavedSingleCashierMode] = useState(true);
   const [posLoading, setPosLoading]   = useState(false);
   const [posSaving, setPosSaving]     = useState(false);
+
+  // Storefront settings (catalogue mode)
+  const [catalogueMode,      setCatalogueMode]      = useState(false);
+  const [savedCatalogueMode, setSavedCatalogueMode]  = useState(false);
+  const [storefrontLoading,  setStorefrontLoading]   = useState(false);
+  const [storefrontSaving,   setStorefrontSaving]    = useState(false);
 
   // Loyalty settings
   const [loyaltyEnabled,      setLoyaltyEnabled]      = useState(false);
@@ -595,6 +601,41 @@ export default function SettingsPage() {
 
   const posChanged = singleCashierMode !== savedSingleCashierMode;
 
+  // ─── Storefront settings (catalogue mode) ────────────────
+
+  const loadStorefrontSettings = useCallback(async () => {
+    setStorefrontLoading(true);
+    try {
+      const { data } = await api.get('/settings/features');
+      const val = !!data.features?.catalogueModeEnabled;
+      setCatalogueMode(val);
+      setSavedCatalogueMode(val);
+    } catch {
+      toast.error('Failed to load storefront settings');
+    } finally {
+      setStorefrontLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'storefront') loadStorefrontSettings();
+  }, [activeTab, loadStorefrontSettings]);
+
+  const saveStorefrontSettings = async () => {
+    setStorefrontSaving(true);
+    try {
+      await api.put('/settings/features', { catalogueModeEnabled: catalogueMode });
+      setSavedCatalogueMode(catalogueMode);
+      toast.success(catalogueMode ? 'Catalogue mode turned ON — prices hidden, ordering disabled' : 'Catalogue mode turned OFF — store is back to normal');
+    } catch {
+      toast.error('Failed to save storefront settings');
+    } finally {
+      setStorefrontSaving(false);
+    }
+  };
+
+  const storefrontChanged = catalogueMode !== savedCatalogueMode;
+
   // ─── Bill Series ────────────────────────────────────────
 
   const applyBillStartingNumbers = async () => {
@@ -631,6 +672,7 @@ export default function SettingsPage() {
     { id: 'system'    as TabId, label: 'System',        icon: Clock },
     { id: 'loyalty'   as TabId, label: 'Loyalty',       icon: Star },
     { id: 'delivery'  as TabId, label: 'Delivery',      icon: Truck },
+    { id: 'storefront' as TabId, label: 'Storefront',   icon: Eye },
   ];
 
   useEffect(() => { if (activeTab === 'loyalty') loadLoyaltySettings(); }, [activeTab, loadLoyaltySettings]);
@@ -1002,6 +1044,60 @@ export default function SettingsPage() {
                     ? <RefreshCw className="w-4 h-4 animate-spin" />
                     : <Save className="w-4 h-4" />}
                   {posSaving ? 'Saving...' : 'Save Settings'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ─── Storefront Tab ─── */}
+      {activeTab === 'storefront' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {storefrontLoading ? (
+            <div className="flex items-center justify-center py-20 text-gray-400">
+              <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading storefront settings...
+            </div>
+          ) : (
+            <>
+              <div className="px-6 py-4 border-b border-gray-100">
+                <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Catalogue Mode</h2>
+                <div className="divide-y divide-gray-100">
+                  <Toggle
+                    checked={catalogueMode}
+                    onChange={setCatalogueMode}
+                    label="Hide pricing & disable shopping"
+                    description="Turns shop.srivani.com into a browse-only visual catalogue. Every price is hidden site-wide, the cart and checkout are removed, and any attempt to place an order — including WhatsApp ordering — is blocked at the server. Customers can still see products, photos, and descriptions. Turn this off any time to instantly restore normal shopping."
+                  />
+                </div>
+                {catalogueMode && (
+                  <div className="mt-3 flex items-start gap-2 px-3.5 py-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-800">
+                      With this on, customers cannot buy anything online — no cart, no checkout, no WhatsApp ordering.
+                      Only use this when you deliberately want the storefront to act as a lookbook (e.g. while re-pricing
+                      the whole catalogue, or during a stock count).
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                <button
+                  onClick={loadStorefrontSettings}
+                  className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Discard changes
+                </button>
+                <button
+                  onClick={saveStorefrontSettings}
+                  disabled={!storefrontChanged || storefrontSaving}
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {storefrontSaving
+                    ? <RefreshCw className="w-4 h-4 animate-spin" />
+                    : <Save className="w-4 h-4" />}
+                  {storefrontSaving ? 'Saving...' : 'Save Settings'}
                 </button>
               </div>
             </>

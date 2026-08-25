@@ -160,6 +160,19 @@ export async function getProducts(params?: {
   }
 }
 
+/** Server-side read of catalogue mode — for pages that build their own JSON-LD/meta and need the real flag, not just the UI-hiding done via StoreConfigContext. */
+export async function getStoreConfig(): Promise<{ catalogueMode: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/shop/store-config`, {
+      cache: 'no-store', signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { catalogueMode: false };
+    return res.json();
+  } catch {
+    return { catalogueMode: false };
+  }
+}
+
 export async function getProduct(code: string): Promise<ShopProduct | null> {
   try {
     const res = await fetch(`${API_BASE}/shop/products/${code}`, {

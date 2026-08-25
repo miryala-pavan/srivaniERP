@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { getProductSuggestions } from '@/lib/shop';
 import type { SuggestResult } from '@/lib/shop';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 interface Props {
   initialQuery?: string;
@@ -12,6 +13,7 @@ interface Props {
 
 export default function MobileSearchInput({ initialQuery = '' }: Props) {
   const router = useRouter();
+  const { catalogueMode } = useStoreConfig();
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SuggestResult | null>(null);
   const [open, setOpen] = useState(false);
@@ -151,7 +153,9 @@ export default function MobileSearchInput({ initialQuery = '' }: Props) {
                     <div style={{ fontSize: '14px', fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                     <div style={{ fontSize: '12px', color: '#6b7280' }}>Code: {p.code}</div>
                   </div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#16a34a', flexShrink: 0 }}>₹{p.sellingPrice.toFixed(2)}</div>
+                  {!catalogueMode && (
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#16a34a', flexShrink: 0 }}>₹{p.sellingPrice.toFixed(2)}</div>
+                  )}
                 </button>
               ))}
             </>

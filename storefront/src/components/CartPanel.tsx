@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
+import { useStoreConfig } from '@/context/StoreConfigContext';
 
 function fmtPrice(n: number) {
   return n % 1 === 0 ? String(n) : n.toFixed(2);
@@ -14,6 +15,7 @@ function fmtPrice(n: number) {
 export default function CartPanel() {
   const { items, removeItem, updateQty, clearAll, totalItems, subtotal } = useCart();
   const { isLoggedIn } = useAuth();
+  const { catalogueMode } = useStoreConfig();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -41,7 +43,7 @@ export default function CartPanel() {
   // Close panel on route change
   useEffect(() => { setOpen(false); }, []);
 
-  if (totalItems === 0) return null;
+  if (catalogueMode || totalItems === 0) return null;
 
   return (
     <>

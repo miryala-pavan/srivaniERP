@@ -9,9 +9,10 @@ import { ServiceablePincodesModule } from '../serviceable-pincodes/serviceable-p
 import { WalletModule } from '../wallet/wallet.module';
 import { ShopModule } from '../shop/shop.module';
 import { StorefrontAuthModule } from '../storefront-auth/storefront-auth.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [EventsModule, AuditLogModule, NotificationsModule, ServiceablePincodesModule, WalletModule, ShopModule, StorefrontAuthModule],
+  imports: [EventsModule, AuditLogModule, NotificationsModule, ServiceablePincodesModule, WalletModule, ShopModule, StorefrontAuthModule, SettingsModule],
   controllers: [OnlineOrdersController],
   providers: [OnlineOrdersService, WaOrderingService],
   exports: [OnlineOrdersService, WaOrderingService],
