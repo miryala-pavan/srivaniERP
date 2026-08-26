@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { gstinStateCode } from '../common/gstin.util';
+import { ProductsService } from '../products/products.service';
 
 const PO_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'PURCHASE_CHECKER', 'ACCOUNTS_PERSON'];
 
 @Injectable()
 export class PurchaseOrdersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private productsService: ProductsService,
+  ) {}
 
   // ─── Generate sequential PO number inside a transaction ────────────────────
   private async nextPoNumber(tx: any, businessId: string): Promise<string> {
@@ -73,12 +77,18 @@ export class PurchaseOrdersService {
         id: true, name: true, productCode: true,
         preferredSupplierId: true,
         reorderQuantity: true,
-        costPrice: true,
-        plusList: { select: { pluCode: true }, take: 1 },
       },
     });
     if (!product?.preferredSupplierId) return;
     if (!product.reorderQuantity || Number(product.reorderQuantity) <= 0) return;
+
+    // Reorder suggestions must reflect the product's actual current batch —
+    // Product.costPrice is just a display cache that GRN keeps in sync with
+    // whichever PLU is truly "current" (see resolveCurrentPlu), not
+    // necessarily the one this reorder should be priced/coded against.
+    const currentPlu = await this.productsService.resolveCurrentPlu(product.id);
+    const unitCost = currentPlu ? Number(currentPlu.costPrice) : null;
+    const pluCode  = currentPlu?.pluCode ?? undefined;
 
     const supplier = await this.prisma.supplier.findFirst({
       where: { id: product.preferredSupplierId, businessId },
@@ -94,8 +104,6 @@ export class PurchaseOrdersService {
       },
     });
     if (existingItem) return; // already on a pending PO
-
-    const pluCode = product.plusList[0]?.pluCode;
 
     await this.prisma.$transaction(async (tx) => {
       // Check if a DRAFT PO for this supplier was already created today
@@ -121,7 +129,7 @@ export class PurchaseOrdersService {
             productName: product.name,
             pluCode,
             qtyOrdered: Number(product.reorderQuantity),
-            unitCost: product.costPrice ? Number(product.costPrice) : null,
+            unitCost,
           },
         });
         await tx.purchaseOrder.update({
@@ -146,7 +154,7 @@ export class PurchaseOrdersService {
                 productName: product.name,
                 pluCode,
                 qtyOrdered: Number(product.reorderQuantity),
-                unitCost: product.costPrice ? Number(product.costPrice) : null,
+                unitCost,
               }],
             },
           },

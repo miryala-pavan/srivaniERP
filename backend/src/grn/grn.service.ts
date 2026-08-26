@@ -18,6 +18,7 @@ import { JournalBridgeService } from '../platform/journal-bridge/journal-bridge.
 import { GstService } from '../gst/gst.service';
 import { lockPluCandidatesForDeduction, lockPluById } from '../common/helpers/stock-lock.util';
 import { gstinStateCode } from '../common/gstin.util';
+import { ProductsService } from '../products/products.service';
 
 @Injectable()
 export class GrnService {
@@ -32,6 +33,7 @@ export class GrnService {
     private shopCache: ShopCacheService,
     private journalBridge: JournalBridgeService,
     private gst: GstService,
+    private productsService: ProductsService,
   ) {}
 
   private r2(n: number) { return Math.round(n * 100) / 100; }
@@ -482,12 +484,6 @@ export class GrnService {
       }
     }
 
-    const existingStatus = existing.status;
-    const majorChange = existingStatus === 'APPROVED' && (
-      (dto.supplierId !== undefined && dto.supplierId !== existing.supplierId) ||
-      (dto.invoiceNumber !== undefined && dto.invoiceNumber !== existing.invoiceNumber)
-    );
-
     const supplierId = dto.supplierId ?? existing.supplierId;
     const branchId = dto.branchId ?? existing.branchId;
     const invoiceNumber = dto.invoiceNumber ?? existing.invoiceNumber;
@@ -594,30 +590,15 @@ export class GrnService {
           ...(dto.paymentReference !== undefined ? { paymentReference: dto.paymentReference } : {}),
           ...(dto.paymentNotes !== undefined ? { paymentNotes: dto.paymentNotes } : {}),
           ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
-          ...(majorChange ? { status: 'DRAFT', grnNumber: null, approvedByName: null, approvedAt: null } : {}),
         } as any,
       });
-
-      // For APPROVED GRNs without major change: reverse old stock and write new quantities
-      if (existingStatus === 'APPROVED' && !majorChange && itemsData.length > 0) {
-        await tx.stockLedger.deleteMany({
-          where: { referenceId: id, movementType: 'PURCHASE' as any, businessId },
-        });
-        for (const item of itemsData) {
-          await tx.stockLedger.create({
-            data: {
-              businessId,
-              branchId,
-              productId: item.productId,
-              movementType: 'PURCHASE',
-              quantity: Number((item as any).acceptedQty ?? (item as any).totalQty ?? 0),
-              referenceType: 'PURCHASE',
-              referenceId: id,
-              notes: `GRN ${(existing as any).grnNumber} updated`,
-            },
-          });
-        }
-      }
+      // Note: there used to be a branch here that reset an APPROVED GRN back
+      // to DRAFT and reversed/re-added its StockLedger entries. It was dead
+      // code — the guard above already throws BadRequestException for every
+      // condition that would have triggered it (amending an approved GRN's
+      // supplier/invoice/items isn't a supported flow; see that guard's
+      // comment) — so it's been removed rather than left as an unreachable
+      // trap for a future maintainer to "fix" into a real feature.
     });
 
     try {
@@ -712,10 +693,14 @@ export class GrnService {
         await tx.stockLedger.create({ data: e });
       }
 
-      // Mark purchase items where sellingPrice changed vs stored product price
+      // Mark purchase items where sellingPrice changed vs the product's actual
+      // current batch — Product.sellingPrice is just a display cache that can
+      // go stale (that's the whole reason resolveCurrentPlu exists), so the
+      // audit comparison must use the real current PLU, not that cache.
       for (const item of purchase.items) {
         if ((item as any).sellingPrice === null || !item.product) continue;
-        const oldPrice = Number(item.product.sellingPrice ?? 0);
+        const currentPlu = await this.productsService.resolveCurrentPlu(item.productId, tx);
+        const oldPrice = currentPlu ? Number(currentPlu.sellingPrice) : Number(item.product.sellingPrice ?? 0);
         const newPrice = Number((item as any).sellingPrice ?? 0);
         if (newPrice > 0 && newPrice !== oldPrice) {
           // priceChangePct is Decimal(5,2) → clamp to ±999.99 so extreme jumps don't overflow
@@ -817,7 +802,7 @@ export class GrnService {
       // STEP 1: Find existing PLU for this product+MRP combination (handles mixed-batch GRNs).
       // We match on MRP (not just isDefault) so same-product different-MRP batches
       // each get their own PLU instead of colliding on the default PLU.
-      const activePlu = await tx.productPlu.findFirst({
+      const matchingPlus = await tx.productPlu.findMany({
         where: {
           productId:  item.productId,
           isArchived: false,
@@ -825,8 +810,28 @@ export class GrnService {
         },
         orderBy: { createdAt: 'desc' },
       });
+      // Judgment call: when more than one PLU shares this MRP — e.g. a normal
+      // paid batch alongside a forced-split free/case-mismatch batch created
+      // by an earlier GRN line (see forceSeparateBatch below) — plain
+      // "newest first" can silently match a later, ordinary paid line onto
+      // the forced-split batch instead of the intended normal one. There's
+      // no stored flag marking "this PLU was created via a forced split", so
+      // as a pragmatic proxy we prefer whichever matching PLU's cost is
+      // closest to this line's cost — a real price-matching batch is far
+      // more likely to be the intended target than a free (₹0 cost) or
+      // case-mismatched one. Ties (equal cost distance) keep the previous
+      // newest-first behavior, since `matchingPlus` is already ordered that
+      // way and `reduce` only replaces the running best on a strict `<`.
+      const activePlu = matchingPlus.length > 0
+        ? matchingPlus.reduce((best: any, cur: any) => (
+            Math.abs(Number(cur.costPrice) - itemCost) < Math.abs(Number(best.costPrice) - itemCost) ? cur : best
+          ))
+        : null;
 
-      // Check whether there is already ANY default PLU (needed for isDefault assignment below)
+      // Still needed as a fallback source for unit info (measureType/unitSymbol/
+      // etc.) when creating a brand-new PLU below — NOT for deciding isDefault
+      // any more. isDefault is now a manual pin (see resolveCurrentPlu /
+      // common/helpers/plu-resolution.util.ts); GRN never sets or moves it.
       const existingDefault = activePlu?.isDefault
         ? activePlu
         : await tx.productPlu.findFirst({
@@ -856,19 +861,11 @@ export class GrnService {
       // silently blend free (₹0) stock into a paid batch's costing. Force a separate
       // PLU instead. (When priceIsSame is true — e.g. topping up an already-free batch
       // — STEP 2A above already handles it safely, so this only applies in STEP 2B.)
-      // Kept apart from caseSizeMismatch for the makeDefault decision below: a
-      // mismatched case-size batch is a normal new batch and should still become the
-      // default, unlike a forced free split.
       const freeItemForcesSplit = !!activePlu && !priceIsSame && !!(item as any).isFreeItem;
       const forceSeparateBatch = freeItemForcesSplit || caseSizeMismatch;
 
-      // Track whether the PLU that ends up receiving stock for this line is the default.
-      // Used in STEP 3 to decide whether to sync product master prices.
-      let thisLineIsDefault = false;
-
       if (activePlu && priceIsSame) {
         // STEP 2A: Same MRP + same cost — add stock to existing PLU (re-activate if inactive)
-        thisLineIsDefault = activePlu.isDefault ?? false;
         await tx.productPlu.update({
           where: { id: activePlu.id },
           data: {
@@ -903,15 +900,6 @@ export class GrnService {
         const seq        = String(pluCount + 1).padStart(3, '0');
         const newPluCode = `${product.productCode}${seq}`;
 
-        // Only make this PLU the default if there is no existing default,
-        // or if it's replacing a same-MRP PLU whose cost changed (price update).
-        // A forced-split free batch never becomes/replaces the default — the existing
-        // (paid) batch keeps its cost basis and its default status untouched.
-        const makeDefault = freeItemForcesSplit
-          ? false
-          : (!existingDefault || !!(activePlu && activePlu.id === existingDefault.id));
-        thisLineIsDefault = makeDefault;
-
         const newGstRate = itemGstRate || Number(product.gstRatePercent ?? 0);
 
         if (activePlu && !forceSeparateBatch) {
@@ -928,7 +916,8 @@ export class GrnService {
               stockOnHand:  { increment: acceptedQty },
               receivedQty:  { increment: acceptedQty },
               isActive:     true,
-              isDefault:    makeDefault,
+              // isDefault deliberately not touched here — it's a manual pin
+              // (see resolveCurrentPlu); GRN never sets, clears, or moves it.
               // Only write unit info this PLU didn't already have, and only when this GRN
               // line actually supplied it — never overwrite an existing value with nothing.
               ...((item as any).measureType !== undefined ? { measureType: (item as any).measureType } : {}),
@@ -961,22 +950,19 @@ export class GrnService {
               sellingPriceAfter: itemSp || null,
               gstRateAfter:      newGstRate,
               hsnCodeAfter:      product.hsnCode,
-              isDefaultAfter:    makeDefault,
+              isDefaultAfter:    activePlu.isDefault,
               isActiveAfter:     true,
             },
           });
-          // If the old default was a different PLU (different MRP), leave it as default
-          // — this batch is a secondary batch.
+          // isDefault is untouched above — a manual pin (or the lack of one)
+          // stays exactly as it was regardless of which batch this GRN line
+          // priced/restocked.
         } else {
           // Completely new MRP batch, OR a free line forced into its own batch
-          // (see forceSeparateBatch above) — create fresh PLU.
-          if (existingDefault && makeDefault) {
-            // Demote old default so this new batch becomes the default
-            await tx.productPlu.update({
-              where: { id: existingDefault.id },
-              data:  { isDefault: false },
-            });
-          }
+          // (see forceSeparateBatch above) — create fresh PLU. It never starts
+          // out pinned as default — that's a manual-only action (setDefaultPlu);
+          // resolveCurrentPlu() will pick it up automatically via FEFO/most-
+          // recent-received once it has stock, with no pin needed.
 
           // Unit info: prefer what was entered on this GRN line; otherwise fall back to a
           // sibling PLU of the same product that already has it set (existingDefault, then
@@ -1007,7 +993,7 @@ export class GrnService {
               stockOnHand:    acceptedQty,
               receivedQty:    acceptedQty,
               soldQty:        0,
-              isDefault:      makeDefault,
+              isDefault:      false,
               isActive:       true,
               isArchived:     false,
               effectiveFrom:  invoiceDate,
@@ -1040,7 +1026,7 @@ export class GrnService {
               sellingPriceAfter: itemSp || null,
               gstRateAfter:      newGstRate,
               hsnCodeAfter:      product.hsnCode,
-              isDefaultAfter:    makeDefault,
+              isDefaultAfter:    false,
               isActiveAfter:     true,
               notes:             'New PLU created from GRN',
             },
@@ -1060,23 +1046,27 @@ export class GrnService {
         data:  { availableOnline: true },
       });
 
-      // STEP 3: Update Product.totalStock = sum of all active PLU stockOnHand.
-      // Only sync master prices (mrp/sellingPrice/costPrice) when this item's PLU
-      // is (or will be) the default — for secondary batches totalStock is still updated
-      // but master prices are left pointing at the default PLU's values.
-
+      // STEP 3: Update Product.totalStock = sum of all active PLU stockOnHand,
+      // and re-sync the Product-level mrp/sellingPrice/costPrice display cache
+      // from resolveCurrentPlu() — the single source of truth for "the current
+      // batch" (manual pin, else FEFO, else most-recent) — rather than from
+      // whichever PLU this particular GRN line happened to touch. Re-resolved
+      // after every line so a product with several lines on one GRN ends up
+      // pointed at its true current batch once the whole GRN is processed,
+      // not just wherever the last line landed.
       const agg = await tx.productPlu.aggregate({
         where: { productId: item.productId, isActive: true, isArchived: false },
         _sum:  { stockOnHand: true },
       });
+      const currentPlu = await this.productsService.resolveCurrentPlu(item.productId, tx);
       await tx.product.update({
         where: { id: item.productId },
         data:  {
           totalStock: Number(agg._sum.stockOnHand ?? 0),
-          ...(thisLineIsDefault ? {
-            mrp:          itemMrp,
-            sellingPrice: itemSp,
-            costPrice:    itemCost,
+          ...(currentPlu ? {
+            mrp:          currentPlu.mrp,
+            sellingPrice: currentPlu.sellingPrice,
+            costPrice:    currentPlu.costPrice,
           } : {}),
         } as any,
       });

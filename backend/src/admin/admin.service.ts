@@ -775,6 +775,14 @@ export class AdminService {
 
             for (const plu of product.plusList) {
               const needsUnitFill = unitSource && plu.id !== unitSource.id && !plu.measureType;
+              // Margin must be computed from THIS PLU's own cost/mrp/sellingPrice,
+              // not the product-level values above — those were previously applied
+              // identically to every batch of a product, corrupting the margin of
+              // every batch except whichever one happened to match the product cache.
+              const pluCostPrice = Number(plu.costPrice ?? 0);
+              const pluMrp       = Number(plu.mrp);
+              const pluMarginRs  = pluMrp > 0 ? Math.round((pluMrp - pluCostPrice) * 100) / 100 : 0;
+              const pluMarginPct = pluMrp > 0 ? Math.round(((pluMrp - pluCostPrice) / pluMrp) * 100 * 10000) / 10000 : 0;
               await tx.productPlu.update({
                 where: { id: plu.id },
                 data: {
@@ -782,8 +790,8 @@ export class AdminService {
                   gstRate,
                   hsnCode:       product.hsnCode,
                   cessRate,
-                  marginPercent: marginPct,
-                  marginRs,
+                  marginPercent: pluMarginPct,
+                  marginRs:      pluMarginRs,
                   effectiveFrom: plu.createdAt,
                   ...(needsUnitFill ? {
                     measureType: unitSource!.measureType,

@@ -1,5 +1,5 @@
 import {
-  Injectable, BadRequestException, NotFoundException, ConflictException, ForbiddenException,
+  Injectable, BadRequestException, NotFoundException, ConflictException, ForbiddenException, Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -15,6 +15,7 @@ import { ProductQueryDto } from './dto/product-query.dto';
 import { canViewCost } from '../common/helpers/cost-visibility';
 import { wildcardFilter, hasWildcard, toSqlLike } from '../common/helpers/search.helper';
 import { ShopCacheService } from '../shop/shop-cache.service';
+import { pickCurrentPlu } from '../common/helpers/plu-resolution.util';
 
 function isManagerRole(role?: string): boolean {
   return role === 'SUPER_ADMIN' || role === 'BRANCH_MANAGER';
@@ -74,11 +75,27 @@ export interface ProductSearchResult {
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     private prisma: PrismaService,
     private eventsService: EventsService,
     private shopCache: ShopCacheService,
   ) {}
+
+  // ─── CURRENT PLU RESOLUTION (single source of truth) ────────────────────────
+  // See common/helpers/plu-resolution.util.ts for the full priority order and
+  // rationale. This is a thin DB-fetching wrapper around the pure `pickCurrentPlu`
+  // algorithm — pass `tx` to call it from inside an existing transaction (e.g.
+  // GRN's approval flow) so it sees uncommitted writes made earlier in that tx.
+  async resolveCurrentPlu(productId: string, tx?: Prisma.TransactionClient): Promise<any | null> {
+    const client: any = tx ?? this.prisma;
+    const [product, activePlus] = await Promise.all([
+      client.product.findUnique({ where: { id: productId }, select: { expiryTracking: true } }),
+      client.productPlu.findMany({ where: { productId, isActive: true, isArchived: false } }),
+    ]);
+    return pickCurrentPlu(activePlus, !!product?.expiryTracking);
+  }
 
   // ─── AUDIT LOG ──────────────────────────────────────────────────────────────
 
@@ -993,6 +1010,14 @@ export class ProductsService {
                 baseUnitQty: defaultPlu.baseUnitQty,
                 gstUqc:      defaultPlu.gstUqc,
                 isLoose:     defaultPlu.isLoose,
+                // Carry forward batch/traceability info too — a perishable or
+                // batch-tracked product must not silently lose its expiry
+                // tracking just because staff edited its price.
+                batchNumber:       defaultPlu.batchNumber,
+                expiryDate:        defaultPlu.expiryDate,
+                manufacturingDate: defaultPlu.manufacturingDate,
+                receivedDate:      defaultPlu.receivedDate,
+                grnId:             defaultPlu.grnId,
               },
             }),
           ]);
@@ -1005,7 +1030,13 @@ export class ProductsService {
             });
           } catch (_err) { /* fire-and-forget */ }
         }
-      } catch { /* PLU archival errors must never block product updates */ }
+      } catch (err) {
+        // PLU archival errors must never block the product update itself (the
+        // update above has already committed), but a silent swallow here means
+        // a price edit that failed to migrate expiry/batch/stock data onto a
+        // new PLU leaves no trace anywhere — log it so it's at least visible.
+        this.logger.error(`PLU archive-and-recreate failed for product ${id} during price update: ${(err as Error)?.message}`, (err as Error)?.stack);
+      }
     }
 
     // Apply explicitly-submitted unit fields (from the Product edit form) to whichever PLU is
@@ -1185,11 +1216,13 @@ export class ProductsService {
       };
     };
 
-    const fetchDefaultPlu = (productId: string) => this.prisma.productPlu.findFirst({
-      where: { productId, businessId, isActive: true, isArchived: false, isDefault: true },
-      orderBy: { createdAt: 'desc' },
-      select: pluSelect,
-    });
+    // "Default" here means "the currently resolved batch" (see resolveCurrentPlu /
+    // common/helpers/plu-resolution.util.ts) — isDefault: true is now just a manual
+    // pin, one input to that resolution, not something callers should filter on
+    // directly. Single-product lookups reuse the shared resolver; batchFmt (below)
+    // inlines the same pure algorithm against a bulk-fetched PLU set so a 15-row
+    // category/name search doesn't fire 15 extra round trips.
+    const fetchDefaultPlu = (productId: string) => this.resolveCurrentPlu(productId);
 
     const fetchActivePlus = (productId: string) => this.prisma.productPlu.findMany({
       where: { productId, businessId, isActive: true, isArchived: false, stockOnHand: { gt: 0 } },
@@ -1197,23 +1230,26 @@ export class ProductsService {
       select: pluSelect,
     });
 
+    const pluResolveSelect = { ...pluSelect, expiryDate: true, receivedDate: true };
+
     const batchFmt = async (products: any[]): Promise<ProductSearchResult[]> => {
       if (products.length === 0) return [];
       const ids = products.map((p) => p.id);
-      const [defaultPlus, activePlusAll] = await Promise.all([
+      const [allActivePlus, activePlusAll] = await Promise.all([
         this.prisma.productPlu.findMany({
-          where: { productId: { in: ids }, businessId, isActive: true, isArchived: false, isDefault: true },
-          orderBy: { createdAt: 'desc' }, select: pluSelect,
+          where: { productId: { in: ids }, businessId, isActive: true, isArchived: false },
+          select: pluResolveSelect,
         }),
         this.prisma.productPlu.findMany({
           where: { productId: { in: ids }, businessId, isActive: true, isArchived: false, stockOnHand: { gt: 0 } },
           orderBy: { receivedDate: 'asc' }, select: pluSelect,
         }),
       ]);
-      const defMap = new Map<string, any>();
-      for (const plu of defaultPlus) {
+      const allMap = new Map<string, any[]>();
+      for (const plu of allActivePlus) {
         const pid = (plu as any).productId as string;
-        if (!defMap.has(pid)) defMap.set(pid, plu);
+        if (!allMap.has(pid)) allMap.set(pid, []);
+        allMap.get(pid)!.push(plu);
       }
       const actMap = new Map<string, any[]>();
       for (const plu of activePlusAll) {
@@ -1223,7 +1259,8 @@ export class ProductsService {
       }
       const results: ProductSearchResult[] = [];
       for (const p of products) {
-        results.push(fmt(p, defMap.get(p.id) ?? null, actMap.get(p.id) ?? []));
+        const currentPlu = pickCurrentPlu(allMap.get(p.id) ?? [], !!(p as any).expiryTracking);
+        results.push(fmt(p, currentPlu, actMap.get(p.id) ?? []));
       }
       return results;
     };
@@ -1710,21 +1747,29 @@ export class ProductsService {
       },
     }).catch(() => {});
 
-    if (plu.isDefault) {
-      const next = await this.prisma.productPlu.findFirst({
-        where: { productId, businessId, isActive: true, isArchived: false },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (next) await this.prisma.productPlu.update({ where: { id: next.id }, data: { isDefault: true } });
-    }
-
+    // isDefault is a manual pin only — if the deactivated PLU held the pin,
+    // just clear it (already done above) and stop. Do NOT auto-promote a
+    // replacement: resolveCurrentPlu() naturally falls back to FEFO/most-
+    // recent among the remaining active PLUs once no manual pin exists, so
+    // there's nothing else to pick here.
     const agg = await this.prisma.productPlu.aggregate({
       where: { productId, isActive: true, isArchived: false },
       _sum:  { stockOnHand: true },
     });
+    // The product's current batch may have changed as a result of this
+    // deactivation — re-sync the Product-level display cache from the
+    // resolver rather than leaving it pointed at whatever this PLU used to be.
+    const currentPlu = await this.resolveCurrentPlu(productId);
     await this.prisma.product.update({
       where: { id: productId },
-      data:  { totalStock: Number(agg._sum.stockOnHand ?? 0) } as any,
+      data:  {
+        totalStock: Number(agg._sum.stockOnHand ?? 0),
+        ...(currentPlu ? {
+          mrp:          currentPlu.mrp,
+          sellingPrice: currentPlu.sellingPrice,
+          costPrice:    currentPlu.costPrice,
+        } : {}),
+      } as any,
     });
 
     try {

@@ -7,6 +7,7 @@ import { wildcardFilter, hasWildcard } from '../common/helpers/search.helper';
 import { ShopCacheService } from './shop-cache.service';
 import { ServiceablePincodesService } from '../serviceable-pincodes/serviceable-pincodes.service';
 import { SettingsService } from '../settings/settings.service';
+import { pickCurrentPlu } from '../common/helpers/plu-resolution.util';
 
 // Must match the static-serve mount in main.ts (imagesDir <-> /uploads/products).
 const PRODUCT_IMAGES_DIR = process.env.PRODUCT_IMAGES_DIR
@@ -116,8 +117,15 @@ export interface NavDepartment {
 
 // ─── Shared filters & selects ─────────────────────────────────────────────────
 
-// Any active PLU with availableOnline=true qualifies — isDefault is NOT required.
-// sellingPrice > 0 and mrp > 0 guard against zero-price products appearing on storefront.
+// Used only as a cheap EXISTENCE filter — "does this product have at least
+// one sellable batch" — for count/pagination queries (category counts, nav
+// tree, autocomplete/related-product candidate lists) where fetching and
+// resolving every product's true current PLU up front would be wasted work.
+// It must NOT be used to decide what price/batch to actually display — that
+// is resolveOnlineCurrentPlu() below, which is the single source of truth
+// for "the one current PLU" the business wants shown online (see
+// common/helpers/plu-resolution.util.ts). sellingPrice > 0 and mrp > 0 guard
+// against zero-price products appearing on the storefront.
 const ONLINE_PLU_FILTER = {
   availableOnline: true,
   isActive: true,
@@ -137,6 +145,19 @@ const PLU_SELECT = {
   onlineStockCap: true,
 };
 
+// Superset of PLU_SELECT carrying the extra fields pickCurrentPlu() needs to
+// resolve "the current batch" (isDefault/expiryDate/receivedDate) plus the
+// availableOnline flag needed to gate that batch for online display. Used
+// everywhere a query needs to resolve one real current PLU rather than list
+// every online-eligible one.
+const RESOLUTION_PLU_SELECT = {
+  ...PLU_SELECT,
+  isDefault: true,
+  expiryDate: true,
+  receivedDate: true,
+  availableOnline: true,
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toDecimal(v: unknown): number {
@@ -153,6 +174,27 @@ type PluRow = {
   stockOnHand: unknown;
   onlineStockCap: unknown;
 };
+
+type ResolutionPluRow = PluRow & {
+  isDefault: boolean;
+  expiryDate: Date | null;
+  receivedDate: Date;
+  availableOnline: boolean;
+};
+
+// The storefront shows exactly ONE pack per product — its currently resolved
+// batch (manual pin, else FEFO, else most-recently-received; see
+// pickCurrentPlu) — never "every batch that happens to have stock". If that
+// resolved batch isn't actually online-eligible (not flagged availableOnline,
+// or missing a valid price/MRP), the product is treated as unavailable
+// online rather than silently substituting some other, less current batch.
+function resolveOnlineCurrentPlu(activePlus: ResolutionPluRow[], expiryTracking: boolean): ResolutionPluRow | null {
+  const current = pickCurrentPlu(activePlus, expiryTracking);
+  if (!current) return null;
+  if (!current.availableOnline) return null;
+  if (toDecimal(current.sellingPrice) <= 0 || toDecimal(current.mrp) <= 0) return null;
+  return current;
+}
 
 // totalStock = sum of ALL PLU stockOnHand across the product.
 // Used as the inStock signal because stock lives on whichever PLU received the GRN,
@@ -523,6 +565,7 @@ export class ShopService {
       imageUrl: true,
       allowNegativeStock: true,
       totalStock: true,
+      expiryTracking: true,
       category: {
         select: {
           name: true,
@@ -530,10 +573,12 @@ export class ShopService {
           parent: { select: { name: true, label: true } },
         },
       },
+      // Fetch every active batch (not just online-eligible ones) so the
+      // resolver below can correctly pick the true current one — the true
+      // current batch may not even be the one flagged availableOnline.
       plusList: {
-        where: pluFilter,
-        orderBy: [{ mrp: 'asc' as const }, { createdAt: 'asc' as const }],
-        select: PLU_SELECT,
+        where: { isActive: true, isArchived: false },
+        select: RESOLUTION_PLU_SELECT,
       },
     };
 
@@ -570,7 +615,10 @@ export class ShopService {
 
     const data: ShopProduct[] = products
       .map((p): ShopProduct | null => {
-        const packs = mapPacks(p.plusList, p.unitOfMeasure, p.allowNegativeStock, Number((p as any).totalStock ?? 0));
+        const currentPlu = resolveOnlineCurrentPlu(p.plusList as any, !!(p as any).expiryTracking);
+        const packs = currentPlu
+          ? mapPacks([currentPlu], p.unitOfMeasure, p.allowNegativeStock, Number((p as any).totalStock ?? 0))
+          : [];
         if (packs.length === 0) return null;
         const cat = p.category;
         return {
@@ -643,6 +691,7 @@ export class ShopService {
         totalStock: true,
         description: true,
         keywords: true,
+        expiryTracking: true,
         category: {
           select: {
             code: true,
@@ -658,20 +707,21 @@ export class ShopService {
             },
           },
         },
+        // All active batches, not just online-eligible ones — resolveOnlineCurrentPlu
+        // below needs the full picture to correctly pick the true current one.
         plusList: {
-          where: ONLINE_PLU_FILTER,
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: PLU_SELECT,
+          where: { isActive: true, isArchived: false },
+          select: RESOLUTION_PLU_SELECT,
         },
       },
     });
 
-    if (!product || product.plusList.length === 0) {
+    const currentPlu = product ? resolveOnlineCurrentPlu(product.plusList as any, !!(product as any).expiryTracking) : null;
+    if (!product || !currentPlu) {
       throw new NotFoundException('Product not found or not available online');
     }
 
-    const packs = mapPacks(product.plusList, product.unitOfMeasure, product.allowNegativeStock, Number((product as any).totalStock ?? 0));
+    const packs = mapPacks([currentPlu], product.unitOfMeasure, product.allowNegativeStock, Number((product as any).totalStock ?? 0));
 
     // Attach volume pricing tiers to each pack
     const pluCodes = packs.map(pk => pk.pluBarcode);
@@ -713,24 +763,26 @@ export class ShopService {
               allowNegativeStock: true,
               totalStock:         true,
               unitOfMeasure:      true,
-              plusList: { where: ONLINE_PLU_FILTER, orderBy: { createdAt: 'desc' }, take: 1, select: { sellingPrice: true, onlinePrice: true, stockOnHand: true, onlineStockCap: true } },
+              expiryTracking:     true,
+              plusList: { where: { isActive: true, isArchived: false }, select: RESOLUTION_PLU_SELECT },
             },
           },
         },
       });
       groupVariants = siblings.map(s => {
         const totalStk = Number((s.product as any).totalStock ?? 0);
-        const prices = s.product.plusList.map(p => {
-          const sp = toDecimal(p.sellingPrice);
-          return p.onlinePrice !== null && p.onlinePrice !== undefined ? toDecimal(p.onlinePrice) : sp;
-        });
+        const currentPlu = resolveOnlineCurrentPlu(s.product.plusList as any, !!(s.product as any).expiryTracking);
+        const fromPrice = currentPlu
+          ? (currentPlu.onlinePrice !== null && currentPlu.onlinePrice !== undefined
+              ? toDecimal(currentPlu.onlinePrice) : toDecimal(currentPlu.sellingPrice))
+          : 0;
         const inStock = totalStk > 0 || s.product.allowNegativeStock;
         return {
           label:     s.displayLabel,
           code:      s.product.productCode ?? '',
           name:      s.product.name,
           imageUrl:  s.product.imageUrl ?? null,
-          fromPrice: prices.length > 0 ? Math.min(...prices) : 0,
+          fromPrice,
           inStock,
         };
       });
@@ -798,6 +850,7 @@ export class ShopService {
           productCode: true,
           name: true,
           imageUrl: true,
+          expiryTracking: true,
           category: {
             select: {
               label: true,
@@ -806,10 +859,8 @@ export class ShopService {
             },
           },
           plusList: {
-            where: ONLINE_PLU_FILTER,
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { sellingPrice: true, onlinePrice: true },
+            where: { isActive: true, isArchived: false },
+            select: RESOLUTION_PLU_SELECT,
           },
         },
       }),
@@ -839,7 +890,7 @@ export class ShopService {
 
     return {
       products: products.map(p => {
-        const plu = p.plusList[0];
+        const plu = resolveOnlineCurrentPlu(p.plusList as any, !!(p as any).expiryTracking);
         const price = plu
           ? toDecimal(plu.onlinePrice ?? plu.sellingPrice)
           : 0;
@@ -994,18 +1045,20 @@ export class ShopService {
         unitOfMeasure: true,
         allowNegativeStock: true,
         totalStock: true,
+        expiryTracking: true,
         plusList: {
-          where: ONLINE_PLU_FILTER,
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: PLU_SELECT,
+          where: { isActive: true, isArchived: false },
+          select: RESOLUTION_PLU_SELECT,
         },
       },
     });
 
     const shopProducts: ShopProduct[] = products
       .map((p): ShopProduct | null => {
-        const packs = mapPacks(p.plusList, p.unitOfMeasure, p.allowNegativeStock, Number((p as any).totalStock ?? 0));
+        const currentPlu = resolveOnlineCurrentPlu(p.plusList as any, !!(p as any).expiryTracking);
+        const packs = currentPlu
+          ? mapPacks([currentPlu], p.unitOfMeasure, p.allowNegativeStock, Number((p as any).totalStock ?? 0))
+          : [];
         if (!packs.length) return null;
         return {
           code: p.productCode ?? '',
@@ -1034,8 +1087,9 @@ export class ShopService {
   // ─── Meta (Facebook/Instagram) Commerce Catalog data feed ───────────────────
   // A token-gated CSV Meta's own crawler polls on a schedule the store owner
   // configures in Commerce Manager — no Graph API credentials needed on our
-  // side. One row per ProductPlu (a sellable pack/variant), matching how the
-  // storefront already treats packs as separately purchasable units.
+  // side. One row per PRODUCT, priced from its resolved current batch (see
+  // resolveOnlineCurrentPlu) — matching how the storefront itself now shows
+  // exactly one pack per product, not one row per historical batch.
 
   async getOrCreateFeedToken(businessId: string): Promise<string> {
     const existing = await this.prisma.systemSetting.findUnique({
@@ -1101,31 +1155,34 @@ export class ShopService {
       select: { name: true },
     });
 
-    const plus = await this.prisma.productPlu.findMany({
+    const products = await this.prisma.product.findMany({
       where: {
         businessId,
-        ...ONLINE_PLU_FILTER,
-        product: { isActive: true, isManuallyDisabled: false },
+        isActive: true,
+        isManuallyDisabled: false,
+        plusList: { some: ONLINE_PLU_FILTER },
       },
       select: {
-        pluCode: true, displayName: true, eanCode: true,
-        sellingPrice: true, mrp: true, onlinePrice: true, stockOnHand: true,
-        product: {
-          select: {
-            productCode: true, name: true, description: true, imageUrl: true,
-            allowNegativeStock: true, brandName: true,
-            brand: { select: { name: true } },
-          },
-        },
+        productCode: true, name: true, description: true, imageUrl: true,
+        allowNegativeStock: true, brandName: true, expiryTracking: true,
+        brand: { select: { name: true } },
+        // All active batches — resolveOnlineCurrentPlu needs the full
+        // picture to correctly pick the true current one.
+        plusList: { where: { isActive: true, isArchived: false }, select: RESOLUTION_PLU_SELECT },
       },
     });
 
     const shopUrl = (process.env.SHOP_URL ?? 'https://shop.srivani.com').replace(/\/$/, '');
     const rows: string[] = [ShopService.FEED_COLUMNS.join(',')];
 
-    for (const plu of plus) {
-      const product = plu.product;
+    for (const product of products) {
       if (!product.imageUrl || !productImageExists(product.imageUrl)) continue; // dead image = Meta rejects the whole item anyway
+
+      // Syndicate only the product's actual current batch — if it isn't
+      // online-eligible (unflagged, or an invalid price/MRP), skip the
+      // product rather than substitute some other, less current batch.
+      const plu = resolveOnlineCurrentPlu(product.plusList as any, !!(product as any).expiryTracking);
+      if (!plu) continue;
 
       const pluStock = toDecimal(plu.stockOnHand);
       const available = pluStock > 0 || product.allowNegativeStock;

@@ -398,30 +398,16 @@ export class PosService {
         );
       }
 
-      // Selling above the printed MRP is illegal under the Legal Metrology
-      // (Packaged Commodities) Rules, 2011 — hard block, not a warning, and
-      // enforced here (not just client-side) so a direct API call can't
-      // bypass it.
-      const productMrp = Number(product.mrp ?? 0);
-      if (productMrp > 0 && item.unitPrice > productMrp + 0.01) {
-        throw new BadRequestException(
-          `Selling price ₹${item.unitPrice} for "${product.name}" exceeds its MRP of ₹${productMrp}`,
-        );
-      }
-
+      // MRP compliance (Legal Metrology (Packaged Commodities) Rules, 2011)
+      // and the below-margin warning used to be checked here against
+      // Product.mrp/costPrice/cessRate — a display cache that can go stale.
+      // They're now checked inside the transaction below, per line, against
+      // whichever real batch the FEFO/FIFO stock deduction actually sells
+      // from (that batch is only known once deduction runs) — see the
+      // "MRP compliance" / "margin warning" comments in the item loop below.
+      // For ESTIMATE bills (which never deduct stock or select a batch) they
+      // still run there too, falling back to this same Product-level cache.
       const discountPercent = item.discountPercent ?? 0;
-
-      // Warn (but don't block) when selling price is below MIN_MARGIN_PCT
-      const effectiveSp = r2(item.unitPrice * (1 - discountPercent / 100));
-      const marginWarn = checkMargin({
-        sellingPrice: effectiveSp,
-        costPrice:    Number(product.costPrice ?? 0),
-        gstRate:      Number(product.gstRatePercent ?? gstRate),
-        cessRate:     Number((product as any).cessRate ?? 0),
-        label:        product.name,
-        bypass:       (product as any).allowBelowMargin ?? false,
-      });
-      if (marginWarn) marginWarnings.push(marginWarn);
 
       const calc = calculateItemGst(item.unitPrice, item.quantity, discountPercent, gstRate, isIntraState);
 
@@ -539,28 +525,25 @@ export class PosService {
       }
     }
 
-    // Loyalty points net delta (earn − redeem) — computed here, applied
-    // inside the transaction below so a redeemed discount can never be
-    // granted without the points actually being debited atomically.
-    let loyaltyPointsEarned = 0;
-    let loyaltyNetDelta = -loyaltyPointsToRedeem;
+    // Loyalty "earn" config — resolved once here. The actual points-earned
+    // total is computed inside the transaction below, per line, once each
+    // line's real selling batch is known (after FEFO/FIFO stock deduction),
+    // so the ≥ min-margin-pct earn threshold is measured against that
+    // batch's actual cost rather than the Product-level cache. Redemption
+    // above already used a pre-checked customer balance and is applied
+    // atomically inside the same transaction.
+    let loyaltyEarnEnabled  = false;
+    let loyaltyEarnPer100   = 1;
+    let loyaltyMinMarginPct = 5;
     if (!isEstimate && dto.customerId) {
       const loyaltyEarnConfig = await this.prisma.systemSetting.findMany({
         where: { businessId, key: { in: ['loyalty.enabled', 'loyalty.earn_per_100', 'loyalty.min_margin_pct'] } },
       });
       const earnCfg = Object.fromEntries(loyaltyEarnConfig.map((r) => [r.key.replace('loyalty.', ''), r.value]));
       if (earnCfg.enabled === 'true') {
-        const earnPer100   = parseFloat(earnCfg.earn_per_100 ?? '1');
-        const minMarginPct = parseFloat(earnCfg.min_margin_pct ?? '5');
-        const eligibleAmount = calcItems.reduce((sum, { dto: item, product, calc }) => {
-          const costPrice = Number((product as any).costPrice ?? 0);
-          if (costPrice <= 0) return sum + calc.totalAmount;
-          const unitPriceExTax = calc.taxable / item.quantity;
-          const margin = ((unitPriceExTax - costPrice) / unitPriceExTax) * 100;
-          return margin >= minMarginPct ? sum + calc.totalAmount : sum;
-        }, 0);
-        loyaltyPointsEarned = Math.round(Math.floor(eligibleAmount / 100) * earnPer100);
-        loyaltyNetDelta = loyaltyPointsEarned - loyaltyPointsToRedeem;
+        loyaltyEarnEnabled  = true;
+        loyaltyEarnPer100   = parseFloat(earnCfg.earn_per_100 ?? '1');
+        loyaltyMinMarginPct = parseFloat(earnCfg.min_margin_pct ?? '5');
       }
     }
 
@@ -658,6 +641,7 @@ export class PosService {
       });
 
       // 6d. Insert sales items; stock ledger only for real bills (not estimates)
+      let loyaltyEligibleAmount = 0;
       for (let idx = 0; idx < calcItems.length; idx++) {
         const { dto: item, product, tax, calc } = calcItems[idx];
         const cessAmt = cessAmounts[idx];
@@ -667,6 +651,15 @@ export class PosService {
         // it's what lets voidBill()/createCreditNote() restore stock to the
         // exact original batch instead of silently no-op'ing.
         let firstPluId: string | null = null;
+        // MRP/cost/cess used for the compliance check, margin warning,
+        // loyalty-earn eligibility, and the permanent SalesItem.mrp snapshot
+        // below. Defaults to the Product-level cache — used as-is for
+        // ESTIMATE bills, which never deduct stock or select a real batch —
+        // and is overwritten with the actually-sold batch's own values once
+        // that batch is known (see below).
+        let saleMrp       = Number(product.mrp ?? 0);
+        let saleCostPrice = Number(product.costPrice ?? 0);
+        let saleCessRate  = Number((product as any).cessRate ?? 0);
 
         if (!isEstimate) {
           await tx.stockLedger.create({
@@ -714,6 +707,39 @@ export class PosService {
             });
           }
 
+          // Pull the actually-selected batch's own mrp/costPrice/cessRate —
+          // it's only known now, after FEFO/FIFO deduction above picked it.
+          // Product.mrp/costPrice/cessRate is a display cache that can go
+          // stale (the whole reason resolveCurrentPlu() exists elsewhere in
+          // this redesign), so the checks below must not use it for a real
+          // sale. Judgment call: when a line spans more than one batch (the
+          // first ran short), we use the FIRST batch touched — the same one
+          // already recorded as SalesItem.pluId above — so this row stays
+          // internally consistent with the single batch reference it stores.
+          if (firstPluId) {
+            const sellingPlu = await tx.productPlu.findUnique({
+              where: { id: firstPluId },
+              select: { mrp: true, costPrice: true, cessRate: true },
+            });
+            if (sellingPlu) {
+              saleMrp       = Number(sellingPlu.mrp ?? saleMrp);
+              saleCostPrice = Number(sellingPlu.costPrice ?? saleCostPrice);
+              saleCessRate  = Number(sellingPlu.cessRate ?? saleCessRate);
+            }
+          }
+
+          // Loyalty "earn" eligibility — measured against the actual selling
+          // batch's cost, not the Product-level cache.
+          if (loyaltyEarnEnabled && dto.customerId) {
+            if (saleCostPrice <= 0) {
+              loyaltyEligibleAmount += calc.totalAmount;
+            } else {
+              const unitPriceExTax = calc.taxable / item.quantity;
+              const margin = ((unitPriceExTax - saleCostPrice) / unitPriceExTax) * 100;
+              if (margin >= loyaltyMinMarginPct) loyaltyEligibleAmount += calc.totalAmount;
+            }
+          }
+
           // Sync Product.totalStock after PLU deduction
           const stockAgg = await tx.productPlu.aggregate({
             where: { productId: item.productId, isActive: true, isArchived: false },
@@ -724,6 +750,31 @@ export class PosService {
             data:  { totalStock: Number(stockAgg._sum.stockOnHand ?? 0) } as any,
           });
         }
+
+        // MRP compliance (Legal Metrology (Packaged Commodities) Rules,
+        // 2011) — hard block, not a warning, enforced here (not just
+        // client-side) so a direct API call can't bypass it. Checked against
+        // the real selling batch's own MRP for a normal sale, or the
+        // Product-level cache for an ESTIMATE (which never selects a batch).
+        if (saleMrp > 0 && item.unitPrice > saleMrp + 0.01) {
+          throw new BadRequestException(
+            `Selling price ₹${item.unitPrice} for "${product.name}" exceeds its MRP of ₹${saleMrp}`,
+          );
+        }
+
+        // Warn (but don't block) when selling price is below MIN_MARGIN_PCT,
+        // measured against the same batch-specific cost/cess as above.
+        const marginDiscountPercent = item.discountPercent ?? 0;
+        const effectiveSp = r2(item.unitPrice * (1 - marginDiscountPercent / 100));
+        const marginWarn = checkMargin({
+          sellingPrice: effectiveSp,
+          costPrice:    saleCostPrice,
+          gstRate:      Number(product.gstRatePercent ?? tax.taxRate),
+          cessRate:     saleCessRate,
+          label:        product.name,
+          bypass:       (product as any).allowBelowMargin ?? false,
+        });
+        if (marginWarn) marginWarnings.push(marginWarn);
 
         await tx.salesItem.create({
           data: {
@@ -744,13 +795,22 @@ export class PosService {
             igstAmount:      calc.igst,
             totalAmount:     r2(calc.totalAmount + cessAmt),
             unitOfMeasure:   product.unitOfMeasure,
-            mrp:             Number(product.mrp),
+            mrp:             saleMrp,
             isPriceOverridden: item.isPriceOverridden ?? false,
             originalPrice:     item.originalPrice ?? null,
             overrideReason:    item.overrideReason ?? null,
             ...({ cessAmount: cessAmt } as any),
           },
         });
+      }
+
+      // Loyalty points actually earned on this bill — computed from the
+      // batch-accurate eligible amount accumulated in the loop above.
+      let loyaltyPointsEarned = 0;
+      let loyaltyNetDelta = -loyaltyPointsToRedeem;
+      if (loyaltyEarnEnabled && !isEstimate && dto.customerId) {
+        loyaltyPointsEarned = Math.round(Math.floor(loyaltyEligibleAmount / 100) * loyaltyEarnPer100);
+        loyaltyNetDelta = loyaltyPointsEarned - loyaltyPointsToRedeem;
       }
 
       // 6e. Update shift totals — estimates don't affect shift
