@@ -15,9 +15,10 @@ import { EventsModule } from '../events/events.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { ShopModule } from '../shop/shop.module';
+import { AiAgentModule } from '../ai-agent/ai-agent.module';
 
 @Module({
-  imports:     [EventsModule, PrismaModule, AuditLogModule, ShopModule],
+  imports:     [EventsModule, PrismaModule, AuditLogModule, ShopModule, AiAgentModule],
   providers:   [NotificationsService, WhatsAppService, EmailService, InternalNoteService, CannedReplyService, PushService, SocialMessagingService, EscalationCheckerService, CampaignSchedulerService, ReminderRuleCheckerService],
   controllers: [NotificationsController, SocialWebhookController],
   exports:     [NotificationsService, WhatsAppService, EmailService, InternalNoteService, CannedReplyService, PushService, SocialMessagingService],

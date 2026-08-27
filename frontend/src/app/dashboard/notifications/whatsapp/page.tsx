@@ -7,7 +7,7 @@ import {
   Send, KeyRound, PlayCircle, X, Wifi, WifiOff, AlertCircle,
   CheckCheck, ArrowUpRight, ArrowDownLeft, MousePointerClick,
   MessagesSquare, FileText, Settings as SettingsIcon, Bot, Cake, Phone, MapPin, Megaphone, Building2, Pencil,
-  Contact as ContactIcon, Award,
+  Contact as ContactIcon, Award, Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -283,6 +283,16 @@ export default function WhatsAppTemplatesPage() {
   const [feedbackSettings, setFeedbackSettings] = useState({ googleReviewUrl: '' });
   const [feedbackSettingsLoaded, setFeedbackSettingsLoaded] = useState(false);
   const [savingFeedbackSettings, setSavingFeedbackSettings] = useState(false);
+  interface AiProviderSettings { provider: string; label: string; apiKeyConfigured: boolean; model: string }
+  const [aiSettings, setAiSettings] = useState<{
+    enabled: boolean; anyConfigured: boolean; dailyLimit: number; providers: AiProviderSettings[];
+  } | null>(null);
+  const [aiSettingsLoaded, setAiSettingsLoaded] = useState(false);
+  const [savingAiSettings, setSavingAiSettings] = useState(false);
+  // Per-provider API key / model draft inputs, keyed by provider id (e.g. "claude").
+  const [aiApiKeyInputs, setAiApiKeyInputs] = useState<Record<string, string>>({});
+  const [aiModelInputs, setAiModelInputs] = useState<Record<string, string>>({});
+  const [aiDailyLimitInput, setAiDailyLimitInput] = useState('500');
   const [googleCreds, setGoogleCreds] = useState<{ configured: boolean; connected: boolean; connectedAccountEmail: string | null } | null>(null);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [syncingGoogle, setSyncingGoogle] = useState(false);
@@ -353,7 +363,7 @@ export default function WhatsAppTemplatesPage() {
   useEffect(() => {
     load();
     loadCreds();
-    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); loadFeedbackSettings(); loadGoogleCreds(); }
+    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); loadFeedbackSettings(); loadGoogleCreds(); loadAiSettings(); }
   }, [load, isSuperAdmin]);
 
   async function loadGoogleCreds() {
@@ -667,6 +677,44 @@ export default function WhatsAppTemplatesPage() {
     } catch { /* ignore */ } finally {
       setFeedbackSettingsLoaded(true);
     }
+  }
+
+  async function loadAiSettings() {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/ai-settings');
+      setAiSettings(data);
+      setAiDailyLimitInput(String(data?.dailyLimit ?? 500));
+    } catch { /* ignore */ } finally {
+      setAiSettingsLoaded(true);
+    }
+  }
+
+  async function saveAiSettings(next: {
+    enabled?: boolean; dailyLimit?: number; providers?: Record<string, { apiKey?: string; model?: string }>;
+  }) {
+    setSavingAiSettings(true);
+    try {
+      const { data } = await api.patch('/notifications/whatsapp/ai-settings', next);
+      setAiSettings(data);
+      setAiDailyLimitInput(String(data?.dailyLimit ?? 500));
+      if (next.providers) {
+        setAiApiKeyInputs(prev => {
+          const copy = { ...prev };
+          for (const p of Object.keys(next.providers!)) if (next.providers![p].apiKey) delete copy[p];
+          return copy;
+        });
+      }
+      toast.success('AI Assistant settings saved');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to save AI Assistant settings');
+    } finally {
+      setSavingAiSettings(false);
+    }
+  }
+
+  function saveAiProviderField(provider: string, field: 'apiKey' | 'model', value: string) {
+    if (!value.trim()) return;
+    saveAiSettings({ providers: { [provider]: { [field]: value.trim() } } });
   }
 
   async function saveFeedbackSettings(next: { googleReviewUrl?: string }) {
@@ -1352,6 +1400,100 @@ export default function WhatsAppTemplatesPage() {
                     value={locationAddr} onChange={e => setLocationAddr(e.target.value)}
                     onBlur={() => saveAutoReply({ locationAddr: locationAddr.trim() })} />
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        )}
+
+        {/* SECTION: AI Assistant */}
+        {aiSettingsLoaded && aiSettings && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">AI Assistant</h2>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
+                  <Sparkles size={16} className="text-violet-500" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                  AI Assistant
+                  <span
+                    title="Answers product price/stock and general store questions (hours, location) automatically, using this store's real catalog data — same product search the storefront uses, so it never invents a price or item that doesn't exist. It only handles safe, informational questions: anything about a specific order, a complaint, a refund, a discount request, or account access is never answered by AI — it silently hands the conversation to the human inbox instead, exactly like an unmatched message today. When enabled, it replaces the simpler keyword-based product search auto-reply below the Store Hours/Location menu options."
+                    className="cursor-help text-gray-400 font-normal">ⓘ</span>
+                </p>
+              </div>
+              <button
+                onClick={() => saveAiSettings({ enabled: !aiSettings.enabled })}
+                disabled={savingAiSettings || !aiSettings.anyConfigured}
+                title={!aiSettings.anyConfigured ? 'Add an API key for at least one provider below before enabling' : undefined}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${aiSettings.enabled ? 'bg-green-500' : 'bg-gray-300'} disabled:opacity-50`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${aiSettings.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 mb-3">
+              Add an API key for any provider you have — one is enough, or add several. The assistant automatically tries them in the order below and moves to the next one if a provider fails or runs out of quota, so replies keep going out without you having to pick one manually.
+            </p>
+
+            <div className="space-y-3">
+              {aiSettings.providers.map((p, idx) => (
+                <div key={p.provider} className="rounded-xl border border-gray-100 bg-gray-50/60 p-3.5">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <p className="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-white border border-gray-200 text-[10px] font-semibold text-gray-500 shrink-0">{idx + 1}</span>
+                      {p.label}
+                    </p>
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${p.apiKeyConfigured ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-400'}`}
+                    >
+                      {p.apiKeyConfigured ? 'Configured' : 'Not configured'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-2">
+                    <input
+                      className="input text-sm"
+                      type="password"
+                      placeholder={p.apiKeyConfigured ? '••••••••••••••••  (saved — leave blank to keep)' : `${p.label} API key`}
+                      value={aiApiKeyInputs[p.provider] ?? ''}
+                      onChange={e => setAiApiKeyInputs(prev => ({ ...prev, [p.provider]: e.target.value }))}
+                      onBlur={() => { saveAiProviderField(p.provider, 'apiKey', aiApiKeyInputs[p.provider] ?? ''); }}
+                      disabled={savingAiSettings}
+                    />
+                    <input
+                      className="input text-sm font-mono"
+                      type="text"
+                      placeholder={p.model}
+                      title="Model name for this provider — leave the field showing the default unless you have a specific model you want to use instead."
+                      value={aiModelInputs[p.provider] ?? ''}
+                      onChange={e => setAiModelInputs(prev => ({ ...prev, [p.provider]: e.target.value }))}
+                      onBlur={() => { saveAiProviderField(p.provider, 'model', aiModelInputs[p.provider] ?? ''); }}
+                      disabled={savingAiSettings}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <div className="pt-1">
+                <label className="label text-sm flex items-center gap-1">
+                  Daily Message Limit
+                  <span
+                    title="Safety cap on how many customer messages the AI Assistant will answer per calendar day for this store, across all providers combined. Once hit, it stops calling any AI provider for the rest of the day and every message falls back to the normal (non-AI) auto-reply — protecting you from an unexpected bill if something loops or a keyword gets misused. Resets at midnight UTC."
+                    className="cursor-help text-gray-400 font-normal text-xs">ⓘ</span>
+                </label>
+                <input
+                  className="input text-sm w-40"
+                  type="number"
+                  min={1}
+                  value={aiDailyLimitInput}
+                  onChange={e => setAiDailyLimitInput(e.target.value)}
+                  onBlur={() => {
+                    const n = parseInt(aiDailyLimitInput, 10);
+                    if (n > 0) saveAiSettings({ dailyLimit: n });
+                  }}
+                  disabled={savingAiSettings}
+                />
               </div>
             </div>
           </div>

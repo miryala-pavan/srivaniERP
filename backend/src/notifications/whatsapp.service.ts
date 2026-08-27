@@ -4,6 +4,7 @@ import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
 import { AuditLogService, AuditActor } from '../audit-log/audit-log.service';
 import { ShopService } from '../shop/shop.service';
+import { AiAgentService } from '../ai-agent/ai-agent.service';
 
 const API_VERSION = 'v25.0';
 
@@ -56,6 +57,7 @@ export class WhatsAppService {
     private events: EventsService,
     private auditLog: AuditLogService,
     private shop: ShopService,
+    private aiAgent: AiAgentService,
   ) {}
 
   /** Lazily resolves and caches one business's sending credentials (DB row, falling back to env vars). */
@@ -1252,7 +1254,25 @@ export class WhatsAppService {
     // "price of Y")? Checked after the specific keyword rules above (so e.g.
     // "order status" never gets treated as a product search) and before the
     // first-message welcome below (so it doesn't preempt that greeting).
-    if (await this.autoReplyProductSearch(businessId, phone, opts.messageBody ?? '')) return;
+    //
+    // If the AI Assistant (ai-agent module) is enabled and configured for
+    // this business, it fully replaces the keyword-based autoReplyProductSearch
+    // at this point in the chain — it drafts a reply using the same product
+    // search plus store-info data, or silently declines (escalates) for
+    // anything unsafe/uncertain, in which case we fall through to the
+    // first-message welcome below exactly as autoReplyProductSearch's `false`
+    // return would have. For any business that hasn't set up the AI
+    // Assistant, behavior here is byte-for-byte identical to before this
+    // feature existed — autoReplyProductSearch runs exactly as it always has.
+    if (await this.aiAgent.isEnabled(businessId)) {
+      const { storeHours, locationName, locationAddr } = await this.getAutoReplySettings(businessId);
+      const reply = await this.aiAgent.handleCustomerMessage(businessId, phone, opts.messageBody ?? '', {
+        storeHours, locationName, locationAddr,
+      });
+      if (reply) { await this.autoReplyText(businessId, phone, reply); return; }
+    } else {
+      if (await this.autoReplyProductSearch(businessId, phone, opts.messageBody ?? '')) return;
+    }
 
     // Greet only on the very first inbound message ever received from this number
     // (the current message has already been logged by the time this runs).

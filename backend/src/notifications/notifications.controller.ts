@@ -20,6 +20,8 @@ import { UpdateCommentCampaignDto } from './dto/update-comment-campaign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { AiAgentService } from '../ai-agent/ai-agent.service';
+import { AiProviderName } from '../ai-agent/ai-settings.keys';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('notifications')
@@ -31,6 +33,7 @@ export class NotificationsController {
     private cannedReplies: CannedReplyService,
     private push: PushService,
     private social: SocialMessagingService,
+    private aiAgent: AiAgentService,
   ) {}
 
   // ── Web push subscriptions ─────────────────────────────────────────────────
@@ -543,6 +546,26 @@ export class NotificationsController {
     locationLat?: string; locationLng?: string; locationName?: string; locationAddr?: string;
   }) {
     return this.whatsapp.updateAutoReplySettings(req.user.businessId, body);
+  }
+
+  // ── AI Assistant settings ───────────────────────────────────────────────────
+  // Read-only GET never returns the actual API key — only apiKeyConfigured
+  // (boolean), same secret-masking convention as whatsapp/credentials above.
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/ai-settings')
+  getAiSettings(@Request() req: any) {
+    return this.aiAgent.getSettings(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('whatsapp/ai-settings')
+  updateAiSettings(@Request() req: any, @Body() body: {
+    enabled?: boolean;
+    dailyLimit?: number;
+    providers?: Partial<Record<AiProviderName, { apiKey?: string; model?: string }>>;
+  }) {
+    return this.aiAgent.saveSettings(req.user.businessId, body);
   }
 
   // ── Post-delivery feedback settings ─────────────────────────────────────────
