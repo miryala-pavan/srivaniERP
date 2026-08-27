@@ -25,6 +25,20 @@ mv "$APP/storefront/.next" "$APP/storefront/.next.old"
 mv /tmp/snext/.next "$APP/storefront/.next"
 tar -xzf /tmp/storefront-public.tgz -C "$APP/storefront"
 
+# Sync each app's package.json/lock and install — a new dependency added
+# locally (e.g. @anthropic-ai/sdk) previously never made it to the server at
+# all: this step only ever swapped compiled dist/.next output, so a runtime
+# `require()` of a package that was never installed here crash-looped the
+# app on every restart. `npm install` (not `ci`) is idempotent and fast (a
+# few seconds) when the lockfile already matches what's installed, so this
+# costs nothing on the common case of "no new dependency" and only does real
+# work when one was actually added.
+for app in backend frontend storefront; do
+  cp "/tmp/$app-package.json" "$APP/$app/package.json"
+  cp "/tmp/$app-package-lock.json" "$APP/$app/package-lock.json"
+  (cd "$APP/$app" && npm install --omit=dev 2>&1 | tail -5)
+done
+
 cd "$APP/backend"
 ./node_modules/.bin/prisma generate 2>&1 | tail -3
 pm2 restart srivani-backend srivani-frontend srivani-storefront

@@ -193,7 +193,19 @@ tar -czf "$Scratch\storefront-next.tgz" -C $Scratch .next
 tar -czf "$Scratch\storefront-public.tgz" -C "$RepoRoot\storefront" public
 
 Say "Uploading to server"
-scp "$Scratch\backend-dist.tgz" "$Scratch\next.tgz" "$Scratch\public.tgz" "$Scratch\storefront-next.tgz" "$Scratch\storefront-public.tgz" "$RepoRoot\backend\prisma\schema.prisma" "${Server}:/tmp/"
+# Renamed per-app so backend/frontend/storefront's package.json don't collide
+# in the server's /tmp/ — swap_and_restart.sh picks these up by this exact
+# naming and installs each app's dependencies before restarting it, so a
+# newly-added npm package (e.g. @anthropic-ai/sdk) actually gets installed on
+# the server instead of only ever existing in the locally-built dist/.next.
+Copy-Item "$RepoRoot\backend\package.json"           "$Scratch\backend-package.json"
+Copy-Item "$RepoRoot\backend\package-lock.json"       "$Scratch\backend-package-lock.json"
+Copy-Item "$RepoRoot\frontend\package.json"           "$Scratch\frontend-package.json"
+Copy-Item "$RepoRoot\frontend\package-lock.json"      "$Scratch\frontend-package-lock.json"
+Copy-Item "$RepoRoot\storefront\package.json"         "$Scratch\storefront-package.json"
+Copy-Item "$RepoRoot\storefront\package-lock.json"    "$Scratch\storefront-package-lock.json"
+
+scp "$Scratch\backend-dist.tgz" "$Scratch\next.tgz" "$Scratch\public.tgz" "$Scratch\storefront-next.tgz" "$Scratch\storefront-public.tgz" "$RepoRoot\backend\prisma\schema.prisma" "$Scratch\backend-package.json" "$Scratch\backend-package-lock.json" "$Scratch\frontend-package.json" "$Scratch\frontend-package-lock.json" "$Scratch\storefront-package.json" "$Scratch\storefront-package-lock.json" "${Server}:/tmp/"
 if ($LASTEXITCODE -ne 0) { Fail "upload failed" }
 
 Say "Swapping in new build on server"
