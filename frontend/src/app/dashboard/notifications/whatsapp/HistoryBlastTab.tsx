@@ -264,13 +264,13 @@ export default function HistoryBlastTab() {
             <button
               onClick={sendSelected}
               disabled={sending}
-              className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50"
+              className="flex items-center gap-1.5 text-sm disabled:opacity-50 px-4 py-2 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors"
             >
               <Send size={13} />
               {sending ? 'Sending…' : `Send to ${selected.size}`}
             </button>
           )}
-          <button onClick={load} disabled={loading} className="btn-outline flex items-center gap-1.5 text-sm">
+          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             Refresh
           </button>
@@ -284,7 +284,7 @@ export default function HistoryBlastTab() {
         <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           <input
-            className="input text-sm pl-8 pr-7 h-8"
+            className="text-sm pl-8 pr-7 h-8 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
             placeholder="Search name or phone…"
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -497,7 +497,7 @@ export default function HistoryBlastTab() {
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1 || loading}
-              className="btn-outline text-xs px-3 py-1.5 disabled:opacity-40"
+              className="text-xs px-3 py-1.5 disabled:opacity-40 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors"
             >
               ← Prev
             </button>
@@ -507,7 +507,7 @@ export default function HistoryBlastTab() {
             <button
               onClick={() => setPage(p => p + 1)}
               disabled={page >= totalPages || loading}
-              className="btn-outline text-xs px-3 py-1.5 disabled:opacity-40"
+              className="text-xs px-3 py-1.5 disabled:opacity-40 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors"
             >
               Next →
             </button>

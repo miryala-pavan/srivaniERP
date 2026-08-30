@@ -7,6 +7,7 @@ import {
   AI_KEYS, AI_PROVIDER_DEFAULT_MODEL, AI_PROVIDER_LABEL, AI_PROVIDER_MODEL_ENV, AI_PROVIDER_ORDER,
   AiProviderName, DEFAULT_DAILY_LIMIT, aiDailyCountKey, getConfiguredProviderOrder,
 } from './ai-settings.keys';
+import { encrypt } from '../common/helpers/credential-encryption.util';
 
 // Bounds cost/latency per customer message even if the model keeps calling
 // tools back-to-back — independent of the daily message cap below, which
@@ -132,7 +133,7 @@ export class AiAgentService {
       for (const p of AI_PROVIDER_ORDER) {
         const upd = data.providers[p];
         if (!upd) continue;
-        if (upd.apiKey && upd.apiKey.trim()) ops.push(upsert(AI_KEYS.apiKey(p), upd.apiKey.trim()));
+        if (upd.apiKey && upd.apiKey.trim()) ops.push(upsert(AI_KEYS.apiKey(p), encrypt(upd.apiKey.trim())));
         if (upd.model && upd.model.trim())   ops.push(upsert(AI_KEYS.model(p), upd.model.trim()));
       }
     }

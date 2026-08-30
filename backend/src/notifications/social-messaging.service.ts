@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
 import { Events } from '../events/event-types';
 import { SocialChannel } from '@prisma/client';
+import { encrypt, decrypt } from '../common/helpers/credential-encryption.util';
 
 const API_VERSION = 'v25.0';
 
@@ -44,7 +45,10 @@ export class SocialMessagingService {
         where: { businessId, key: { in: Object.values(SOCIAL_KEYS) } },
       });
       const byKey = new Map(rows.map(r => [r.key, r.value]));
-      const dbPageToken = byKey.get(SOCIAL_KEYS.pageToken) || undefined;
+      // decrypt() transparently returns legacy plaintext rows unchanged, so
+      // this is safe for tokens saved before encryption was added.
+      const dbPageTokenRaw = byKey.get(SOCIAL_KEYS.pageToken) || undefined;
+      const dbPageToken = dbPageTokenRaw ? decrypt(dbPageTokenRaw) : undefined;
       creds = {
         pageToken: dbPageToken ?? process.env.FB_PAGE_ACCESS_TOKEN,
         pageId:    byKey.get(SOCIAL_KEYS.pageId) || process.env.FB_PAGE_ID,
@@ -96,7 +100,9 @@ export class SocialMessagingService {
     const existing = await this.getCreds(businessId);
     const updated: SocialCreds = { ...existing };
 
-    if (pageToken) { ops.push(upsert(SOCIAL_KEYS.pageToken, pageToken)); updated.pageToken = pageToken; updated.source = 'database'; }
+    // Only the page access token is an actual secret — pageId/igId are
+    // identifiers, not credentials, so they're stored as-is.
+    if (pageToken) { ops.push(upsert(SOCIAL_KEYS.pageToken, encrypt(pageToken))); updated.pageToken = pageToken; updated.source = 'database'; }
     if (pageId)    { ops.push(upsert(SOCIAL_KEYS.pageId,    pageId));    updated.pageId    = pageId; }
     if (igId)      { ops.push(upsert(SOCIAL_KEYS.igId,      igId));      updated.igId      = igId; }
 
@@ -130,7 +136,7 @@ export class SocialMessagingService {
         data: {
           label, pageId,
           igBusinessAccountId: dto.igBusinessAccountId?.trim() || null,
-          ...(dto.pageAccessToken?.trim() ? { pageAccessToken: dto.pageAccessToken.trim() } : {}),
+          ...(dto.pageAccessToken?.trim() ? { pageAccessToken: encrypt(dto.pageAccessToken.trim()) } : {}),
         },
       });
     } else {
@@ -138,7 +144,7 @@ export class SocialMessagingService {
       await this.prisma.socialPageAccount.create({
         data: {
           businessId, label, pageId,
-          pageAccessToken: dto.pageAccessToken.trim(),
+          pageAccessToken: encrypt(dto.pageAccessToken.trim()),
           igBusinessAccountId: dto.igBusinessAccountId?.trim() || null,
         },
       });
@@ -157,7 +163,9 @@ export class SocialMessagingService {
     if (!preset) throw new NotFoundException('Page account not found');
 
     await this.saveCredentials(businessId, {
-      pageToken: preset.pageAccessToken,
+      // preset.pageAccessToken is stored encrypted (or legacy plaintext) —
+      // decrypt it here since saveCredentials() re-encrypts whatever it's given.
+      pageToken: decrypt(preset.pageAccessToken),
       pageId: preset.pageId,
       igId: preset.igBusinessAccountId ?? undefined,
     });

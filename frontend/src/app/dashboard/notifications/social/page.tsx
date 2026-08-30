@@ -257,7 +257,7 @@ export default function SocialPage() {
               </p>
               <button
                 onClick={() => { setCampaignForm({ ...BLANK_CAMPAIGN_FORM }); setShowCampaignForm(v => !v); }}
-                className="btn-outline flex items-center gap-1.5 text-xs px-2.5 py-1.5">
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
                 <Plus size={12} /> Add Campaign
               </button>
             </div>
@@ -265,21 +265,21 @@ export default function SocialPage() {
             {showCampaignForm && (
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/60 space-y-2">
                 <div className="grid grid-cols-2 gap-2">
-                  <select className="input text-sm" value={campaignForm.channel}
+                  <select className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={campaignForm.channel}
                     onChange={e => setCampaignForm(f => ({ ...f, channel: e.target.value as 'FACEBOOK' | 'INSTAGRAM' }))}>
                     <option value="FACEBOOK">Facebook</option>
                     <option value="INSTAGRAM">Instagram</option>
                   </select>
-                  <input className="input text-sm" placeholder="Post/Media ID (optional — blank = any post)"
+                  <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Post/Media ID (optional — blank = any post)"
                     value={campaignForm.postId} onChange={e => setCampaignForm(f => ({ ...f, postId: e.target.value }))} />
                 </div>
-                <input className="input text-sm w-full" placeholder="Trigger keyword (e.g. PRICE)"
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Trigger keyword (e.g. PRICE)"
                   value={campaignForm.triggerKeyword} onChange={e => setCampaignForm(f => ({ ...f, triggerKeyword: e.target.value }))} />
-                <textarea className="input text-sm w-full resize-none" rows={3} placeholder="Private reply message"
+                <textarea className="w-full px-3 py-2 text-sm resize-none rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" rows={3} placeholder="Private reply message"
                   value={campaignForm.replyMessage} onChange={e => setCampaignForm(f => ({ ...f, replyMessage: e.target.value }))} />
                 <div className="flex justify-end gap-2">
-                  <button onClick={() => setShowCampaignForm(false)} className="btn-outline text-xs px-3 py-1.5">Cancel</button>
-                  <button onClick={saveCampaign} disabled={savingCampaign} className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50">
+                  <button onClick={() => setShowCampaignForm(false)} className="text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">Cancel</button>
+                  <button onClick={saveCampaign} disabled={savingCampaign} className="text-xs px-3 py-1.5 disabled:opacity-50 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                     {savingCampaign ? 'Saving…' : 'Save'}
                   </button>
                 </div>
@@ -364,26 +364,26 @@ export default function SocialPage() {
                   </p>
                   <button
                     onClick={() => { setEditingPageId(null); setPageForm({ ...BLANK_PAGE_FORM }); setShowPageForm(true); }}
-                    className="btn-outline flex items-center gap-1.5 text-xs px-2.5 py-1.5">
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
                     <Plus size={12} /> Add Page
                   </button>
                 </div>
 
                 {showPageForm && (
                   <div className="mb-3 p-3 rounded-xl border border-gray-200 bg-gray-50/60 space-y-2">
-                    <input className="input text-sm w-full" placeholder="Label (e.g. Srivani Stores FB Page)"
+                    <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Label (e.g. Srivani Stores FB Page)"
                       value={pageForm.label} onChange={e => setPageForm(f => ({ ...f, label: e.target.value }))} />
-                    <input className="input text-sm w-full" placeholder="Page Access Token (leave blank to keep existing)"
+                    <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Page Access Token (leave blank to keep existing)"
                       type="password" value={pageForm.pageAccessToken} onChange={e => setPageForm(f => ({ ...f, pageAccessToken: e.target.value }))} />
                     <div className="grid grid-cols-2 gap-2">
-                      <input className="input text-sm" placeholder="Page ID"
+                      <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Page ID"
                         value={pageForm.pageId} onChange={e => setPageForm(f => ({ ...f, pageId: e.target.value }))} />
-                      <input className="input text-sm" placeholder="IG Business Account ID (optional)"
+                      <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="IG Business Account ID (optional)"
                         value={pageForm.igBusinessAccountId} onChange={e => setPageForm(f => ({ ...f, igBusinessAccountId: e.target.value }))} />
                     </div>
                     <div className="flex justify-end gap-2">
-                      <button onClick={() => { setShowPageForm(false); setEditingPageId(null); }} className="btn-outline text-xs px-3 py-1.5">Cancel</button>
-                      <button onClick={savePageAccount} disabled={savingPage} className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50">
+                      <button onClick={() => { setShowPageForm(false); setEditingPageId(null); }} className="text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">Cancel</button>
+                      <button onClick={savePageAccount} disabled={savingPage} className="text-xs px-3 py-1.5 disabled:opacity-50 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                         {savingPage ? 'Saving…' : 'Save'}
                       </button>
                     </div>
@@ -406,7 +406,7 @@ export default function SocialPage() {
                         <div className="flex items-center gap-1.5 shrink-0">
                           {!p.isActive && (
                             <button onClick={() => activatePageAccount(p.id)} disabled={activatingId === p.id}
-                              className="btn-primary text-xs px-2.5 py-1.5 disabled:opacity-50">
+                              className="text-xs px-2.5 py-1.5 disabled:opacity-50 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                               {activatingId === p.id ? 'Activating…' : 'Activate'}
                             </button>
                           )}
@@ -460,7 +460,7 @@ export default function SocialPage() {
                       <button
                         onClick={regenerateFeedToken}
                         disabled={regeneratingFeed}
-                        className="btn-outline flex items-center gap-1.5 text-xs px-2.5 py-1.5 disabled:opacity-50"
+                        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 disabled:opacity-50 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors"
                       >
                         <RefreshCw size={12} className={regeneratingFeed ? 'animate-spin' : ''} />
                         {regeneratingFeed ? 'Regenerating…' : 'Regenerate URL'}

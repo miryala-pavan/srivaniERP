@@ -5,6 +5,7 @@ import { Events } from '../events/event-types';
 import { AuditLogService, AuditActor } from '../audit-log/audit-log.service';
 import { ShopService } from '../shop/shop.service';
 import { AiAgentService } from '../ai-agent/ai-agent.service';
+import { encrypt, decrypt } from '../common/helpers/credential-encryption.util';
 
 const API_VERSION = 'v25.0';
 
@@ -71,7 +72,11 @@ export class WhatsAppService {
         where: { businessId, key: { in: [WA_KEYS.token, WA_KEYS.phoneId, WA_KEYS.wabaId, WA_KEYS.storeNum] } },
       });
       const byKey = new Map(rows.map(r => [r.key, r.value]));
-      const dbToken = byKey.get(WA_KEYS.token) || undefined;
+      // Decrypt the stored token — decrypt() transparently returns legacy
+      // plaintext rows unchanged (see credential-encryption.util.ts), so this
+      // is safe for tokens saved before encryption was added.
+      const dbTokenRaw = byKey.get(WA_KEYS.token) || undefined;
+      const dbToken = dbTokenRaw ? decrypt(dbTokenRaw) : undefined;
       creds = {
         token:    dbToken ?? process.env.WA_ACCESS_TOKEN,
         phoneId:  byKey.get(WA_KEYS.phoneId)  || process.env.WA_PHONE_NUMBER_ID,
@@ -132,7 +137,10 @@ export class WhatsAppService {
     const existing = await this.getCreds(businessId);
     const updated: WaCreds = { ...existing };
 
-    if (token)    { ops.push(upsert(WA_KEYS.token,    token));    updated.token    = token; updated.source = 'database'; }
+    // Only the access token is an actual secret — phoneId/wabaId/storeNum are
+    // identifiers, not credentials, so they're stored as-is (encrypting them
+    // would add no security benefit and only complicate reading them in the DB).
+    if (token)    { ops.push(upsert(WA_KEYS.token, encrypt(token))); updated.token = token; updated.source = 'database'; }
     if (phoneId)  { ops.push(upsert(WA_KEYS.phoneId,  phoneId));  updated.phoneId  = phoneId; }
     if (wabaId)   { ops.push(upsert(WA_KEYS.wabaId,   wabaId));   updated.wabaId   = wabaId; }
     if (storeNum) { ops.push(upsert(WA_KEYS.storeNum, storeNum)); updated.storeNum = storeNum; }
@@ -158,7 +166,7 @@ export class WhatsAppService {
         await this.prisma.waPhoneNumber.create({
           data: {
             businessId, label: 'Current Number',
-            accessToken: creds.token, phoneNumberId: creds.phoneId, businessAccountId: creds.wabaId,
+            accessToken: encrypt(creds.token), phoneNumberId: creds.phoneId, businessAccountId: creds.wabaId,
             storeNotifyNumber: creds.storeNum, isActive: true,
           },
         }).catch(() => null); // ignore races / unique conflicts
@@ -189,7 +197,7 @@ export class WhatsAppService {
         data: {
           label, phoneNumberId, businessAccountId,
           storeNotifyNumber: dto.storeNotifyNumber?.trim() || null,
-          ...(dto.accessToken?.trim() ? { accessToken: dto.accessToken.trim() } : {}),
+          ...(dto.accessToken?.trim() ? { accessToken: encrypt(dto.accessToken.trim()) } : {}),
         },
       });
     } else {
@@ -197,7 +205,7 @@ export class WhatsAppService {
       await this.prisma.waPhoneNumber.create({
         data: {
           businessId, label, phoneNumberId, businessAccountId,
-          accessToken: dto.accessToken.trim(),
+          accessToken: encrypt(dto.accessToken.trim()),
           storeNotifyNumber: dto.storeNotifyNumber?.trim() || null,
         },
       });
@@ -216,7 +224,9 @@ export class WhatsAppService {
     if (!preset) throw new Error('Number not found');
 
     await this.saveCredentials(businessId, {
-      token: preset.accessToken,
+      // preset.accessToken is stored encrypted (or legacy plaintext) — decrypt
+      // it here since saveCredentials() re-encrypts whatever token it's given.
+      token: decrypt(preset.accessToken),
       phoneId: preset.phoneNumberId,
       wabaId: preset.businessAccountId,
       storeNum: preset.storeNotifyNumber ?? undefined,
@@ -558,13 +568,12 @@ export class WhatsAppService {
   /** Contact card for the chat sidebar: linked Customer (if any), online orders, and POS purchase history. */
   async getContactInfo(businessId: string, phone: string) {
     const to = this.e164(phone) ?? phone;
-    const customer = await this.prisma.customer.findFirst({
-      where: { businessId, phone: to },
-      select: {
-        id: true, name: true, email: true, customerCode: true,
-        creditLimit: true, loyaltyPoints: true,
-      },
-    });
+    // Customer.phone is stored inconsistently across creation paths (bare
+    // 10-digit vs 91-prefixed) — a raw exact match against the e164 `to`
+    // value silently failed to find real, already-linked customers. Reuse
+    // the same normalized lookup already trusted elsewhere in this file
+    // (saveContactName, autoReplyOptOut) instead of a second, buggy variant.
+    const customer = await this.findCustomerByPhoneNormalized(businessId, to);
     // Customer.outstandingBalance is a write-side cache that only ever gets
     // incremented (credit sales) or decremented (voids) — recordPayment()/
     // deletePayment() never touch it, so it drifts upward forever and never

@@ -215,7 +215,7 @@ function SupplierCombo({
   return (
     <div ref={ref} className="relative">
       <div
-        className="finp flex items-center justify-between cursor-pointer"
+        className="flex items-center justify-between cursor-pointer w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 hover:bg-white transition-colors"
         onClick={() => { setOpen((o) => !o); setSearch(''); setActiveIdx(-1); }}
       >
         <span className={selected ? 'text-gray-800' : 'text-gray-400'}>
@@ -280,14 +280,14 @@ function DateField({ raw, onRaw, error, warn, calRef, maxISO }: {
           onChange={(e) => onRaw(e.target.value)}
           placeholder="DD/MM/YYYY"
           maxLength={10}
-          className={`finp flex-1 font-mono ${error ? 'border-red-400' : ''}`}
+          className={`flex-1 font-mono px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400 ${error ? 'border-red-400' : ''}`}
         />
         <input
           ref={calRef}
           type="date"
           max={maxISO}
           onChange={(e) => onRaw(isoToDMY(e.target.value))}
-          className="finp w-10 px-1 text-center cursor-pointer"
+          className="w-10 px-1 text-center cursor-pointer text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors"
           title="Pick date"
         />
       </div>
@@ -1364,7 +1364,7 @@ export default function GrnV2Page() {
 
               {/* Supplier */}
               <div className="space-y-1">
-                <label className="label">Supplier *</label>
+                <label className="block text-xs font-medium text-gray-700">Supplier *</label>
                 <SupplierCombo suppliers={suppliers} value={popupData.supplierId} onSelect={handlePopupSupplierSelect} />
                 <button type="button" onClick={() => openInNewWindow('/dashboard/suppliers/new')} className="text-xs text-[#1B4F8A] hover:underline">
                   + Add Supplier in New Window
@@ -1402,17 +1402,17 @@ export default function GrnV2Page() {
               {/* Invoice details */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2 space-y-1">
-                  <label className="label">Invoice Number *</label>
+                  <label className="block text-xs font-medium text-gray-700">Invoice Number *</label>
                   <input
                     value={popupData.invoiceNumber}
                     onChange={(e) => setPopupData((p) => ({ ...p, invoiceNumber: e.target.value }))}
-                    className={`finp ${popupErrors.invoiceNumber ? 'border-red-400' : ''}`}
+                    className={`w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400 ${popupErrors.invoiceNumber ? 'border-red-400' : ''}`}
                     placeholder="e.g. HYD/2026/04521"
                   />
                   {popupErrors.invoiceNumber && <p className="text-xs text-red-500">{popupErrors.invoiceNumber}</p>}
                 </div>
                 <div className="space-y-1">
-                  <label className="label">Invoice Date *</label>
+                  <label className="block text-xs font-medium text-gray-700">Invoice Date *</label>
                   <DateField
                     raw={popupData.invoiceDateRaw}
                     onRaw={handlePopupDateRaw}
@@ -1423,12 +1423,12 @@ export default function GrnV2Page() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="label">Invoice Total * (Rs.)</label>
+                  <label className="block text-xs font-medium text-gray-700">Invoice Total * (Rs.)</label>
                   <input
                     type="number" min="0.01" step="0.01"
                     value={popupData.invoiceControlTotal || ''}
                     onChange={(e) => setPopupData((p) => ({ ...p, invoiceControlTotal: Number(e.target.value) || 0 }))}
-                    className={`finp text-right ${popupErrors.invoiceTotal ? 'border-red-400' : ''}`}
+                    className={`w-full px-3 py-2 text-sm text-right rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400 ${popupErrors.invoiceTotal ? 'border-red-400' : ''}`}
                     placeholder="0.00"
                   />
                   {popupErrors.invoiceTotal && <p className="text-xs text-red-500">{popupErrors.invoiceTotal}</p>}
@@ -1438,8 +1438,8 @@ export default function GrnV2Page() {
               {/* Branch */}
               {branches.length > 1 && (
                 <div className="space-y-1">
-                  <label className="label">Branch *</label>
-                  <select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="finp">
+                  <label className="block text-xs font-medium text-gray-700">Branch *</label>
+                  <select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors">
                     <option value="">Select branch…</option>
                     {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
@@ -1448,7 +1448,7 @@ export default function GrnV2Page() {
 
               {/* Tax type */}
               <div className="space-y-2">
-                <label className="label">Tax Type *</label>
+                <label className="block text-xs font-medium text-gray-700">Tax Type *</label>
                 <div className="flex flex-col gap-2">
                   {(['TAX_EXCLUSIVE', 'TAX_INCLUSIVE'] as const).map((t) => (
                     <label key={t} className="flex items-center gap-2.5 cursor-pointer">

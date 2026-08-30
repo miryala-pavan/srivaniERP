@@ -163,11 +163,11 @@ export default function ListsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={load} className="btn-outline flex items-center gap-1.5 text-sm">
+          <button onClick={load} className="flex items-center gap-1.5 text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
             <RefreshCw size={13} /> Refresh
           </button>
           <button onClick={() => setShowManual(v => !v)}
-            className="btn-primary flex items-center gap-1.5 text-sm">
+            className="flex items-center gap-1.5 text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
             <Plus size={13} /> Manual Entry
           </button>
         </div>
@@ -195,18 +195,18 @@ export default function ListsPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label text-sm">Customer Name</label>
-              <input className="input" placeholder="Shankar" value={mName} onChange={e => setMName(e.target.value)} />
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Customer Name</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Shankar" value={mName} onChange={e => setMName(e.target.value)} />
             </div>
             <div>
-              <label className="label text-sm">Phone Number</label>
-              <input className="input" placeholder="9382828484" value={mPhone} onChange={e => setMPhone(e.target.value)} />
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Phone Number</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="9382828484" value={mPhone} onChange={e => setMPhone(e.target.value)} />
             </div>
           </div>
 
           <div>
-            <label className="label text-sm">Text List (paste WhatsApp text)</label>
-            <textarea rows={6} className="input font-mono text-sm"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Text List (paste WhatsApp text)</label>
+            <textarea rows={6} className="w-full px-3 py-2 font-mono text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
               placeholder={"100gm zeera\n1kg chane\n2 gold drop oil\n..."}
               value={mText} onChange={e => setMText(e.target.value)} />
           </div>
@@ -251,8 +251,8 @@ export default function ListsPage() {
           )}
 
           <div className="flex gap-2 justify-end pt-1">
-            <button onClick={() => setShowManual(false)} className="btn-outline text-sm">Cancel</button>
-            <button onClick={saveManual} disabled={saving} className="btn-primary text-sm">
+            <button onClick={() => setShowManual(false)} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">Cancel</button>
+            <button onClick={saveManual} disabled={saving} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
               {saving ? 'Generating doc…' : 'Generate Document'}
             </button>
           </div>

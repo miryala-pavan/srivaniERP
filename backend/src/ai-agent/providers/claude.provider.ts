@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiCompleteParams, AiCompletionResult, AiMessage, AiProvider } from '../ai-gateway.types';
 import { AI_KEYS, AI_PROVIDER_API_KEY_ENV, AI_PROVIDER_DEFAULT_MODEL, AI_PROVIDER_MODEL_ENV } from '../ai-settings.keys';
+import { decrypt } from '../../common/helpers/credential-encryption.util';
 
 const MAX_TOKENS = 1024; // short WhatsApp-appropriate replies — this is a reply agent, not a long-form writer
 
@@ -59,8 +60,10 @@ export class ClaudeProvider implements AiProvider {
       where: { businessId, key: { in: [AI_KEYS.apiKey('claude'), AI_KEYS.model('claude')] } },
     });
     const byKey = new Map(rows.map(r => [r.key, r.value]));
+    const dbKey = byKey.get(AI_KEYS.apiKey('claude'));
     return {
-      apiKey: byKey.get(AI_KEYS.apiKey('claude')) || process.env[AI_PROVIDER_API_KEY_ENV.claude] || undefined,
+      // decrypt() transparently returns legacy plaintext rows unchanged.
+      apiKey: (dbKey ? decrypt(dbKey) : undefined) || process.env[AI_PROVIDER_API_KEY_ENV.claude] || undefined,
       model:  byKey.get(AI_KEYS.model('claude'))  || process.env[AI_PROVIDER_MODEL_ENV.claude]   || AI_PROVIDER_DEFAULT_MODEL.claude,
     };
   }

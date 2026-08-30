@@ -1096,11 +1096,11 @@ export default function WhatsAppTemplatesPage() {
         </div>
         {tab === 'templates' && (
           <div className="flex gap-2">
-            <button onClick={load} className="btn-outline flex items-center gap-1.5 text-sm">
+            <button onClick={load} className="flex items-center gap-1.5 text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
               <RefreshCw size={13} /> Refresh
             </button>
             <button onClick={() => { setShowForm(v => !v); setForm({ ...BLANK_FORM }); }}
-              className="btn-primary flex items-center gap-1.5 text-sm">
+              className="flex items-center gap-1.5 text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
               <Plus size={13} /> New Template
             </button>
           </div>
@@ -1174,7 +1174,7 @@ export default function WhatsAppTemplatesPage() {
                 </p>
                 <button
                   onClick={() => { setEditingNumberId(null); setNumberForm({ ...BLANK_NUMBER_FORM }); setShowNumberForm(true); }}
-                  className="btn-outline flex items-center gap-1.5 text-xs px-2.5 py-1.5">
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
                   <Plus size={12} /> Add Number
                 </button>
               </div>
@@ -1194,7 +1194,7 @@ export default function WhatsAppTemplatesPage() {
                       <div className="flex items-center gap-1.5 shrink-0">
                         {!n.isActive && (
                           <button onClick={() => activateNumber(n.id)} disabled={activatingId === n.id}
-                            className="btn-primary text-xs px-2.5 py-1.5 disabled:opacity-50">
+                            className="text-xs px-2.5 py-1.5 disabled:opacity-50 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                             {activatingId === n.id ? 'Activating…' : 'Activate'}
                           </button>
                         )}
@@ -1220,7 +1220,7 @@ export default function WhatsAppTemplatesPage() {
             <div className="flex items-center gap-2 px-5 py-3.5 bg-gray-50/70 border-t border-gray-100">
               <span className="text-xs text-gray-500 whitespace-nowrap font-medium">Quick test</span>
               <input
-                className="input flex-1 text-sm h-8 py-1.5"
+                className="px-3 flex-1 text-sm h-8 py-1.5 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                 placeholder="Phone number e.g. 93828 28484"
                 value={testPhone}
                 onChange={e => setTestPhone(e.target.value)}
@@ -1256,7 +1256,7 @@ export default function WhatsAppTemplatesPage() {
               </p>
               <button
                 onClick={() => { setCannedForm({ title: '', body: '', category: '' }); setShowCannedForm(v => !v); }}
-                className="btn-outline flex items-center gap-1.5 text-xs px-2.5 py-1.5">
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
                 <Plus size={12} /> Add Quick Reply
               </button>
             </div>
@@ -1265,31 +1265,31 @@ export default function WhatsAppTemplatesPage() {
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/60 space-y-2">
                 <div className="grid grid-cols-2 gap-2">
                   <input
-                    className="input text-sm"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                     placeholder="Title (e.g. Refund policy)"
                     value={cannedForm.title}
                     onChange={e => setCannedForm(f => ({ ...f, title: e.target.value }))}
                   />
                   <input
-                    className="input text-sm"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                     placeholder="Category (optional, e.g. Billing)"
                     value={cannedForm.category}
                     onChange={e => setCannedForm(f => ({ ...f, category: e.target.value }))}
                   />
                 </div>
                 <textarea
-                  className="input text-sm w-full resize-none"
+                  className="w-full px-3 py-2 text-sm resize-none rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                   rows={3}
                   placeholder="Reply text"
                   value={cannedForm.body}
                   onChange={e => setCannedForm(f => ({ ...f, body: e.target.value }))}
                 />
                 <div className="flex justify-end gap-2">
-                  <button onClick={() => setShowCannedForm(false)} className="btn-outline text-xs px-3 py-1.5">Cancel</button>
+                  <button onClick={() => setShowCannedForm(false)} className="text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">Cancel</button>
                   <button
                     onClick={saveCannedReply}
                     disabled={savingCanned || !cannedForm.title.trim() || !cannedForm.body.trim()}
-                    className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50">
+                    className="text-xs px-3 py-1.5 disabled:opacity-50 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                     {savingCanned ? 'Saving…' : 'Save'}
                   </button>
                 </div>
@@ -1350,9 +1350,9 @@ export default function WhatsAppTemplatesPage() {
                 </button>
               </div>
               <div>
-                <label className="label text-sm">Store Hours <span className="text-gray-400 font-normal text-xs">(shown when a customer asks about timings)</span></label>
+                <label className="block font-medium text-gray-700 mb-1.5 text-sm">Store Hours <span className="text-gray-400 font-normal text-xs">(shown when a customer asks about timings)</span></label>
                 <input
-                  className="input text-sm"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                   placeholder="Mon–Sat, 9 AM – 9 PM"
                   value={storeHours}
                   onChange={e => setStoreHours(e.target.value)}
@@ -1375,28 +1375,28 @@ export default function WhatsAppTemplatesPage() {
               </div>
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                  <label className="label text-xs">Latitude</label>
-                  <input className="input text-sm" placeholder="e.g. 17.6255"
+                  <label className="block font-medium text-gray-700 mb-1.5 text-xs">Latitude</label>
+                  <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="e.g. 17.6255"
                     value={locationLat} onChange={e => setLocationLat(e.target.value)}
                     onBlur={() => saveAutoReply({ locationLat: locationLat.trim() })} />
                 </div>
                 <div>
-                  <label className="label text-xs">Longitude</label>
-                  <input className="input text-sm" placeholder="e.g. 78.0857"
+                  <label className="block font-medium text-gray-700 mb-1.5 text-xs">Longitude</label>
+                  <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="e.g. 78.0857"
                     value={locationLng} onChange={e => setLocationLng(e.target.value)}
                     onBlur={() => saveAutoReply({ locationLng: locationLng.trim() })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label text-xs">Location name</label>
-                  <input className="input text-sm" placeholder="e.g. Srivani Stores"
+                  <label className="block font-medium text-gray-700 mb-1.5 text-xs">Location name</label>
+                  <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="e.g. Srivani Stores"
                     value={locationName} onChange={e => setLocationName(e.target.value)}
                     onBlur={() => saveAutoReply({ locationName: locationName.trim() })} />
                 </div>
                 <div>
-                  <label className="label text-xs">Address <span className="text-gray-400 font-normal">(fallback)</span></label>
-                  <input className="input text-sm" placeholder="Used if no coordinates set"
+                  <label className="block font-medium text-gray-700 mb-1.5 text-xs">Address <span className="text-gray-400 font-normal">(fallback)</span></label>
+                  <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Used if no coordinates set"
                     value={locationAddr} onChange={e => setLocationAddr(e.target.value)}
                     onBlur={() => saveAutoReply({ locationAddr: locationAddr.trim() })} />
                 </div>
@@ -1453,7 +1453,7 @@ export default function WhatsAppTemplatesPage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-2">
                     <input
-                      className="input text-sm"
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                       type="password"
                       placeholder={p.apiKeyConfigured ? '••••••••••••••••  (saved — leave blank to keep)' : `${p.label} API key`}
                       value={aiApiKeyInputs[p.provider] ?? ''}
@@ -1462,7 +1462,7 @@ export default function WhatsAppTemplatesPage() {
                       disabled={savingAiSettings}
                     />
                     <input
-                      className="input text-sm font-mono"
+                      className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                       type="text"
                       placeholder={p.model}
                       title="Model name for this provider — leave the field showing the default unless you have a specific model you want to use instead."
@@ -1476,14 +1476,14 @@ export default function WhatsAppTemplatesPage() {
               ))}
 
               <div className="pt-1">
-                <label className="label text-sm flex items-center gap-1">
+                <label className="flex items-center gap-1 font-medium text-gray-700 mb-1.5 text-sm">
                   Daily Message Limit
                   <span
                     title="Safety cap on how many customer messages the AI Assistant will answer per calendar day for this store, across all providers combined. Once hit, it stops calling any AI provider for the rest of the day and every message falls back to the normal (non-AI) auto-reply — protecting you from an unexpected bill if something loops or a keyword gets misused. Resets at midnight UTC."
                     className="cursor-help text-gray-400 font-normal text-xs">ⓘ</span>
                 </label>
                 <input
-                  className="input text-sm w-40"
+                  className="w-40 px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                   type="number"
                   min={1}
                   value={aiDailyLimitInput}
@@ -1516,9 +1516,9 @@ export default function WhatsAppTemplatesPage() {
                   className="cursor-help text-gray-400 font-normal">ⓘ</span>
               </p>
             </div>
-            <label className="label text-xs">Your Google Business review link</label>
+            <label className="block font-medium text-gray-700 mb-1.5 text-xs">Your Google Business review link</label>
             <input
-              className="input text-sm" placeholder="https://g.page/r/.../review"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="https://g.page/r/.../review"
               value={feedbackSettings.googleReviewUrl}
               onChange={e => setFeedbackSettings({ googleReviewUrl: e.target.value })}
               onBlur={() => saveFeedbackSettings({ googleReviewUrl: feedbackSettings.googleReviewUrl.trim() })}
@@ -1549,28 +1549,28 @@ export default function WhatsAppTemplatesPage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <div>
-                <label className="label text-xs">About</label>
-                <input className="input text-sm" placeholder="Short status line" maxLength={139}
+                <label className="block font-medium text-gray-700 mb-1.5 text-xs">About</label>
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Short status line" maxLength={139}
                   value={businessProfile.about} onChange={e => setBusinessProfile(p => ({ ...p, about: e.target.value }))} />
               </div>
               <div>
-                <label className="label text-xs">Email</label>
-                <input className="input text-sm" placeholder="store@example.com"
+                <label className="block font-medium text-gray-700 mb-1.5 text-xs">Email</label>
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="store@example.com"
                   value={businessProfile.email} onChange={e => setBusinessProfile(p => ({ ...p, email: e.target.value }))} />
               </div>
             </div>
             <div className="mb-3">
-              <label className="label text-xs">Address</label>
-              <input className="input text-sm" placeholder="Shop address"
+              <label className="block font-medium text-gray-700 mb-1.5 text-xs">Address</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Shop address"
                 value={businessProfile.address} onChange={e => setBusinessProfile(p => ({ ...p, address: e.target.value }))} />
             </div>
             <div className="mb-4">
-              <label className="label text-xs">Description</label>
-              <textarea rows={2} className="input text-sm" placeholder="What your business does"
+              <label className="block font-medium text-gray-700 mb-1.5 text-xs">Description</label>
+              <textarea rows={2} className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="What your business does"
                 value={businessProfile.description} onChange={e => setBusinessProfile(p => ({ ...p, description: e.target.value }))} />
             </div>
             <div className="flex justify-end">
-              <button onClick={saveBusinessProfile} disabled={savingProfile} className="btn-primary text-sm px-4 disabled:opacity-50">
+              <button onClick={saveBusinessProfile} disabled={savingProfile} className="text-sm px-4 disabled:opacity-50 py-2 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                 {savingProfile ? 'Saving…' : 'Save to WhatsApp'}
               </button>
             </div>
@@ -1595,14 +1595,14 @@ export default function WhatsAppTemplatesPage() {
             </div>
             <div className="flex gap-2">
               <input
-                className="input flex-1 text-sm"
+                className="px-3 flex-1 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                 placeholder="6-digit PIN (e.g. 123456)"
                 maxLength={6}
                 value={registerPin}
                 onChange={e => setRegisterPin(e.target.value.replace(/\D/g, ''))}
               />
               <button onClick={registerNumber} disabled={registering || registerPin.length !== 6}
-                className="btn-primary text-sm px-4 disabled:opacity-50 whitespace-nowrap">
+                className="text-sm px-4 disabled:opacity-50 whitespace-nowrap py-2 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                 {registering ? 'Registering…' : 'Register'}
               </button>
             </div>
@@ -1632,7 +1632,7 @@ export default function WhatsAppTemplatesPage() {
                   <p className="text-xs text-gray-400 mt-0.5">Runs automatically every 6 hours, or sync now.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={syncGoogleNow} disabled={syncingGoogle} className="btn-outline text-xs px-3 py-1.5 disabled:opacity-50">
+                  <button onClick={syncGoogleNow} disabled={syncingGoogle} className="text-xs px-3 py-1.5 disabled:opacity-50 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
                     {syncingGoogle ? 'Syncing…' : 'Sync Now'}
                   </button>
                   <button onClick={disconnectGoogle} className="text-xs text-red-500 hover:text-red-700 px-2">Disconnect</button>
@@ -1646,7 +1646,7 @@ export default function WhatsAppTemplatesPage() {
                     : 'Not set up yet — needs a Google Cloud project and OAuth client (see backend/.env.example for the one-time setup steps).'}
                 </p>
                 <button onClick={connectGoogle} disabled={!googleCreds?.configured || connectingGoogle}
-                  className="btn-primary text-sm px-4 disabled:opacity-50">
+                  className="text-sm px-4 disabled:opacity-50 py-2 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                   {connectingGoogle ? 'Redirecting…' : 'Connect Google Account'}
                 </button>
               </div>
@@ -1676,21 +1676,21 @@ export default function WhatsAppTemplatesPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="label text-sm">Name <span className="text-gray-400 font-normal text-xs">(lowercase_underscores)</span></label>
-              <input className="input" placeholder="svn_order_placed"
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Name <span className="text-gray-400 font-normal text-xs">(lowercase_underscores)</span></label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="svn_order_placed"
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div>
-              <label className="label text-sm">Category</label>
-              <select className="input" value={form.category}
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Category</label>
+              <select className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={form.category}
                 onChange={e => setForm(f => ({ ...f, category: e.target.value as typeof form.category }))}>
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className="label text-sm">Language</label>
-              <select className="input" value={form.language}
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Language</label>
+              <select className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={form.language}
                 onChange={e => setForm(f => ({ ...f, language: e.target.value }))}>
                 {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
               </select>
@@ -1698,15 +1698,15 @@ export default function WhatsAppTemplatesPage() {
           </div>
 
           <div>
-            <label className="label text-sm">Header <span className="text-gray-400 font-normal text-xs">(optional)</span></label>
-            <input className="input" placeholder="Srivani Stores"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Header <span className="text-gray-400 font-normal text-xs">(optional)</span></label>
+            <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Srivani Stores"
               value={form.headerText}
               onChange={e => setForm(f => ({ ...f, headerText: e.target.value }))} />
           </div>
 
           <div>
-            <label className="label text-sm">Body <span className="text-red-500">*</span></label>
-            <textarea rows={3} className="input"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Body <span className="text-red-500">*</span></label>
+            <textarea rows={3} className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
               placeholder="Hello {{1}}, your order *{{2}}* has been placed. Total: ₹{{3}}"
               value={form.bodyText}
               onChange={e => setForm(f => ({ ...f, bodyText: e.target.value }))} />
@@ -1714,14 +1714,14 @@ export default function WhatsAppTemplatesPage() {
           </div>
 
           <div>
-            <label className="label text-sm">Footer <span className="text-gray-400 font-normal text-xs">(optional)</span></label>
-            <input className="input" placeholder="- Team Srivani Stores"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Footer <span className="text-gray-400 font-normal text-xs">(optional)</span></label>
+            <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="- Team Srivani Stores"
               value={form.footerText}
               onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))} />
           </div>
 
           <div>
-            <label className="label text-sm">Buttons <span className="text-gray-400 font-normal text-xs">(optional — Meta doesn&apos;t allow mixing Quick Reply with Call/Website)</span></label>
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Buttons <span className="text-gray-400 font-normal text-xs">(optional — Meta doesn&apos;t allow mixing Quick Reply with Call/Website)</span></label>
             <div className="flex gap-2 mb-2">
               {(['none', 'quick_reply', 'cta'] as const).map(mode => (
                 <button key={mode} type="button"
@@ -1735,7 +1735,7 @@ export default function WhatsAppTemplatesPage() {
             {form.buttonMode === 'quick_reply' && (
               <div className="space-y-1.5">
                 {form.quickReplies.map((q, i) => (
-                  <input key={i} className="input text-sm" placeholder={`Button ${i + 1} (e.g. "Confirm")`}
+                  <input key={i} className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder={`Button ${i + 1} (e.g. "Confirm")`}
                     value={q}
                     onChange={e => setForm(f => { const qr = [...f.quickReplies]; qr[i] = e.target.value; return { ...f, quickReplies: qr }; })} />
                 ))}
@@ -1744,16 +1744,16 @@ export default function WhatsAppTemplatesPage() {
 
             {form.buttonMode === 'cta' && (
               <div className="grid grid-cols-2 gap-2">
-                <input className="input text-sm" placeholder="Call button text (e.g. Call Store)"
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Call button text (e.g. Call Store)"
                   value={form.ctaCallText}
                   onChange={e => setForm(f => ({ ...f, ctaCallText: e.target.value }))} />
-                <input className="input text-sm" placeholder="Phone number (91XXXXXXXXXX)"
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Phone number (91XXXXXXXXXX)"
                   value={form.ctaCallPhone}
                   onChange={e => setForm(f => ({ ...f, ctaCallPhone: e.target.value }))} />
-                <input className="input text-sm" placeholder="Website button text (e.g. Track Order)"
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="Website button text (e.g. Track Order)"
                   value={form.ctaWebText}
                   onChange={e => setForm(f => ({ ...f, ctaWebText: e.target.value }))} />
-                <input className="input text-sm" placeholder="https://shop.srivani.com"
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="https://shop.srivani.com"
                   value={form.ctaWebUrl}
                   onChange={e => setForm(f => ({ ...f, ctaWebUrl: e.target.value }))} />
               </div>
@@ -1761,8 +1761,8 @@ export default function WhatsAppTemplatesPage() {
           </div>
 
           <div className="flex gap-2 justify-end pt-1">
-            <button onClick={() => { setShowForm(false); setForm({ ...BLANK_FORM }); }} className="btn-outline text-sm">Cancel</button>
-            <button onClick={submit} disabled={submitting} className="btn-primary text-sm">
+            <button onClick={() => { setShowForm(false); setForm({ ...BLANK_FORM }); }} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">Cancel</button>
+            <button onClick={submit} disabled={submitting} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
               {submitting ? 'Submitting…' : 'Submit to Meta for Approval'}
             </button>
           </div>
@@ -1961,17 +1961,17 @@ export default function WhatsAppTemplatesPage() {
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <select className="input text-sm" value={selectedSegment} onChange={e => setSelectedSegment(e.target.value)}>
+            <select className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={selectedSegment} onChange={e => setSelectedSegment(e.target.value)}>
               <option value="">Choose segment…</option>
               {segments.map(s => <option key={s.id} value={s.id}>{s.label} ({s.count})</option>)}
             </select>
-            <select className="input text-sm" value={broadcastTemplateName} onChange={e => { setBroadcastTemplateName(e.target.value); setBroadcastParams([]); }}>
+            <select className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={broadcastTemplateName} onChange={e => { setBroadcastTemplateName(e.target.value); setBroadcastParams([]); }}>
               <option value="">Choose template…</option>
               {approvedTemplates.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
             </select>
             <input
               type="datetime-local"
-              className="input text-sm"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
               title="Leave blank to send immediately, or pick a time to schedule this broadcast for later"
               value={broadcastScheduledAt}
               onChange={e => setBroadcastScheduledAt(e.target.value)}
@@ -1979,21 +1979,21 @@ export default function WhatsAppTemplatesPage() {
             <button
               onClick={sendBroadcast}
               disabled={sendingBroadcast || !selectedSegment || !broadcastTemplateName || !selectedSegmentObj?.count}
-              className="btn-primary flex items-center justify-center gap-1.5 text-sm disabled:opacity-40"
+              className="flex items-center justify-center gap-1.5 text-sm disabled:opacity-40 px-4 py-2 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors"
             >
               <Send size={13} /> {sendingBroadcast ? (broadcastScheduledAt ? 'Scheduling…' : 'Sending…') : (broadcastScheduledAt ? 'Schedule' : 'Send Now')}
             </button>
           </div>
           {broadcastVarCount > 0 && (
             <div className="mt-3 space-y-1.5">
-              <label className="label text-xs">Template variables <span className="text-gray-400 font-normal">(tick "Use name" to send each customer their own name instead of one fixed value)</span></label>
+              <label className="block font-medium text-gray-700 mb-1.5 text-xs">Template variables <span className="text-gray-400 font-normal">(tick "Use name" to send each customer their own name instead of one fixed value)</span></label>
               {Array.from({ length: broadcastVarCount }, (_, i) => {
                 const personalized = broadcastParams[i] === PERSONALIZE_NAME_TOKEN;
                 return (
                   <div key={i} className="flex items-center gap-2">
                     <span className="text-xs text-gray-400 w-8 text-right font-mono shrink-0">{`{{${i + 1}}}`}</span>
                     <input
-                      className="input text-sm flex-1 disabled:bg-gray-50 disabled:text-gray-400"
+                      className="flex-1 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-400 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                       placeholder={personalized ? "Each customer's own name" : `Value for {{${i + 1}}}`}
                       value={personalized ? '' : (broadcastParams[i] ?? '')}
                       disabled={personalized}
@@ -2028,7 +2028,7 @@ export default function WhatsAppTemplatesPage() {
       <div>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Scheduled &amp; Recent Campaigns</h2>
-          <button onClick={loadCampaigns} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
+          <button onClick={loadCampaigns} className="flex items-center gap-1.5 text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
             <RefreshCw size={12} />
           </button>
         </div>
@@ -2089,37 +2089,37 @@ export default function WhatsAppTemplatesPage() {
               title="Rule-based auto-send: PAYMENT_OVERDUE reuses the existing credit-reminder template, REORDER_DUE reuses the existing reorder template. Each customer gets at most one reminder per rule within the cooldown window."
               className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
           </h2>
-          <button onClick={() => setShowReminderForm(v => !v)} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
+          <button onClick={() => setShowReminderForm(v => !v)} className="flex items-center gap-1.5 text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
             <Plus size={12} /> New Rule
           </button>
         </div>
         {showReminderForm && (
           <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-4 mb-3 grid grid-cols-1 sm:grid-cols-5 gap-2 items-end">
             <div className="sm:col-span-2">
-              <label className="label text-xs">Rule name</label>
-              <input className="input text-sm" placeholder="e.g. Overdue 14d"
+              <label className="block font-medium text-gray-700 mb-1.5 text-xs">Rule name</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="e.g. Overdue 14d"
                 value={reminderForm.name} onChange={e => setReminderForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div>
-              <label className="label text-xs">Trigger</label>
-              <select className="input text-sm" value={reminderForm.triggerType}
+              <label className="block font-medium text-gray-700 mb-1.5 text-xs">Trigger</label>
+              <select className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={reminderForm.triggerType}
                 onChange={e => setReminderForm(f => ({ ...f, triggerType: e.target.value as any }))}>
                 <option value="PAYMENT_OVERDUE">Payment overdue</option>
                 <option value="REORDER_DUE">Hasn&apos;t reordered</option>
               </select>
             </div>
             <div>
-              <label className="label text-xs">Threshold (days)</label>
-              <input type="number" min={1} className="input text-sm" value={reminderForm.thresholdDays}
+              <label className="block font-medium text-gray-700 mb-1.5 text-xs">Threshold (days)</label>
+              <input type="number" min={1} className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={reminderForm.thresholdDays}
                 onChange={e => setReminderForm(f => ({ ...f, thresholdDays: Number(e.target.value) || 1 }))} />
             </div>
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="label text-xs">Cooldown (days)</label>
-                <input type="number" min={1} className="input text-sm" value={reminderForm.cooldownDays}
+                <label className="block font-medium text-gray-700 mb-1.5 text-xs">Cooldown (days)</label>
+                <input type="number" min={1} className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={reminderForm.cooldownDays}
                   onChange={e => setReminderForm(f => ({ ...f, cooldownDays: Number(e.target.value) || 1 }))} />
               </div>
-              <button onClick={createReminderRule} disabled={savingReminder} className="btn-primary text-sm px-3 disabled:opacity-40">
+              <button onClick={createReminderRule} disabled={savingReminder} className="text-sm px-3 disabled:opacity-40 py-2 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
                 {savingReminder ? 'Saving…' : 'Save'}
               </button>
             </div>
@@ -2178,7 +2178,7 @@ export default function WhatsAppTemplatesPage() {
               title="Customers need a saved Date of Birth and WhatsApp opt-in (both set on their customer profile) to appear here. Sending uses an approved template — free-text greetings can't reach customers outside the 24h session window."
               className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
           </h2>
-          <button onClick={loadBirthdays} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
+          <button onClick={loadBirthdays} className="flex items-center gap-1.5 text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
             <RefreshCw size={12} />
           </button>
         </div>
@@ -2209,7 +2209,7 @@ export default function WhatsAppTemplatesPage() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <select
-                      className="input text-xs h-7 py-0"
+                      className="px-3 text-xs h-7 py-0 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                       value={birthdayTemplatePick[c.id] ?? ''}
                       onChange={e => setBirthdayTemplatePick(m => ({ ...m, [c.id]: e.target.value }))}
                     >
@@ -2219,7 +2219,7 @@ export default function WhatsAppTemplatesPage() {
                     <button
                       onClick={() => { if (picked && c.phone) openSendModalForPhone(picked, c.phone); }}
                       disabled={!picked || !c.phone}
-                      className="btn-primary flex items-center gap-1.5 text-xs px-3 py-1.5 disabled:opacity-40"
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 disabled:opacity-40 bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors"
                     >
                       <Send size={12} /> Send
                     </button>
@@ -2246,18 +2246,18 @@ export default function WhatsAppTemplatesPage() {
               className="cursor-help text-gray-400 normal-case font-normal">ⓘ</span>
           </p>
           <div className="flex items-center gap-2">
-            <select className="input text-xs h-7 py-0" value={waDirFilter}
+            <select className="px-3 text-xs h-7 py-0 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={waDirFilter}
               onChange={e => { setWaPage(1); setWaDirFilter(e.target.value as typeof waDirFilter); }}>
               <option value="">All directions</option>
               <option value="OUTBOUND">Sent by store</option>
               <option value="INBOUND">Received</option>
             </select>
-            <select className="input text-xs h-7 py-0" value={waStatusFilter}
+            <select className="px-3 text-xs h-7 py-0 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" value={waStatusFilter}
               onChange={e => { setWaPage(1); setWaStatusFilter(e.target.value as typeof waStatusFilter); }}>
               <option value="">All statuses</option>
               {Object.entries(MSG_STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
-            <button onClick={loadMessages} className="btn-outline flex items-center gap-1.5 text-xs px-2 py-1">
+            <button onClick={loadMessages} className="flex items-center gap-1.5 text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">
               <RefreshCw size={12} />
             </button>
           </div>
@@ -2371,41 +2371,41 @@ export default function WhatsAppTemplatesPage() {
           </div>
 
           <div>
-            <label className="label text-sm">Label</label>
-            <input className="input" placeholder="e.g. Sangareddy Store, Test Sandbox"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Label</label>
+            <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="e.g. Sangareddy Store, Test Sandbox"
               value={numberForm.label}
               onChange={e => setNumberForm(f => ({ ...f, label: e.target.value }))} />
           </div>
           <div>
-            <label className="label text-sm">Access Token {editingNumberId && <span className="text-gray-400 font-normal text-xs">(leave blank to keep existing)</span>}</label>
-            <input className="input font-mono text-xs" placeholder="EAAd…"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Access Token {editingNumberId && <span className="text-gray-400 font-normal text-xs">(leave blank to keep existing)</span>}</label>
+            <input className="w-full px-3 py-2 font-mono text-xs rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="EAAd…"
               value={numberForm.accessToken}
               onChange={e => setNumberForm(f => ({ ...f, accessToken: e.target.value }))} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label text-sm">Phone Number ID</label>
-              <input className="input text-sm" placeholder="1236691106193092"
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Phone Number ID</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="1236691106193092"
                 value={numberForm.phoneNumberId}
                 onChange={e => setNumberForm(f => ({ ...f, phoneNumberId: e.target.value }))} />
             </div>
             <div>
-              <label className="label text-sm">Business Account ID</label>
-              <input className="input text-sm" placeholder="4470398083206478"
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Business Account ID</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="4470398083206478"
                 value={numberForm.businessAccountId}
                 onChange={e => setNumberForm(f => ({ ...f, businessAccountId: e.target.value }))} />
             </div>
           </div>
           <div>
-            <label className="label text-sm">Store Notify Number <span className="text-gray-400 font-normal text-xs">(optional)</span></label>
-            <input className="input text-sm" placeholder="919382828484"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Store Notify Number <span className="text-gray-400 font-normal text-xs">(optional)</span></label>
+            <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="919382828484"
               value={numberForm.storeNotifyNumber}
               onChange={e => setNumberForm(f => ({ ...f, storeNotifyNumber: e.target.value }))} />
           </div>
 
           <div className="flex gap-2 justify-end pt-1">
-            <button onClick={() => { setShowNumberForm(false); setNumberForm({ ...BLANK_NUMBER_FORM }); setEditingNumberId(null); }} className="btn-outline text-sm">Cancel</button>
-            <button onClick={saveNumber} disabled={savingNumber} className="btn-primary text-sm">
+            <button onClick={() => { setShowNumberForm(false); setNumberForm({ ...BLANK_NUMBER_FORM }); setEditingNumberId(null); }} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">Cancel</button>
+            <button onClick={saveNumber} disabled={savingNumber} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
               {savingNumber ? 'Saving…' : 'Save'}
             </button>
           </div>
@@ -2432,36 +2432,36 @@ export default function WhatsAppTemplatesPage() {
           </div>
 
           <div>
-            <label className="label text-sm">Access Token</label>
-            <input className="input font-mono text-xs" placeholder="EAAd…"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Access Token</label>
+            <input className="w-full px-3 py-2 font-mono text-xs rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="EAAd…"
               value={creds.token}
               onChange={e => setCreds(c => ({ ...c, token: e.target.value }))} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label text-sm">Phone Number ID</label>
-              <input className="input text-sm" placeholder="1092826743922168"
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Phone Number ID</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="1092826743922168"
                 value={creds.phoneId}
                 onChange={e => setCreds(c => ({ ...c, phoneId: e.target.value }))} />
             </div>
             <div>
-              <label className="label text-sm">Business Account ID</label>
-              <input className="input text-sm" placeholder="1573200934238105"
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Business Account ID</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="1573200934238105"
                 value={creds.wabaId}
                 onChange={e => setCreds(c => ({ ...c, wabaId: e.target.value }))} />
             </div>
           </div>
           <div>
-            <label className="label text-sm">Store Notify Number</label>
-            <input className="input text-sm" placeholder="919382828484"
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Store Notify Number</label>
+            <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="919382828484"
               value={creds.storeNum}
               onChange={e => setCreds(c => ({ ...c, storeNum: e.target.value }))} />
             <p className="text-xs text-gray-400 mt-1">This number receives a WhatsApp alert for every new order</p>
           </div>
 
           <div className="flex gap-2 justify-end pt-1">
-            <button onClick={() => { setShowCredsModal(false); setCreds({ ...BLANK_CREDS }); }} className="btn-outline text-sm">Cancel</button>
-            <button onClick={saveCreds} disabled={savingCreds} className="btn-primary text-sm">
+            <button onClick={() => { setShowCredsModal(false); setCreds({ ...BLANK_CREDS }); }} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">Cancel</button>
+            <button onClick={saveCreds} disabled={savingCreds} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
               {savingCreds ? 'Saving…' : 'Save Credentials'}
             </button>
           </div>
@@ -2479,10 +2479,10 @@ export default function WhatsAppTemplatesPage() {
           </div>
 
           <div>
-            <label className="label text-sm">Template</label>
+            <label className="block font-medium text-gray-700 mb-1.5 text-sm">Template</label>
             {templates.filter(t => t.status === 'APPROVED').length > 1 ? (
               <select
-                className="input text-sm font-mono"
+                className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                 value={sendModal.template.name}
                 onChange={e => {
                   const t = templates.find(x => x.name === e.target.value);
@@ -2511,7 +2511,7 @@ export default function WhatsAppTemplatesPage() {
           <div>
             {sendModal.mode === 'bulk' ? (
               <>
-                <label className="label text-sm">Sending to</label>
+                <label className="block font-medium text-gray-700 mb-1.5 text-sm">Sending to</label>
                 <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                   {sendModal.ids.length} selected contact{sendModal.ids.length !== 1 ? 's' : ''}
                 </p>
@@ -2519,8 +2519,8 @@ export default function WhatsAppTemplatesPage() {
               </>
             ) : (
               <>
-                <label className="label text-sm">Send to (phone number)</label>
-                <input className="input" placeholder="93828 28484"
+                <label className="block font-medium text-gray-700 mb-1.5 text-sm">Send to (phone number)</label>
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="93828 28484"
                   value={sendModal.phone}
                   onChange={e => setSendModal(m => (m && m.mode === 'single') ? { ...m, phone: e.target.value } : m)} />
               </>
@@ -2529,8 +2529,8 @@ export default function WhatsAppTemplatesPage() {
 
           {hasDynamicUrlButton(sendModal.template) && (
             <div>
-              <label className="label text-sm">Link value (goes into the button's URL)</label>
-              <input className="input text-sm" placeholder="e.g. a customer's unique token/ID"
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">Link value (goes into the button's URL)</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400" placeholder="e.g. a customer's unique token/ID"
                 value={sendModal.urlButtonParam}
                 onChange={e => setSendModal(m => m ? { ...m, urlButtonParam: e.target.value } : null)} />
               <p className="text-xs text-gray-400 mt-1">This template's button links to a per-recipient page — Meta requires this value or the whole send is rejected.</p>
@@ -2539,7 +2539,7 @@ export default function WhatsAppTemplatesPage() {
 
           {sendModal.params.length > 0 && (
             <div className="space-y-2">
-              <label className="label text-sm">
+              <label className="block font-medium text-gray-700 mb-1.5 text-sm">
                 Fill in the variables
                 {sendModal.mode === 'bulk' && (
                   <span className="text-gray-400 font-normal"> ("Use name" sends each contact their own name)</span>
@@ -2551,7 +2551,7 @@ export default function WhatsAppTemplatesPage() {
                   <div key={i} className="flex items-center gap-2">
                     <span className="text-xs text-gray-400 w-8 text-right font-mono shrink-0">{`{{${i + 1}}}`}</span>
                     <input
-                      className="input flex-1 text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                      className="flex-1 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-400 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                       placeholder={personalized ? "Each contact's own name" : `Value for {{${i + 1}}}`}
                       value={personalized ? '' : p}
                       disabled={personalized}
@@ -2584,9 +2584,9 @@ export default function WhatsAppTemplatesPage() {
           )}
 
           <div className="flex gap-2 justify-end pt-1">
-            <button onClick={() => setSendModal(null)} className="btn-outline text-sm">Cancel</button>
+            <button onClick={() => setSendModal(null)} className="text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium rounded-lg transition-colors">Cancel</button>
             <button onClick={sendFromModal} disabled={sendModal.sending}
-              className="btn-primary flex items-center gap-1.5 text-sm">
+              className="flex items-center gap-1.5 text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed bg-[#1B4F8A] hover:bg-[#163f70] text-white font-semibold rounded-lg transition-colors">
               <Send size={13} /> {sendModal.sending ? 'Sending…' : 'Send Message'}
             </button>
           </div>

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiCompleteParams, AiCompletionResult, AiMessage, AiProvider, AiToolCall, AiToolDef } from '../ai-gateway.types';
 import { AI_KEYS, AI_PROVIDER_API_KEY_ENV, AI_PROVIDER_DEFAULT_MODEL, AI_PROVIDER_MODEL_ENV } from '../ai-settings.keys';
+import { decrypt } from '../../common/helpers/credential-encryption.util';
 
 const MAX_TOKENS = 1024; // short WhatsApp-appropriate replies — this is a reply agent, not a long-form writer
 
@@ -82,8 +83,10 @@ export class GeminiProvider implements AiProvider {
       where: { businessId, key: { in: [AI_KEYS.apiKey('gemini'), AI_KEYS.model('gemini')] } },
     });
     const byKey = new Map(rows.map(r => [r.key, r.value]));
+    const dbKey = byKey.get(AI_KEYS.apiKey('gemini'));
     return {
-      apiKey: byKey.get(AI_KEYS.apiKey('gemini')) || process.env[AI_PROVIDER_API_KEY_ENV.gemini] || undefined,
+      // decrypt() transparently returns legacy plaintext rows unchanged.
+      apiKey: (dbKey ? decrypt(dbKey) : undefined) || process.env[AI_PROVIDER_API_KEY_ENV.gemini] || undefined,
       model:  byKey.get(AI_KEYS.model('gemini'))  || process.env[AI_PROVIDER_MODEL_ENV.gemini]   || AI_PROVIDER_DEFAULT_MODEL.gemini,
     };
   }

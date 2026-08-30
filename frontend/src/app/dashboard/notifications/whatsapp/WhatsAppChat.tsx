@@ -18,6 +18,7 @@ import { usePushSubscription } from '@/hooks/usePushSubscription';
 import { useReportParams } from '@/hooks/useReportParams';
 import { Avatar } from '@/components/shared/Avatar';
 import SavedViews from '@/components/reports/SavedViews';
+import { Customer360Panel } from '@/components/customers/Customer360Panel';
 import { isWaSoundMuted, setWaSoundMuted } from '@/components/layout/WaSoundAlert';
 
 const PUSH_BANNER_DISMISSED_KEY = 'wa_push_banner_dismissed';
@@ -295,7 +296,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
   const [photoShareResult, setPhotoShareResult] = useState<{ waLink: string | null; staffMessage: string | null } | null>(null);
 
   // Pane 3 (contact panel) Info/Notes tab switch
-  const [contactTab, setContactTab] = useState<'info' | 'notes'>('info');
+  const [contactTab, setContactTab] = useState<'info' | 'notes' | '360'>('info');
   const [notes, setNotes]           = useState<InternalNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [noteInput, setNoteInput]   = useState('');
@@ -1419,9 +1420,26 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
             >
               Notes {notes.length > 0 && <span className="text-[10px] bg-gray-200 text-gray-600 rounded-full px-1.5">{notes.length}</span>}
             </button>
+            {contact?.customerId && (
+              <button
+                onClick={() => setContactTab('360')}
+                title="Purchase history, insights and interaction timeline for this customer"
+                className={`text-xs font-medium pb-1.5 border-b-2 -mb-px transition-colors ${
+                  contactTab === '360' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                360°
+              </button>
+            )}
           </div>
 
-          {contactTab === 'notes' ? (
+          {contactTab === '360' ? (
+            contact?.customerId ? (
+              <Customer360Panel customerId={contact.customerId} dense />
+            ) : (
+              <p className="text-xs text-gray-400 text-center py-8">Not linked to a customer yet</p>
+            )
+          ) : contactTab === 'notes' ? (
             <div className="flex flex-col gap-3">
               <div className="space-y-1.5">
                 <textarea

@@ -237,7 +237,7 @@ export default function SocialChat() {
 
             <div className="p-3 border-t border-gray-100 flex items-center gap-2">
               <input
-                className="input flex-1 text-sm"
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
                 placeholder="Type a message…"
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}

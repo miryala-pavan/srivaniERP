@@ -129,7 +129,7 @@ export default function ContactsTab({ onOpenContact, onBulkSend }: ContactsTabPr
         <div className="relative flex-1 max-w-xs">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
-            className="input text-sm pl-8 w-full"
+            className="pr-3 pl-8 text-sm w-full rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
             placeholder="Search contacts…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
