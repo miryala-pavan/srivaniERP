@@ -1224,11 +1224,18 @@ export class WhatsAppService {
 
   /**
    * Called from the webhook right after an inbound message is logged.
-   * Rule-based only — no AI — so behavior is predictable and auditable:
    *   1. Opt-in/opt-out keyword (START/SUBSCRIBE, STOP/UNSUBSCRIBE) — exact match, not substring
-   *   2. A recognized menu button tap (Track Order / Store Hours / Talk to Staff)
+   *   2. A recognized menu button/list tap (Track Order / Store Hours / Store Info / Main Menu / Talk to Staff / ...)
    *   3. Keyword match in free text (order/status/track, hours/timing)
-   *   4. First-ever inbound message from this number → welcome menu
+   *   4. AI Assistant (if configured) or the older keyword-based product search
+   *   5. First-ever inbound message from this number → Welcome + Main Menu (even when 4. found
+   *      a real answer, in which case the answer is sent FIRST, then Welcome + Menu — see Part 2
+   *      of the design doc this was built from: a genuine first question must never be swallowed
+   *      just to force a generic greeting)
+   *   6. Returning customer, AI escalated → a short acknowledgment + Main Menu (never silence)
+   *   7. Returning customer, nothing matched at all → bare Main Menu (also what a customer sees
+   *      after tapping a shared WhatsApp link with generic pre-filled text — no special detection
+   *      needed, this fallback naturally covers it)
    */
   async handleAutoReply(businessId: string, phone: string, opts: {
     messageBody?: string; buttonId?: string; listReplyId?: string; senderName?: string;
@@ -1246,47 +1253,93 @@ export class WhatsAppService {
     }
 
     const selection = opts.buttonId ?? opts.listReplyId;
+    if (selection === 'WA_MAIN_MENU')      return this.sendMainMenu(businessId, phone);
+    if (selection === 'WA_STORE_INFO')     return this.autoReplyStoreInfoMenu(businessId, phone);
     if (selection === 'WA_TRACK_ORDER')    return this.autoReplyOrderStatus(businessId, phone);
     if (selection === 'WA_STORE_HOURS')    return this.autoReplyStoreHours(businessId, phone);
-    if (selection === 'WA_TALK_STAFF')     return this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
-    if (selection === 'WA_BROWSE_STORE')   return this.autoReplyText(businessId, phone, `🛒 Browse and order online here: ${process.env.SHOP_URL ?? 'https://shop.srivani.com'}`);
     if (selection === 'WA_STORE_LOCATION') return this.autoReplyStoreLocation(businessId, phone);
+    if (selection === 'WA_TALK_STAFF') {
+      await this.autoReplyText(businessId, phone, "Sure! A team member will reply to you here shortly. 🙏");
+      return this.sendBackToMenuButton(businessId, phone);
+    }
+    if (selection === 'WA_BROWSE_STORE') {
+      await this.autoReplyText(businessId, phone, `🛒 Browse and order online here: ${process.env.SHOP_URL ?? 'https://shop.srivani.com'}`);
+      return this.sendBackToMenuButton(businessId, phone);
+    }
     // No product name attached to a menu tap — prompt for one, then the reply
     // arrives as free text and flows through autoReplyProductSearch below.
+    // (WA_REORDER is deliberately not handled here — it's already intercepted
+    // one layer up, in the webhook controller's isReorderTrigger check, before
+    // handleAutoReply is ever invoked; see the judgment-call note in the report.)
     if (selection === 'WA_CHECK_STOCK')    return this.autoReplyText(businessId, phone, 'Sure! Just type the product name (e.g. "Ashirwad Atta") and I\'ll check the price and stock for you. 🔍');
 
     const body = exact;
     if (/order|status|track/.test(body)) return this.autoReplyOrderStatus(businessId, phone);
     if (/hour|timing|open|close/.test(body)) return this.autoReplyStoreHours(businessId, phone);
 
+    // A POS bill-share link (see the "Copy Link" button on the POS success
+    // screen) pre-fills a message containing the bill number, e.g.
+    // "GST/2026-27/0123" — matched from the original (non-lowercased) text
+    // so the extracted number keeps its real casing for the DB lookup.
+    const billMatch = (opts.messageBody ?? '').match(/\b([A-Z]{2,6}\/\d{4}-\d{2}\/\d{3,6})\b/i);
+    if (billMatch) return this.autoReplyBillLookup(businessId, phone, billMatch[1].toUpperCase());
+
+    // First-ever inbound message from this number? (the current message has
+    // already been logged by the time this runs). Computed up front because
+    // the AI/product-search branch below needs it to decide how to react.
+    const inboundCount = await this.prisma.waMessage.count({ where: { businessId, phone: this.e164(phone) ?? phone, direction: 'INBOUND' } });
+    const isFirstMessage = inboundCount <= 1;
+
     // Broader fallback: does this look like a product query ("do you have X",
     // "price of Y")? Checked after the specific keyword rules above (so e.g.
-    // "order status" never gets treated as a product search) and before the
-    // first-message welcome below (so it doesn't preempt that greeting).
+    // "order status" never gets treated as a product search).
     //
     // If the AI Assistant (ai-agent module) is enabled and configured for
     // this business, it fully replaces the keyword-based autoReplyProductSearch
     // at this point in the chain — it drafts a reply using the same product
-    // search plus store-info data, or silently declines (escalates) for
-    // anything unsafe/uncertain, in which case we fall through to the
-    // first-message welcome below exactly as autoReplyProductSearch's `false`
-    // return would have. For any business that hasn't set up the AI
-    // Assistant, behavior here is byte-for-byte identical to before this
-    // feature existed — autoReplyProductSearch runs exactly as it always has.
+    // search plus store-info data, or reports back that it escalated/declined.
+    // For any business that hasn't set up the AI Assistant, the product-search
+    // branch runs exactly as it always has.
     if (await this.aiAgent.isEnabled(businessId)) {
       const { storeHours, locationName, locationAddr } = await this.getAutoReplySettings(businessId);
-      const reply = await this.aiAgent.handleCustomerMessage(businessId, phone, opts.messageBody ?? '', {
+      const result = await this.aiAgent.handleCustomerMessage(businessId, phone, opts.messageBody ?? '', {
         storeHours, locationName, locationAddr,
       });
-      if (reply) { await this.autoReplyText(businessId, phone, reply); return; }
-    } else {
-      if (await this.autoReplyProductSearch(businessId, phone, opts.messageBody ?? '')) return;
+
+      if (result.reply) {
+        await this.autoReplyText(businessId, phone, result.reply);
+        // A genuine, answerable first question must never be ignored just to
+        // force a generic welcome — the customer gets the real answer above,
+        // then still gets oriented as a first-time contact.
+        if (isFirstMessage) {
+          await this.autoReplyWelcomeLine(businessId, phone);
+          await this.sendMainMenu(businessId, phone);
+        }
+        return;
+      }
+
+      // No answer drafted — either a bare greeting, an escalation, or a genuine
+      // decline. On a first-ever message, the Welcome text itself serves as the
+      // acknowledgment in every one of those cases, so no extra escalation line.
+      if (isFirstMessage) return this.autoReplyWelcome(businessId, phone);
+
+      if (result.escalated) {
+        await this.autoReplyText(businessId, phone, "I've let our team know — meanwhile, here's how else I can help:");
+        return this.sendMainMenu(businessId, phone);
+      }
+
+      // Returning customer, AI declined without escalating (couldn't understand) — bare Main Menu.
+      return this.sendMainMenu(businessId, phone);
     }
 
-    // Greet only on the very first inbound message ever received from this number
-    // (the current message has already been logged by the time this runs).
-    const inboundCount = await this.prisma.waMessage.count({ where: { businessId, phone: this.e164(phone) ?? phone, direction: 'INBOUND' } });
-    if (inboundCount <= 1) return this.autoReplyWelcome(businessId, phone);
+    if (await this.autoReplyProductSearch(businessId, phone, opts.messageBody ?? '')) return;
+
+    if (isFirstMessage) return this.autoReplyWelcome(businessId, phone);
+
+    // Returning customer, nothing matched at all (AI not configured, no product
+    // search hit) — bare Main Menu, no lead-in text since there's no specific
+    // event to acknowledge.
+    return this.sendMainMenu(businessId, phone);
   }
 
   // Common conversational words/phrases that could otherwise "contains"-match
@@ -1343,6 +1396,7 @@ export class WhatsAppService {
     });
     const header = products.length === 1 ? "Here's what we found:" : `Found ${products.length} matching products:`;
     await this.autoReplyText(businessId, phone, `${header}\n\n${lines.join('\n\n')}`);
+    await this.sendBackToMenuButton(businessId, phone);
     return true;
   }
 
@@ -1386,31 +1440,88 @@ export class WhatsAppService {
     });
   }
 
+  // Business name for customer-facing text — never hardcode a store name here
+  // (this ERP is built to serve any FMCG retailer, not just one business).
+  private async getStoreName(businessId: string): Promise<string> {
+    const business = await this.prisma.business.findUnique({ where: { id: businessId }, select: { name: true } });
+    return business?.name?.trim() || 'our store';
+  }
+
+  /** Plain welcome text only — no menu. Used by autoReplyWelcome() and, on its own, as the lead-in line when a first message also got a real AI answer. */
+  private async autoReplyWelcomeLine(businessId: string, phone: string) {
+    const storeName = await this.getStoreName(businessId);
+    await this.autoReplyText(businessId, phone, `🙏 Welcome to ${storeName}! Here's how else I can help:`);
+  }
+
   private async autoReplyWelcome(businessId: string, phone: string) {
+    const storeName = await this.getStoreName(businessId);
+    await this.autoReplyText(businessId, phone, `Hi! 👋 Welcome to ${storeName}. How can we help you today?`);
+    await this.sendMainMenu(businessId, phone);
+  }
+
+  /**
+   * The 7-row, 3-section Main Menu — the one reusable "menu" surface every
+   * auto-reply action can return the customer to. Uses sendInteractiveList
+   * directly (not the single-section autoReplyInteractiveList helper below)
+   * since it already supports full {title, rows}[] sections.
+   */
+  async sendMainMenu(businessId: string, phone: string): Promise<void> {
     const shopHost = (() => {
       try { return new URL(process.env.SHOP_URL ?? 'https://shop.srivani.com').host; }
       catch { return 'shop.srivani.com'; }
     })();
+    await this.sendInteractiveList(businessId, phone, 'How can we help you today?', 'Menu', [
+      {
+        title: '📦 Orders',
+        rows: [
+          { id: 'WA_TRACK_ORDER', title: 'My Last Order', description: 'Check the status of your latest order' },
+          { id: 'WA_REORDER',     title: 'Reorder',       description: 'Quickly repeat your last order' },
+        ],
+      },
+      {
+        title: '🛒 Shop',
+        rows: [
+          { id: 'WA_BROWSE_STORE', title: 'Shopping Link',     description: `Shop online at ${shopHost}` },
+          { id: 'WA_CHECK_STOCK',  title: 'Check Price/Stock', description: "Check a product's price and availability" },
+        ],
+      },
+      {
+        title: 'ℹ️ Info & Support',
+        rows: [
+          { id: 'WA_STORE_INFO',   title: 'Store Info',        description: 'Hours, location & more' },
+          { id: 'WA_HISTORY_LINK', title: 'History Link',      description: 'View your purchase history' },
+          { id: 'WA_TALK_STAFF',   title: 'Talk to Our Team',  description: 'Chat with our team directly' },
+        ],
+      },
+    ]);
+  }
+
+  /** Small "Store Info" sub-menu (Hours / Location / Back to Main Menu) — reached from the Main Menu's WA_STORE_INFO row. */
+  private async autoReplyStoreInfoMenu(businessId: string, phone: string) {
     await this.autoReplyInteractiveList(
       businessId, phone,
-      "Hi! 👋 Welcome to Srivani Stores. How can we help you today?",
-      'Menu',
+      'Store Info — what would you like to know?',
+      'Store Info',
       [
-        { id: 'WA_TRACK_ORDER',  title: 'Track Order',   description: 'Check the status of your latest order' },
-        { id: 'WA_REORDER',      title: 'Reorder',       description: 'Quickly repeat your last order' },
-        { id: 'WA_CHECK_STOCK',   title: 'Price / Stock',  description: 'Check a product\'s price and availability' },
-        { id: 'WA_BROWSE_STORE',   title: 'Browse Store',   description: `Shop online at ${shopHost}` },
-        { id: 'WA_STORE_HOURS',    title: 'Store Hours',    description: 'When we\'re open' },
-        { id: 'WA_STORE_LOCATION', title: 'Store Location', description: 'Get directions to our store' },
-        { id: 'WA_TALK_STAFF',     title: 'Talk to Staff',  description: 'Chat with our team directly' },
+        { id: 'WA_STORE_HOURS',    title: 'Hours',    description: 'When we\'re open' },
+        { id: 'WA_STORE_LOCATION', title: 'Location', description: 'Get directions to our store' },
+        { id: 'WA_MAIN_MENU',      title: '🔙 Back to Main Menu' },
       ],
     );
+  }
+
+  /** Single-button "🔙 Main Menu" follow-up, appended after most auto-reply results so the customer can keep navigating without retyping. */
+  async sendBackToMenuButton(businessId: string, phone: string): Promise<void> {
+    await this.autoReplyInteractiveButtons(businessId, phone, 'What else can I help with?', [
+      { id: 'WA_MAIN_MENU', title: '🔙 Main Menu' },
+    ]);
   }
 
   private async autoReplyStoreHours(businessId: string, phone: string) {
     const { storeHours } = await this.getAutoReplySettings(businessId);
     const hours = storeHours || 'Please contact the store directly for our timings.';
     await this.autoReplyText(businessId, phone, `🕒 Our store hours:\n${hours}`);
+    await this.sendBackToMenuButton(businessId, phone);
   }
 
   private async autoReplyStoreLocation(businessId: string, phone: string) {
@@ -1423,10 +1534,65 @@ export class WhatsAppService {
         name: s.locationName || undefined,
         address: s.locationAddr || undefined,
       }, { isAutoReply: true });
+      await this.sendBackToMenuButton(businessId, phone);
       return;
     }
     const fallback = s.locationAddr || 'Please contact the store directly for directions.';
     await this.autoReplyText(businessId, phone, `📍 Our location:\n${fallback}`);
+    await this.sendBackToMenuButton(businessId, phone);
+  }
+
+  /**
+   * Replies with a POS bill's contents when a customer sends a message
+   * containing its bill number — the target of the "Copy Link" share
+   * button on the POS success screen (staff-initiated: cashier copies a
+   * message+link and pastes it into their own WhatsApp to the customer).
+   *
+   * Security note: bill numbers are sequential and guessable
+   * (GST/2026-27/0001, 0002, ...). If the bill has a customerPhone on
+   * file, only that same phone number can retrieve it — otherwise anyone
+   * iterating bill numbers could read a stranger's purchase history.
+   * Walk-in bills with no phone captured have nothing to check against,
+   * so they're shown as-is (staff already chose who to send the link to).
+   */
+  private async autoReplyBillLookup(businessId: string, phone: string, billNumber: string): Promise<void> {
+    const to = this.e164(phone);
+    const bill = await this.prisma.salesBill.findFirst({
+      where: { businessId, billNumber, billType: { not: 'ESTIMATE' } },
+      include: { items: true },
+    });
+    if (!bill) {
+      await this.autoReplyText(businessId, phone, `We couldn't find a bill numbered *${billNumber}*. Please check the number and try again, or reply here and our team will help. 🙏`);
+      await this.sendBackToMenuButton(businessId, phone);
+      return;
+    }
+    if (bill.customerPhone && to && bill.customerPhone !== to.slice(-10)) {
+      await this.autoReplyText(businessId, phone, "We couldn't verify this bill against your number. Please contact the store directly for help with this bill.");
+      return;
+    }
+    if (bill.isVoided) {
+      await this.autoReplyText(businessId, phone, `Bill *${billNumber}* was voided and is no longer valid. Please contact the store if you have questions.`);
+      await this.sendBackToMenuButton(businessId, phone);
+      return;
+    }
+
+    const inrFmt = (n: unknown) => `₹${Number(n).toFixed(2)}`;
+    const dateStr = bill.billDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const lines = [
+      `🧾 *${bill.billNumber}*  |  ${dateStr}`,
+      '',
+      ...bill.items.map((it, i) =>
+        `${i + 1}. ${it.productName}\n   ${Number(it.quantity)} x ${inrFmt(it.unitPrice)} = *${inrFmt(it.totalAmount)}*`,
+      ),
+      '',
+      Number(bill.discountAmount) > 0 ? `Discount: -${inrFmt(bill.discountAmount)}` : '',
+      `*Total: ${inrFmt(bill.grandTotal)}*`,
+      '',
+      '_Thank you for shopping with us!_ 🙏',
+    ].filter((l) => l !== '');
+
+    await this.autoReplyText(businessId, phone, lines.join('\n'));
+    await this.sendBackToMenuButton(businessId, phone);
   }
 
   private async autoReplyOrderStatus(businessId: string, phone: string) {
@@ -1443,12 +1609,14 @@ export class WhatsAppService {
         businessId, phone,
         "We couldn't find a recent order for this number. If you've just placed one, it may take a minute to show — reply here and our team will check for you.",
       );
+      await this.sendBackToMenuButton(businessId, phone);
       return;
     }
     await this.autoReplyText(
       businessId, phone,
       `📦 Your latest order *${order.orderNumber}* — Total ₹${order.total.toFixed(0)}\nStatus: *${order.status}*`,
     );
+    await this.sendBackToMenuButton(businessId, phone);
   }
 
   private async autoReplyText(businessId: string, phone: string, body: string) {

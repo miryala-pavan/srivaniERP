@@ -21,6 +21,7 @@ import { CreateHoldDto } from './dto/create-hold.dto';
 import { VoidBillDto } from './dto/void-bill.dto';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto';
 import { CreateHistoricalBillDto } from './dto/create-historical-bill.dto';
+import { CreateHistoricalBillsBulkDto } from './dto/create-historical-bills-bulk.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -167,7 +168,7 @@ export class PosController {
     const user = req.user;
     return this.posService.voidBill(
       user.businessId, user.userId, user.role,
-      user.shiftId ?? null, id, dto.reason,
+      id, dto.reason,
       user.fullName ?? user.username,
     );
   }
@@ -247,12 +248,12 @@ export class PosController {
   }
 
   @Post('historical-bills-bulk')
-  createHistoricalBillsBulk(@Request() req: any, @Body() body: { bills: any[] }) {
+  createHistoricalBillsBulk(@Request() req: any, @Body() body: CreateHistoricalBillsBulkDto) {
     const user = req.user;
     if (!['SUPER_ADMIN', 'BRANCH_MANAGER'].includes(user.role)) {
       throw new ForbiddenException();
     }
-    return this.posService.createHistoricalBillsBulk(user.businessId, user.userId, body.bills ?? []);
+    return this.posService.createHistoricalBillsBulk(user.businessId, user.userId, body.bills);
   }
 
   @Get('historical-bills')

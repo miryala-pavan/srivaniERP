@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, IsDateString } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, Max, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class BillQueryDto {
@@ -11,6 +11,7 @@ export class BillQueryDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(200)
   @Type(() => Number)
   limit?: number = 20;
 

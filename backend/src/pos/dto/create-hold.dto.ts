@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsString, IsBoolean, IsNumber, IsOptional,
-  IsArray, ValidateNested, Min,
+  IsArray, ValidateNested, Min, Max, ArrayMinSize,
 } from 'class-validator';
 
 export class HoldItemDto {
@@ -37,11 +37,14 @@ export class HoldItemDto {
   quantity: number;
 
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   unitPrice: number;
 
   @IsNumber()
   @IsOptional()
+  @Min(0)
+  @Max(100)
   @Type(() => Number)
   discountPercent?: number;
 
@@ -80,19 +83,23 @@ export class CreateHoldDto {
   isB2B?: boolean;
 
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => HoldItemDto)
   items: HoldItemDto[];
 
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   subtotal: number;
 
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   grandTotal: number;
 
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   itemCount: number;
 

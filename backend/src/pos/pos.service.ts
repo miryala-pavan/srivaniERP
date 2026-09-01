@@ -81,8 +81,21 @@ export class PosService {
   // ─── COUNTER ──────────────────────────────────────────
 
   async createCounter(businessId: string, dto: CreateCounterDto) {
-    // Resolve branch: explicit or first active branch
-    const branchId = dto.branchId ?? await this.getFirstBranchId(businessId);
+    // Resolve branch: explicit or first active branch. When explicit, verify
+    // it actually belongs to this business — otherwise a caller could point
+    // a counter at another tenant's branch, silently misdirecting every
+    // stock/GL/shift write this counter ever makes.
+    let branchId: string;
+    if (dto.branchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: dto.branchId, businessId },
+        select: { id: true },
+      });
+      if (!branch) throw new NotFoundException('Branch not found');
+      branchId = branch.id;
+    } else {
+      branchId = await this.getFirstBranchId(businessId);
+    }
 
     const existing = await this.prisma.posCounter.findUnique({
       where: { businessId_code: { businessId, code: dto.code.toUpperCase() } },
@@ -1650,7 +1663,6 @@ export class PosService {
     businessId: string,
     userId: string,
     userRole: string,
-    userShiftId: string | null,
     billId: string,
     reason: string,
     userName: string,
@@ -1684,7 +1696,14 @@ export class PosService {
       if (bill.createdById !== userId) {
         throw new BadRequestException('Cashiers can only void their own bills');
       }
-      if (userShiftId && bill.shiftId !== userShiftId) {
+      // Looked up server-side rather than trusted from the client/JWT — a
+      // shift is short-lived, changing state (open/close during the same
+      // login session), so it can't live in a JWT claim without going stale.
+      const currentShift = await this.prisma.posShift.findFirst({
+        where: { cashierId: userId, status: 'OPEN', counter: { businessId } },
+        select: { id: true },
+      });
+      if (bill.shiftId && currentShift?.id !== bill.shiftId) {
         throw new BadRequestException('Cashiers can only void bills from their current shift');
       }
     }
@@ -1881,20 +1900,15 @@ export class PosService {
     // notes against the same bill could each restore up to the full original
     // quantity, over and over.
     const originalItemMap = new Map(originalBill.items.map((i) => [i.productId, i]));
-    const priorReturned = await this.prisma.creditNoteItem.groupBy({
-      by: ['productId'],
-      where: { creditNote: { originalBillId: dto.originalBillId, businessId } },
-      _sum: { quantity: true },
-    });
-    const priorReturnedMap = new Map(priorReturned.map((p) => [p.productId, Number(p._sum.quantity ?? 0)]));
+    // Refund price can never exceed what the customer actually paid per unit
+    // — otherwise a refund-role user could inflate unitPrice to pay out more
+    // than the item was ever sold for. A lower price (partial waiver) stays legal.
     for (const item of dto.items) {
       const orig = originalItemMap.get(item.productId);
       if (!orig) throw new BadRequestException(`Product ${item.productId} not found in original bill`);
-      const alreadyReturned = priorReturnedMap.get(item.productId) ?? 0;
-      if (alreadyReturned + item.quantity > Number(orig.quantity)) {
+      if (item.unitPrice > Number(orig.unitPrice) + 0.005) {
         throw new BadRequestException(
-          `Cannot return more than purchased quantity for ${orig.productName} ` +
-          `(${alreadyReturned} of ${orig.quantity} already returned)`,
+          `Refund price for ${orig.productName} (₹${item.unitPrice}) cannot exceed the original sale price (₹${orig.unitPrice})`,
         );
       }
     }
@@ -1958,6 +1972,28 @@ export class PosService {
     });
 
     const cn = await this.prisma.$transaction(async (tx) => {
+      // Lock the original bill for the duration of this transaction — closes
+      // the race where two concurrent credit notes against the same bill
+      // both read the same "already returned" total and jointly over-refund.
+      await tx.$queryRaw`SELECT id FROM "sales_bill" WHERE id = ${dto.originalBillId} FOR UPDATE`;
+
+      const priorReturned = await tx.creditNoteItem.groupBy({
+        by: ['productId'],
+        where: { creditNote: { originalBillId: dto.originalBillId, businessId } },
+        _sum: { quantity: true },
+      });
+      const priorReturnedMap = new Map(priorReturned.map((p) => [p.productId, Number(p._sum.quantity ?? 0)]));
+      for (const item of dto.items) {
+        const orig = originalItemMap.get(item.productId)!;
+        const alreadyReturned = priorReturnedMap.get(item.productId) ?? 0;
+        if (alreadyReturned + item.quantity > Number(orig.quantity)) {
+          throw new BadRequestException(
+            `Cannot return more than purchased quantity for ${orig.productName} ` +
+            `(${alreadyReturned} of ${orig.quantity} already returned)`,
+          );
+        }
+      }
+
       let series = cnSeries;
       if (!series) {
         series = await tx.billSeries.create({

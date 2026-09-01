@@ -3,16 +3,16 @@
 import {
   useEffect, useRef, useState, useCallback, useMemo,
 } from 'react';
-import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
   Search, X, Plus, Minus, Trash2, User as UserIcon, ChevronDown,
   CreditCard, Smartphone, Banknote, Loader2, CheckCircle2,
   Store, Clock, Printer, FileText, Receipt, PauseCircle, MessageCircle,
   ListOrdered, AlertTriangle, RefreshCw, Lock, XCircle, CalendarOff, Wallet,
+  ArrowUp, ArrowDown, ArrowUpDown, Copy,
 } from 'lucide-react';
 import api from '@/lib/api';
-import { getUser, getToken } from '@/lib/auth';
+import { getUser } from '@/lib/auth';
 import type { User as UserType } from '@/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
@@ -84,6 +84,12 @@ interface LoyaltyPreview {
   enabled: boolean; availablePoints: number;
   minRedeemPoints: number; maxRedeemPoints: number;
   valuePerPoint: number; earnPer100: number; projectedEarned: number; canRedeem: boolean;
+}
+interface ReprintBillRow {
+  id: string; billNumber: string | null; billDate: string; grandTotal: number;
+  customerName: string | null; customerPhone: string | null;
+  paymentMode: string; isVoided: boolean; itemCount: number;
+  cashierName: string; counterName: string;
 }
 interface Receipt {
   billId?: string;
@@ -592,6 +598,22 @@ export default function PosPage() {
   const [payMode, setPayMode]         = useState<PayMode>('CASH');
   const [cashReceived, setCashReceived] = useState('');
   const [showPayModal, setShowPayModal] = useState(false);
+  const [showConfirmPayModal, setShowConfirmPayModal] = useState(false); // UPI/Card — confirm before instantly finalizing the sale
+
+  // Reprint an older receipt — search by bill#/phone/customer/date, since
+  // the in-memory "last bill" is lost the moment the page refreshes or a
+  // new sale starts.
+  const [showReprintSearch, setShowReprintSearch]   = useState(false);
+  const [reprintQuery, setReprintQuery]             = useState({ billNumber: '', phone: '', customerName: '', date: '' });
+  const [reprintResults, setReprintResults]         = useState<ReprintBillRow[]>([]);
+  const [reprintLoading, setReprintLoading]         = useState(false);
+  const [reprintSort, setReprintSort]               = useState<{ key: 'billDate' | 'grandTotal' | 'billNumber'; dir: 'asc' | 'desc' }>({ key: 'billDate', dir: 'desc' });
+  const [reprintBill, setReprintBill]               = useState<Receipt | null>(null);
+  const [reprintBillId, setReprintBillId]           = useState<string | null>(null);
+
+  // Held Bills — search + sort (per CLAUDE.md: every list needs both)
+  const [heldSearch, setHeldSearch]                 = useState('');
+  const [heldSort, setHeldSort]                     = useState<{ key: 'heldAt' | 'grandTotal'; dir: 'asc' | 'desc' }>({ key: 'heldAt', dir: 'desc' });
   const [billing, setBilling]         = useState(false);
 
   // Credit sale
@@ -622,6 +644,13 @@ export default function PosPage() {
     staleTime: 0,
   });
   const heldBills = (heldBillsData ?? []) as HeldBill[];
+
+  const { data: storeWaData } = useQuery({
+    queryKey: ['store-wa-number'],
+    queryFn:  async () => (await api.get<{ storeNum: string | null }>('/notifications/whatsapp/store-number')).data,
+    staleTime: 5 * 60_000,
+  });
+  const storeWaNumber = storeWaData?.storeNum ?? null;
 
   // Edit cell
   const [editingCell, setEditingCell] = useState<{ key: string; field: 'qty' | 'disc' } | null>(null);
@@ -923,8 +952,8 @@ export default function PosPage() {
         e.preventDefault();
         e.stopPropagation();
         if (matchesShortcut(e, shortcuts.cash))     { if (cart.length) { setPayMode('CASH'); setShowPayModal(true); } }
-        if (matchesShortcut(e, shortcuts.upi))      { if (cart.length) pay('UPI'); }
-        if (matchesShortcut(e, shortcuts.card))     { if (cart.length) pay('CARD'); }
+        if (matchesShortcut(e, shortcuts.upi))      { if (cart.length) { setPayMode('UPI'); setShowConfirmPayModal(true); } }
+        if (matchesShortcut(e, shortcuts.card))     { if (cart.length) { setPayMode('CARD'); setShowConfirmPayModal(true); } }
         if (matchesShortcut(e, shortcuts.print)) {
           if (lastBill) {
             setShowPrintChoice(true);
@@ -1407,6 +1436,7 @@ export default function PosPage() {
 
   // ── Hold bill ─────────────────────────────────────────────
   async function holdBill() {
+    if (holding) return; // already submitting — ignore a fast double-click
     if (cart.length === 0) { toast.error('Cart is empty. Nothing to hold.'); return; }
     if (!shift) { toast.error('No active shift'); return; }
     setHolding(true);
@@ -1513,6 +1543,7 @@ export default function PosPage() {
 
   // ── Save estimate ─────────────────────────────────────────
   async function saveEstimate() {
+    if (billing) return; // already submitting — ignore a fast double-click
     if (!shift) return toast.error('No active shift');
     if (cart.length === 0) return toast.error('Cart is empty');
     setBilling(true);
@@ -1557,6 +1588,7 @@ export default function PosPage() {
   // ── Pay ───────────────────────────────────────────────────
   async function pay(mode: PayMode, cashAmt?: number) {
     if (mode === 'CREDIT') return; // credit handled by payCreditSale
+    if (billing) return; // already submitting — ignore a fast double-Enter/click
     if (!shift) return toast.error('No active shift');
     if (cart.length === 0) return toast.error('Cart is empty');
     if (mode === 'CASH') {
@@ -1623,6 +1655,7 @@ export default function PosPage() {
 
   // ── Pay on credit ─────────────────────────────────────────
   async function payCreditSale() {
+    if (billing) return; // already submitting — ignore a fast double-Enter/click
     if (!shift) return toast.error('No active shift');
     if (cart.length === 0) return toast.error('Cart is empty');
     if (!customer) return toast.error('Select a customer for credit sale');
@@ -1719,6 +1752,150 @@ export default function PosPage() {
       counterName:    shift?.counter.name ?? '',
       cashierName:    me?.fullName ?? me?.username ?? '',
     });
+  }
+
+  // ─── Copy a WhatsApp-shareable bill link ─────────────────────────────────────
+  // Copies a message (with a wa.me link to the STORE's own WhatsApp number)
+  // to the clipboard, for the cashier to paste into their own personal
+  // WhatsApp and send to the customer. When the customer taps the link, it
+  // opens WhatsApp pre-filled with the bill number, addressed to the store —
+  // sending it triggers the auto-reply bot (see autoReplyBillLookup on the
+  // backend) to reply with the bill plus the usual menu.
+  function copyBillLink(r: Receipt) {
+    if (!storeWaNumber) {
+      toast.error('Store WhatsApp number is not configured — set it in WhatsApp Settings.');
+      return;
+    }
+    const digits = storeWaNumber.replace(/\D/g, '');
+    const prefill = `Show my bill ${r.billNumber}`;
+    const waLink = `https://wa.me/${digits}?text=${encodeURIComponent(prefill)}`;
+    const message = [
+      `Hi${r.customerName ? ' ' + r.customerName : ''}! 🧾 Your bill from ${bizInfo?.name ?? 'the store'} is ready.`,
+      '',
+      `Bill: ${r.billNumber}`,
+      `Amount: ${inr(r.grandTotal)}`,
+      '',
+      `Tap here to view it on WhatsApp: ${waLink}`,
+    ].join('\n');
+    navigator.clipboard.writeText(message)
+      .then(() => toast.success('Bill link copied! Paste it in WhatsApp to send to the customer.'))
+      .catch(() => toast.error('Could not copy — your browser blocked clipboard access.'));
+  }
+
+  // ─── Reprint an older receipt ───────────────────────────────────────────────
+
+  async function searchOldBills() {
+    const { billNumber, phone, customerName, date } = reprintQuery;
+    if (!billNumber && !phone && !customerName && !date) {
+      toast.error('Enter a bill number, phone, customer name, or date to search');
+      return;
+    }
+    setReprintLoading(true);
+    try {
+      const params: Record<string, string> = {};
+      if (billNumber)   params.billNumber   = billNumber;
+      if (phone)        params.phone        = phone;
+      if (customerName) params.customerName = customerName;
+      if (date)          params.date        = date;
+      const res = await api.get<{ bills: ReprintBillRow[] }>('/pos/bills/search', { params });
+      setReprintResults(res.data.bills);
+      if (res.data.bills.length === 0) toast.error('No bills found');
+    } catch {
+      toast.error('Search failed');
+    } finally {
+      setReprintLoading(false);
+    }
+  }
+
+  const sortedReprintResults = useMemo(() => {
+    const { key, dir } = reprintSort;
+    const mul = dir === 'asc' ? 1 : -1;
+    return [...reprintResults].sort((a, b) => {
+      if (key === 'grandTotal') return (a.grandTotal - b.grandTotal) * mul;
+      if (key === 'billNumber') return (a.billNumber ?? '').localeCompare(b.billNumber ?? '') * mul;
+      return (new Date(a.billDate).getTime() - new Date(b.billDate).getTime()) * mul;
+    });
+  }, [reprintResults, reprintSort]);
+
+  function toggleReprintSort(key: typeof reprintSort.key) {
+    setReprintSort((s) => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  }
+
+  const visibleHeldBills = useMemo(() => {
+    const q = heldSearch.trim().toLowerCase();
+    let list = heldBills;
+    if (q) {
+      list = list.filter((h) =>
+        h.holdNumber.toLowerCase().includes(q) ||
+        (h.customerName ?? '').toLowerCase().includes(q) ||
+        (h.customerPhone ?? '').includes(q),
+      );
+    }
+    const { key, dir } = heldSort;
+    const mul = dir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) =>
+      key === 'grandTotal'
+        ? (a.grandTotal - b.grandTotal) * mul
+        : (new Date(a.heldAt).getTime() - new Date(b.heldAt).getTime()) * mul,
+    );
+  }, [heldBills, heldSearch, heldSort]);
+
+  function toggleHeldSort(key: typeof heldSort.key) {
+    setHeldSort((s) => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  }
+
+  async function openReprint(row: ReprintBillRow) {
+    try {
+      const res = await api.get<{
+        bill: {
+          id: string; billNumber: string | null; billDate: string; grandTotal: string | number;
+          billType: BillType; validityDate: string | null;
+          items: Array<{
+            productName: string; hsnCode: string | null; quantity: string | number; unitPrice: string | number;
+            mrp: string | number | null; discountPercent: string | number; gstRatePercent: string | number;
+            taxableAmount: string | number; cgstAmount: string | number; sgstAmount: string | number;
+            totalAmount: string | number; unitOfMeasure: string | null;
+          }>;
+          subtotalAmount: string | number; discountAmount: string | number; taxableAmount: string | number;
+          cgstTotal: string | number; sgstTotal: string | number; cessTotal: string | number;
+          paymentMode: PayMode; cashAmount: string | number | null;
+          customerName: string | null; customerPhone: string | null; customerGstin: string | null; isB2B: boolean;
+          counterName: string | null; cashierName: string | null;
+        };
+        business: BizInfo;
+      }>(`/pos/bills/${row.id}/full`);
+      const b = res.data.bill;
+      const n = (v: string | number | null | undefined) => v === null || v === undefined ? 0 : Number(v);
+      const mrpTotal = b.items.reduce((s, i) => s + n(i.mrp) * n(i.quantity), 0);
+      const grandTotal = n(b.grandTotal);
+      const receipt: Receipt = {
+        billId: b.id,
+        billNumber: b.billNumber ?? '', billDate: b.billDate, grandTotal, billType: b.billType,
+        isEstimate: b.billType === 'ESTIMATE',
+        validityDate: b.validityDate ?? undefined,
+        items: b.items.map((i) => ({
+          name: i.productName, hsnCode: i.hsnCode ?? undefined, quantity: n(i.quantity), unitPrice: n(i.unitPrice),
+          mrp: n(i.mrp), discountPercent: n(i.discountPercent), gstRatePercent: n(i.gstRatePercent),
+          taxable: n(i.taxableAmount), cgst: n(i.cgstAmount), sgst: n(i.sgstAmount), totalAmount: n(i.totalAmount),
+          unitOfMeasure: i.unitOfMeasure ?? '',
+        })),
+        subtotalAmount: n(b.subtotalAmount), discountAmount: n(b.discountAmount), taxableAmount: n(b.taxableAmount),
+        cgstTotal: n(b.cgstTotal), sgstTotal: n(b.sgstTotal), cessTotal: n(b.cessTotal),
+        mrpTotal, savings: Math.max(0, r2(mrpTotal - grandTotal)),
+        payMode: b.paymentMode,
+        cashReceived: b.cashAmount !== null ? n(b.cashAmount) : undefined,
+        changeAmount: b.cashAmount !== null ? r2(n(b.cashAmount) - grandTotal) : undefined,
+        customerName: b.customerName ?? undefined, customerPhone: b.customerPhone ?? undefined,
+        customerGstin: b.customerGstin ?? undefined, isB2B: b.isB2B,
+        counterName: b.counterName ?? '', cashierName: b.cashierName ?? '',
+      };
+      setReprintBill(receipt);
+      setReprintBillId(row.id);
+      setShowReprintSearch(false);
+      api.post(`/pos/bills/${row.id}/duplicate-print`).catch(() => {}); // audit trail — best-effort
+    } catch {
+      toast.error('Could not load bill');
+    }
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -1823,7 +2000,7 @@ export default function PosPage() {
           </div>
 
           {isB2B && (
-            <span className="text-xs bg-blue-100 text-blue-600 border border-blue-200 px-2 py-0.5 rounded-full">B2B</span>
+            <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded-full">B2B</span>
           )}
 
           {/* Hold bill button */}
@@ -1840,6 +2017,16 @@ export default function PosPage() {
           >
             {holding ? <Loader2 className="w-3 h-3 animate-spin" /> : <PauseCircle className="w-3 h-3" />}
             {heldCount > 0 ? `Hold | ${heldCount} held` : 'Hold'}
+          </button>
+
+          {/* Reprint an older receipt */}
+          <button
+            onClick={() => { setReprintResults([]); setReprintQuery({ billNumber: '', phone: '', customerName: '', date: '' }); setShowReprintSearch(true); }}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border bg-gray-100 border-gray-200 text-gray-500 hover:border-gray-400 transition-colors ml-1"
+            title="Reprint or reshare an earlier bill"
+          >
+            <Printer className="w-3 h-3" />
+            Reprint
           </button>
         </div>
 
@@ -1928,7 +2115,7 @@ export default function PosPage() {
                         <p className="text-xs text-gray-500">{c.phone}</p>
                       </div>
                       {Number(c.outstandingBalance) > 0 && (
-                        <span className="text-xs text-amber-400">Due: {inr(Number(c.outstandingBalance))}</span>
+                        <span className="text-xs text-amber-600">Due: {inr(Number(c.outstandingBalance))}</span>
                       )}
                     </button>
                   ))}
@@ -2015,7 +2202,7 @@ export default function PosPage() {
                 {isB2B && <span className="text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded">B2B</span>}
                 <div className="ml-auto flex items-center gap-2 shrink-0">
                   {(customer.loyaltyPoints ?? 0) > 0 && (
-                    <span className="text-xs font-medium text-amber-700 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-full">
+                    <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
                       ⭐ {customer.loyaltyPoints} pts
                     </span>
                   )}
@@ -2122,7 +2309,7 @@ export default function PosPage() {
                         <p className="text-xs text-gray-500">{p.barcode ?? '--'} · {p.unitOfMeasure} · GST {p.gstRatePercent}%</p>
                       </div>
                       <div className="text-right ml-3 shrink-0">
-                        <p className="text-sm font-semibold text-green-400">{inr(parseFloat(String(p.sellingPrice)))}</p>
+                        <p className="text-sm font-semibold text-green-600">{inr(parseFloat(String(p.sellingPrice)))}</p>
                         <p className={cls('text-xs', Number(p.currentStock) <= 0 ? 'text-red-400' : 'text-gray-500')}>
                           Stock: {p.currentStock}
                         </p>
@@ -2257,7 +2444,7 @@ export default function PosPage() {
           <div className="flex-1 p-4 space-y-1 overflow-auto">
             <Row label="Subtotal"  value={inr(totals.subtotalAmount)} />
             {totals.discountAmount > 0 && (
-              <Row label="Discount" value={`- ${inr(totals.discountAmount)}`} valueClass="text-amber-400" />
+              <Row label="Discount" value={`- ${inr(totals.discountAmount)}`} valueClass="text-amber-600" />
             )}
             <Row label="Taxable"   value={inr(totals.taxableAmount)} />
             <div className="border-t border-gray-100 my-2" />
@@ -2273,7 +2460,7 @@ export default function PosPage() {
                 {loyaltyDiscount > 0 && (
                   <div className="text-xs text-amber-600 line-through">{inr(totals.grandTotal)}</div>
                 )}
-                <span className="text-3xl font-bold text-green-400">{inr(effectiveGrandTotal)}</span>
+                <span className="text-3xl font-semibold tracking-tight text-green-600">{inr(effectiveGrandTotal)}</span>
                 {loyaltyDiscount > 0 && (
                   <div className="text-xs text-amber-700 font-medium">⭐ −{inr(loyaltyDiscount)} loyalty</div>
                 )}
@@ -2405,6 +2592,7 @@ export default function PosPage() {
                     setCreditPaidNow('');
                     setShowCreditModal(true);
                   }
+                  else if (payMode === 'UPI' || payMode === 'CARD') { setShowConfirmPayModal(true); }
                   else pay(payMode);
                 }}
                 className={cls(
@@ -2892,7 +3080,7 @@ export default function PosPage() {
         <Modal onClose={() => setShowPayModal(false)}>
           <div className="w-72">
             <h2 className="text-gray-900 font-semibold mb-1">Cash Payment</h2>
-            <div className="text-green-400 text-3xl font-bold mb-5">{inr(effectiveGrandTotal)}</div>
+            <div className="text-green-600 text-3xl font-semibold tracking-tight mb-5">{inr(effectiveGrandTotal)}</div>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500 mb-1.5 block">Cash Received (Rs.)</label>
@@ -2940,6 +3128,34 @@ export default function PosPage() {
         </Modal>
       )}
 
+      {/* UPI/Card confirm modal — a stray keypress/misclick with a loaded
+          cart used to finalize the sale instantly with no confirmation
+          step, unlike Cash which already required entering an amount. */}
+      {showConfirmPayModal && (payMode === 'UPI' || payMode === 'CARD') && (
+        <Modal onClose={() => setShowConfirmPayModal(false)}>
+          <div className="w-72 text-center">
+            {payMode === 'UPI'
+              ? <Smartphone className="w-10 h-10 text-blue-500 mx-auto mb-3" />
+              : <CreditCard className="w-10 h-10 text-blue-500 mx-auto mb-3" />}
+            <h2 className="text-gray-900 font-semibold mb-1">{payMode === 'UPI' ? 'UPI Payment' : 'Card Payment'}</h2>
+            <div className="text-green-600 text-3xl font-semibold tracking-tight mb-4">{inr(effectiveGrandTotal)}</div>
+            <p className="text-sm text-gray-500 mb-5">Confirm the customer has completed the payment before finalizing this sale.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setShowConfirmPayModal(false)}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium transition-colors border border-gray-200">
+                Cancel
+              </button>
+              <button disabled={billing}
+                onClick={() => { setShowConfirmPayModal(false); pay(payMode); }}
+                className="flex-1 py-2.5 bg-green-600 hover:bg-green-500 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                {billing && <Loader2 className="w-4 h-4 animate-spin" />}
+                {billing ? 'Processing...' : 'Confirm Payment'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Credit sale modal */}
       {showCreditModal && (
         <Modal onClose={() => setShowCreditModal(false)}>
@@ -2954,7 +3170,7 @@ export default function PosPage() {
                 )}
               </div>
             )}
-            <div className="text-green-400 text-3xl font-bold mb-4">{inr(effectiveGrandTotal)}</div>
+            <div className="text-green-600 text-3xl font-semibold tracking-tight mb-4">{inr(effectiveGrandTotal)}</div>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500 mb-1.5 block">Paid Now (Rs.) — leave 0 for full credit</label>
@@ -3011,21 +3227,21 @@ export default function PosPage() {
       {showSuccess && lastBill && (
         <Modal>
           <div className="w-80 text-center">
-            <CheckCircle2 className="w-14 h-14 text-green-400 mx-auto mb-3" />
+            <CheckCircle2 className="w-14 h-14 text-green-600 mx-auto mb-3" />
             <h2 className="text-gray-900 font-bold text-lg mb-1">
               {lastBill.isEstimate ? 'Estimate Saved!' : 'Bill Created!'}
             </h2>
-            <p className="text-green-400 text-2xl font-bold mb-1">{lastBill.billNumber}</p>
+            <p className="text-green-600 text-2xl font-semibold tracking-tight mb-1">{lastBill.billNumber}</p>
             <p className="text-gray-500 text-sm mb-2">{inr(lastBill.grandTotal)}</p>
             {lastBill.savings > 0 && (
-              <p className="text-amber-400 text-xs mb-4">Customer saved {inr(lastBill.savings)}!</p>
+              <p className="text-amber-600 text-xs mb-4">Customer saved {inr(lastBill.savings)}!</p>
             )}
             {lastBill.isEstimate && lastBill.validityDate && (
-              <p className="text-orange-400 text-xs mb-4">
+              <p className="text-orange-600 text-xs mb-4">
                 Valid until {new Date(lastBill.validityDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
               </p>
             )}
-            <div className="grid grid-cols-2 gap-2 mb-3">
+            <div className="grid grid-cols-3 gap-2 mb-3">
               <button onClick={() => openPrint(buildThermalHtml(lastBill, bizInfo), 420, 750)}
                 className="py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
                 <Printer className="w-4 h-4" />Thermal
@@ -3046,8 +3262,13 @@ export default function PosPage() {
                 className="py-2.5 bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
                 <MessageCircle className="w-4 h-4" />WhatsApp
               </button>
+              <button onClick={() => copyBillLink(lastBill)}
+                title="Copy a message with a link the customer can tap to view this bill on WhatsApp"
+                className="py-2.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
+                <Copy className="w-4 h-4" />Copy Link
+              </button>
               <button onClick={newBill}
-                className="py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
+                className="col-span-2 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
                 <Plus className="w-4 h-4" />New Bill
               </button>
             </div>
@@ -3093,6 +3314,147 @@ export default function PosPage() {
         </Modal>
       )}
 
+      {/* Reprint: search modal */}
+      {showReprintSearch && (
+        <Modal onClose={() => setShowReprintSearch(false)}>
+          <div className="w-[26rem]">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-gray-900 font-semibold">Reprint a Bill</h2>
+              <button onClick={() => setShowReprintSearch(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <input
+                autoFocus
+                placeholder="Bill number"
+                value={reprintQuery.billNumber}
+                onChange={(e) => setReprintQuery((q) => ({ ...q, billNumber: e.target.value }))}
+                onKeyDown={(e) => e.key === 'Enter' && searchOldBills()}
+                className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:border-blue-500"
+              />
+              <input
+                placeholder="Phone"
+                value={reprintQuery.phone}
+                onChange={(e) => setReprintQuery((q) => ({ ...q, phone: e.target.value }))}
+                onKeyDown={(e) => e.key === 'Enter' && searchOldBills()}
+                className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:border-blue-500"
+              />
+              <input
+                placeholder="Customer name"
+                value={reprintQuery.customerName}
+                onChange={(e) => setReprintQuery((q) => ({ ...q, customerName: e.target.value }))}
+                onKeyDown={(e) => e.key === 'Enter' && searchOldBills()}
+                className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:border-blue-500"
+              />
+              <input
+                type="date"
+                value={reprintQuery.date}
+                onChange={(e) => setReprintQuery((q) => ({ ...q, date: e.target.value }))}
+                className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:border-blue-500"
+              />
+            </div>
+            <button
+              onClick={searchOldBills}
+              disabled={reprintLoading}
+              className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 mb-3"
+            >
+              {reprintLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              Search
+            </button>
+
+            {reprintResults.length > 0 && (
+              <div className="border border-gray-200 rounded-lg overflow-hidden max-h-72 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      {([
+                        ['billNumber', 'Bill #'],
+                        ['billDate',   'Date'],
+                        ['grandTotal', 'Amount'],
+                      ] as const).map(([key, label]) => (
+                        <th key={key}
+                          onClick={() => toggleReprintSort(key)}
+                          className="text-left px-2.5 py-2 font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700"
+                        >
+                          <span className="flex items-center gap-1">
+                            {label}
+                            {reprintSort.key === key
+                              ? (reprintSort.dir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)
+                              : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+                          </span>
+                        </th>
+                      ))}
+                      <th className="px-2.5 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sortedReprintResults.map((b) => (
+                      <tr key={b.id} className="hover:bg-gray-50">
+                        <td className="px-2.5 py-2 font-mono text-gray-700">{b.billNumber ?? '—'}</td>
+                        <td className="px-2.5 py-2 text-gray-500">{new Date(b.billDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
+                        <td className="px-2.5 py-2 text-gray-700">{inr(b.grandTotal)}</td>
+                        <td className="px-2.5 py-2 text-right">
+                          {b.isVoided ? (
+                            <span className="text-red-500 text-[10px] font-medium">VOIDED</span>
+                          ) : (
+                            <button onClick={() => openReprint(b)} className="text-blue-600 hover:text-blue-700 font-medium">
+                              Open
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Reprint: print/share the selected old bill */}
+      {reprintBill && (
+        <Modal onClose={() => { setReprintBill(null); setReprintBillId(null); }}>
+          <div className="w-80 text-center">
+            <Receipt className="w-12 h-12 text-blue-500 mx-auto mb-3" />
+            <h2 className="text-gray-900 font-semibold text-lg mb-1">{reprintBill.billNumber}</h2>
+            <p className="text-gray-500 text-sm mb-1">{new Date(reprintBill.billDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+            <p className="text-gray-700 text-2xl font-semibold tracking-tight mb-4">{inr(reprintBill.grandTotal)}</p>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <button onClick={() => openPrint(buildThermalHtml(reprintBill, bizInfo), 420, 750)}
+                className="py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
+                <Printer className="w-4 h-4" />Thermal
+              </button>
+              <button onClick={() => openPrint(buildA4Html(reprintBill, bizInfo))}
+                className="py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
+                <Receipt className="w-4 h-4" />A4
+              </button>
+              <button
+                onClick={() => {
+                  const msg = encodeURIComponent(buildWhatsAppMessage(reprintBill, bizInfo));
+                  const phone = reprintBill.customerPhone?.replace(/\D/g, '');
+                  const url = phone ? `https://wa.me/91${phone}?text=${msg}` : `https://wa.me/?text=${msg}`;
+                  window.open(url, '_blank');
+                }}
+                className="py-2.5 bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
+                <MessageCircle className="w-4 h-4" />WhatsApp
+              </button>
+              <button onClick={() => copyBillLink(reprintBill)}
+                title="Copy a message with a link the customer can tap to view this bill on WhatsApp"
+                className="py-2.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
+                <Copy className="w-4 h-4" />Copy Link
+              </button>
+              <button onClick={() => { setReprintBill(null); setReprintBillId(null); }}
+                className="col-span-2 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-semibold text-xs transition-colors flex flex-col items-center gap-1">
+                <X className="w-4 h-4" />Close
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400">Reprint logged to the audit trail</p>
+          </div>
+        </Modal>
+      )}
+
       {/* Held Bills Modal */}
       {showHoldModal && (
         <Modal onClose={() => setShowHoldModal(false)}>
@@ -3116,6 +3478,40 @@ export default function PosPage() {
               </div>
             )}
 
+            {heldBills.length > 0 && (
+              <div className="flex items-center gap-2 mb-3">
+                <div className="relative flex-1">
+                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    value={heldSearch}
+                    onChange={(e) => setHeldSearch(e.target.value)}
+                    placeholder="Search hold #, customer, phone…"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                  />
+                </div>
+                <button
+                  onClick={() => toggleHeldSort('heldAt')}
+                  className={cls('flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border transition-colors',
+                    heldSort.key === 'heldAt' ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300')}
+                >
+                  Time
+                  {heldSort.key === 'heldAt'
+                    ? (heldSort.dir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)
+                    : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                </button>
+                <button
+                  onClick={() => toggleHeldSort('grandTotal')}
+                  className={cls('flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border transition-colors',
+                    heldSort.key === 'grandTotal' ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300')}
+                >
+                  Amount
+                  {heldSort.key === 'grandTotal'
+                    ? (heldSort.dir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)
+                    : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                </button>
+              </div>
+            )}
+
             {holdLoading ? (
               <div className="flex items-center justify-center py-12 text-gray-500">
                 <Loader2 className="w-5 h-5 animate-spin mr-2" />Loading...
@@ -3125,9 +3521,13 @@ export default function PosPage() {
                 <PauseCircle className="w-10 h-10 mx-auto mb-2 opacity-30" />
                 <p className="text-sm">No bills on hold</p>
               </div>
+            ) : visibleHeldBills.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <p className="text-sm">No held bills match &quot;{heldSearch}&quot;</p>
+              </div>
             ) : (
               <div className="space-y-2 max-h-80 overflow-y-auto">
-                {heldBills.map((held) => (
+                {visibleHeldBills.map((held) => (
                   <div key={held.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center gap-3">
                     <div className={cls(
                       'w-2.5 h-2.5 rounded-full shrink-0',

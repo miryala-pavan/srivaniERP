@@ -167,6 +167,17 @@ export class NotificationsController {
     return this.whatsapp.getCredentials(req.user.businessId);
   }
 
+  // Cashier-safe subset of the above — just the store's WhatsApp number, for
+  // building a "share this bill on WhatsApp" link from POS. Deliberately not
+  // reusing the SUPER_ADMIN/BRANCH_MANAGER-only route above, which also
+  // exposes phoneId/wabaId/connection status.
+  @Roles('SUPER_ADMIN', 'BRANCH_MANAGER', 'CASHIER', 'FLOOR_SUPERVISOR')
+  @Get('whatsapp/store-number')
+  async getStoreWhatsAppNumber(@Request() req: any) {
+    const { storeNum } = await this.whatsapp.getCredentials(req.user.businessId);
+    return { storeNum };
+  }
+
   @Roles('SUPER_ADMIN')
   @Patch('whatsapp/credentials')
   saveCredentials(
