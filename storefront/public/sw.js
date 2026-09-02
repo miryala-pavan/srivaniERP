@@ -50,8 +50,13 @@ self.addEventListener('fetch', (e) => {
       caches.match(request).then(cached => {
         if (cached) return cached;
         return fetch(request).then(res => {
+          // clone() must run before the body is read anywhere else — caches.open()
+          // is async, and by the time its .then() fires, the browser may already
+          // be streaming `res`'s body to the page from the `return res` below,
+          // which makes clone() throw "Response body is already used".
           if (res.ok && res.status === 200) {
-            caches.open(CACHE).then(c => c.put(request, res.clone()));
+            const resCopy = res.clone();
+            caches.open(CACHE).then(c => c.put(request, resCopy));
           }
           return res;
         }).catch(() => Response.error());
@@ -66,7 +71,10 @@ self.addEventListener('fetch', (e) => {
       caches.match(request).then(cached => {
         if (cached) return cached;
         return fetch(request).then(res => {
-          if (res.ok) caches.open(CACHE).then(c => c.put(request, res.clone()));
+          if (res.ok) {
+            const resCopy = res.clone();
+            caches.open(CACHE).then(c => c.put(request, resCopy));
+          }
           return res;
         }).catch(() => Response.error());
       }),
