@@ -102,10 +102,17 @@ Pop-Location
 Say "Building rider"
 Push-Location "$RepoRoot\rider"
 if (-not (Test-Path ".env.production")) { Pop-Location; Fail "rider\.env.production is missing - a local build without it would bake localhost URLs into the production bundle" }
+# .env.local (dev-only, gitignored) outranks .env.production in Next.js's env
+# precedence and would silently override it - confirmed the hard way (a first
+# deploy shipped http://localhost:4001 baked into the rider bundle). Move it
+# aside for the build, always restore it after, even on failure.
+$riderEnvLocalMoved = $false
+if (Test-Path ".env.local") { Move-Item ".env.local" ".env.local.deploy-bak" -Force; $riderEnvLocalMoved = $true }
 $env:RIDER_BASE_PATH = '/rider'
 npm run build
 $riderBuildExit = $LASTEXITCODE
 Remove-Item Env:\RIDER_BASE_PATH
+if ($riderEnvLocalMoved) { Move-Item ".env.local.deploy-bak" ".env.local" -Force }
 if ($riderBuildExit -ne 0) { Pop-Location; Fail "rider build failed" }
 Pop-Location
 
