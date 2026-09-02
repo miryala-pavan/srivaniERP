@@ -40,6 +40,13 @@ if [ -d "$APP/storefront/.next.old" ]; then
   rolled_back="$rolled_back storefront"
 fi
 
+if [ -d "$APP/rider/out.old" ]; then
+  rm -rf "$APP/rider/out.rolled_back"
+  mv "$APP/rider/out" "$APP/rider/out.rolled_back"
+  mv "$APP/rider/out.old" "$APP/rider/out"
+  rolled_back="$rolled_back rider"
+fi
+
 if [ -z "$rolled_back" ]; then
   echo "ROLLBACK_NOOP no .old build found for backend, frontend, or storefront — nothing to roll back (either nothing's been deployed since the last rollback, or this is the first deploy)"
   exit 0

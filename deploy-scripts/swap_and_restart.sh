@@ -25,6 +25,14 @@ mv "$APP/storefront/.next" "$APP/storefront/.next.old"
 mv /tmp/snext/.next "$APP/storefront/.next"
 tar -xzf /tmp/storefront-public.tgz -C "$APP/storefront"
 
+# Static export - no process, no npm install, nginx serves out/ directly via alias.
+mkdir -p "$APP/rider"
+rm -rf /tmp/rout && mkdir -p /tmp/rout
+tar -xzf /tmp/rider-out.tgz -C /tmp/rout
+rm -rf "$APP/rider/out.old"
+if [ -d "$APP/rider/out" ]; then mv "$APP/rider/out" "$APP/rider/out.old"; fi
+mv /tmp/rout/out "$APP/rider/out"
+
 # Sync each app's package.json/lock and install — a new dependency added
 # locally (e.g. @anthropic-ai/sdk) previously never made it to the server at
 # all: this step only ever swapped compiled dist/.next output, so a runtime

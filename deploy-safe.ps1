@@ -99,6 +99,16 @@ npm run build
 if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "storefront build failed" }
 Pop-Location
 
+Say "Building rider"
+Push-Location "$RepoRoot\rider"
+if (-not (Test-Path ".env.production")) { Pop-Location; Fail "rider\.env.production is missing - a local build without it would bake localhost URLs into the production bundle" }
+$env:RIDER_BASE_PATH = '/rider'
+npm run build
+$riderBuildExit = $LASTEXITCODE
+Remove-Item Env:\RIDER_BASE_PATH
+if ($riderBuildExit -ne 0) { Pop-Location; Fail "rider build failed" }
+Pop-Location
+
 if ($SkipSchema) {
   Say "Skipping schema diff (-SkipSchema passed)" 'Yellow'
 } else {
@@ -191,6 +201,9 @@ Get-ChildItem "$RepoRoot\storefront\.next" | Where-Object Name -ne 'cache' | For
 }
 tar -czf "$Scratch\storefront-next.tgz" -C $Scratch .next
 tar -czf "$Scratch\storefront-public.tgz" -C "$RepoRoot\storefront" public
+Remove-Item -Recurse -Force "$Scratch\.next"
+
+tar -czf "$Scratch\rider-out.tgz" -C "$RepoRoot\rider" out
 
 Say "Uploading to server"
 # Renamed per-app so backend/frontend/storefront's package.json don't collide
@@ -205,7 +218,7 @@ Copy-Item "$RepoRoot\frontend\package-lock.json"      "$Scratch\frontend-package
 Copy-Item "$RepoRoot\storefront\package.json"         "$Scratch\storefront-package.json"
 Copy-Item "$RepoRoot\storefront\package-lock.json"    "$Scratch\storefront-package-lock.json"
 
-scp "$Scratch\backend-dist.tgz" "$Scratch\next.tgz" "$Scratch\public.tgz" "$Scratch\storefront-next.tgz" "$Scratch\storefront-public.tgz" "$RepoRoot\backend\prisma\schema.prisma" "$Scratch\backend-package.json" "$Scratch\backend-package-lock.json" "$Scratch\frontend-package.json" "$Scratch\frontend-package-lock.json" "$Scratch\storefront-package.json" "$Scratch\storefront-package-lock.json" "${Server}:/tmp/"
+scp "$Scratch\backend-dist.tgz" "$Scratch\next.tgz" "$Scratch\public.tgz" "$Scratch\storefront-next.tgz" "$Scratch\storefront-public.tgz" "$Scratch\rider-out.tgz" "$RepoRoot\backend\prisma\schema.prisma" "$Scratch\backend-package.json" "$Scratch\backend-package-lock.json" "$Scratch\frontend-package.json" "$Scratch\frontend-package-lock.json" "$Scratch\storefront-package.json" "$Scratch\storefront-package-lock.json" "${Server}:/tmp/"
 if ($LASTEXITCODE -ne 0) { Fail "upload failed" }
 
 Say "Swapping in new build on server"
