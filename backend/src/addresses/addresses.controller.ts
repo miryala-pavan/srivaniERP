@@ -19,7 +19,7 @@ export class AddressesController {
 
   @Post()
   create(@Body() dto: CreateAddressDto, @Request() req: any) {
-    return this.service.create(req.verifiedPhone, dto);
+    return this.service.create(req.verifiedPhone, dto, req.verifiedBusinessId);
   }
 
   @Patch(':id')

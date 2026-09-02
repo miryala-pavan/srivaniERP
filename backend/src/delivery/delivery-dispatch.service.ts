@@ -8,6 +8,7 @@ import { DeliverySettingsService } from './delivery-settings.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { ConfirmDeliveryDto } from './dto/confirm-delivery.dto';
 import { DeliveryQueryDto } from './dto/delivery-query.dto';
+import { SavedPlacesService } from '../geocoding/saved-places.service';
 
 const SHOP_URL = (process.env.SHOP_URL ?? 'https://shop.srivani.com').replace(/\/$/, '');
 
@@ -25,6 +26,7 @@ export class DeliveryDispatchService {
     private readonly whatsapp: WhatsAppService,
     private readonly events: EventsService,
     private readonly settings: DeliverySettingsService,
+    private readonly savedPlaces: SavedPlacesService,
   ) {}
 
   private emitToRider(deliveryBoyId: string, event: string, payload: any) {
@@ -178,6 +180,13 @@ export class DeliveryDispatchService {
         trackingToken,
       },
     });
+
+    // Record the drop pin for reuse next time — fire-and-forget.
+    if (dto.deliveryLat != null && dto.deliveryLng != null) {
+      this.prisma.customer.findUnique({ where: { id: customerId }, select: { phone: true } }).then(customer => {
+        if (customer?.phone) this.savedPlaces.recordUse(businessId, customer.phone, dto.deliveryLat, dto.deliveryLng, 'staff-dispatch', dto.deliveryAddressText);
+      });
+    }
 
     await this.broadcast(delivery.id, 1);
     return delivery;

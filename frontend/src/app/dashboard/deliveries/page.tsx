@@ -14,6 +14,7 @@ import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
 import { useWebSocket } from '@/providers/WebSocketProvider';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { Tabs } from '@/components/shared/Tabs';
+import PlaceSearchBox from '@/components/maps/PlaceSearchBox';
 
 const PinPicker = dynamic(() => import('@/components/maps/PinPicker'), { ssr: false });
 
@@ -344,8 +345,11 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Drop pin — drag to the exact location</label>
-            <div className="mt-1.5 h-56 rounded-lg overflow-hidden border border-gray-200">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search or drag to set the exact location</label>
+            <div className="mt-1.5">
+              <PlaceSearchBox onSelect={(r) => { setCoords({ lat: r.lat, lng: r.lng }); if (!addressText) setAddressText(r.label); }} />
+            </div>
+            <div className="mt-2 h-56 rounded-lg overflow-hidden border border-gray-200">
               <PinPicker lat={coords.lat} lng={coords.lng} onMove={setCoords} label="Delivery location" />
             </div>
           </div>

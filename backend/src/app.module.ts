@@ -59,6 +59,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { StorefrontAuthModule } from './storefront-auth/storefront-auth.module';
 import { OrderPhotosModule } from './order-photos/order-photos.module';
 import { DeliveryModule } from './delivery/delivery.module';
+import { GeocodingModule } from './geocoding/geocoding.module';
 
 @Module({
   controllers: [AppController],
@@ -108,6 +109,7 @@ import { DeliveryModule } from './delivery/delivery.module';
     StorefrontAuthModule,
     OrderPhotosModule,
     DeliveryModule,
+    GeocodingModule,
 
     // Platform Core (Phase 0)
     HelpModule,

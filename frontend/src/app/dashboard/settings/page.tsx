@@ -401,6 +401,34 @@ export default function SettingsPage() {
     finally { setDispatchSaving(false); }
   };
 
+  // ─── Location Search (Ola Maps default, optional Google Places fallback) ─────
+  interface GeocodingSettings { olaConfigured: boolean; googleConfigured: boolean }
+  const [geocodingSettings, setGeocodingSettings] = useState<GeocodingSettings | null>(null);
+  const [geocodingLoading, setGeocodingLoading]   = useState(false);
+  const [geocodingSaving,  setGeocodingSaving]    = useState(false);
+  const [googleApiKeyInput, setGoogleApiKeyInput] = useState('');
+
+  const loadGeocodingSettings = useCallback(async () => {
+    setGeocodingLoading(true);
+    try {
+      const { data } = await api.get('/settings/geocoding');
+      setGeocodingSettings(data);
+    } catch { toast.error('Failed to load location search settings'); }
+    finally { setGeocodingLoading(false); }
+  }, []);
+
+  const saveGeocodingSettings = async () => {
+    if (!googleApiKeyInput.trim()) return;
+    setGeocodingSaving(true);
+    try {
+      const { data } = await api.put('/settings/geocoding', { googlePlacesApiKey: googleApiKeyInput.trim() });
+      setGeocodingSettings(data);
+      setGoogleApiKeyInput('');
+      toast.success('Location search settings saved');
+    } catch { toast.error('Failed to save location search settings'); }
+    finally { setGeocodingSaving(false); }
+  };
+
   // Bill starting numbers
   const [taxInvoiceStart, setTaxInvoiceStart]       = useState('');
   const [retailInvoiceStart, setRetailInvoiceStart] = useState('');
@@ -706,7 +734,7 @@ export default function SettingsPage() {
   ];
 
   useEffect(() => { if (activeTab === 'loyalty') loadLoyaltySettings(); }, [activeTab, loadLoyaltySettings]);
-  useEffect(() => { if (activeTab === 'delivery') { loadPincodes(); loadSlots(); loadDispatchSettings(); } }, [activeTab, loadPincodes, loadSlots, loadDispatchSettings]);
+  useEffect(() => { if (activeTab === 'delivery') { loadPincodes(); loadSlots(); loadDispatchSettings(); loadGeocodingSettings(); } }, [activeTab, loadPincodes, loadSlots, loadDispatchSettings, loadGeocodingSettings]);
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -1640,6 +1668,60 @@ export default function SettingsPage() {
             >
               {dispatchSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {dispatchSaving ? 'Saving...' : 'Save Dispatch Settings'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'delivery' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mt-6">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Location Search</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              Powers the address-search box at checkout and delivery dispatch. Ola Maps is the default (no setup
+              needed here — configured platform-wide). Optionally add your own Google Places API key below as a
+              fallback for the rare address Ola can&apos;t find.
+            </p>
+
+            {geocodingLoading || !geocodingSettings ? (
+              <div className="flex items-center justify-center py-10 text-gray-400">
+                <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading...
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-6 text-sm">
+                  <span className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${geocodingSettings.olaConfigured ? 'bg-green-500' : 'bg-gray-300'}`} />
+                    Ola Maps {geocodingSettings.olaConfigured ? 'configured' : 'not configured'}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${geocodingSettings.googleConfigured ? 'bg-green-500' : 'bg-gray-300'}`} />
+                    Google Places {geocodingSettings.googleConfigured ? 'configured' : 'not configured'}
+                  </span>
+                </div>
+                <label className="text-sm block max-w-md">
+                  <span className="block text-gray-600 mb-1">Google Places API key (optional)</span>
+                  <input type="password" value={googleApiKeyInput} onChange={(e) => setGoogleApiKeyInput(e.target.value)}
+                    placeholder={geocodingSettings.googleConfigured ? '••••••••••••••••••• (already set)' : 'Paste your Google Places API key'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </label>
+              </div>
+            )}
+          </div>
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <button
+              onClick={loadGeocodingSettings}
+              className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Discard changes
+            </button>
+            <button
+              onClick={saveGeocodingSettings}
+              disabled={geocodingSaving || !googleApiKeyInput.trim()}
+              className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {geocodingSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {geocodingSaving ? 'Saving...' : 'Save Google Key'}
             </button>
           </div>
         </div>

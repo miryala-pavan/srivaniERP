@@ -13,6 +13,7 @@ import { EmailService } from '../notifications/email.service';
 import { ServiceablePincodesService } from '../serviceable-pincodes/serviceable-pincodes.service';
 import { WalletService } from '../wallet/wallet.service';
 import { SettingsService } from '../settings/settings.service';
+import { SavedPlacesService } from '../geocoding/saved-places.service';
 import { Events } from '../events/event-types';
 import { lockPluById } from '../common/helpers/stock-lock.util';
 import {
@@ -49,6 +50,7 @@ export class OnlineOrdersService {
     private readonly serviceablePincodes: ServiceablePincodesService,
     private readonly wallet: WalletService,
     private readonly settings: SettingsService,
+    private readonly savedPlaces: SavedPlacesService,
   ) {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -383,6 +385,11 @@ export class OnlineOrdersService {
     // Universal customer record — fire-and-forget so checkout is never blocked
     this.upsertCustomer(businessId, dto.customerPhone, dto.customerName, dto.customerEmail)
       .catch(err => this.logger.warn(`Customer upsert failed for order ${orderNumber}: ${err instanceof Error ? err.message : err}`));
+
+    // Record the delivery pin for reuse next time — fire-and-forget, same as above.
+    if (dto.deliveryAddress?.lat != null && dto.deliveryAddress?.lng != null) {
+      this.savedPlaces.recordUse(businessId, dto.customerPhone, dto.deliveryAddress.lat, dto.deliveryAddress.lng, 'checkout');
+    }
 
     // Audit
     this.auditLog.log(

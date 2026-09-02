@@ -10,9 +10,10 @@ import { WalletModule } from '../wallet/wallet.module';
 import { ShopModule } from '../shop/shop.module';
 import { StorefrontAuthModule } from '../storefront-auth/storefront-auth.module';
 import { SettingsModule } from '../settings/settings.module';
+import { GeocodingModule } from '../geocoding/geocoding.module';
 
 @Module({
-  imports: [EventsModule, AuditLogModule, NotificationsModule, ServiceablePincodesModule, WalletModule, ShopModule, StorefrontAuthModule, SettingsModule],
+  imports: [EventsModule, AuditLogModule, NotificationsModule, ServiceablePincodesModule, WalletModule, ShopModule, StorefrontAuthModule, SettingsModule, GeocodingModule],
   controllers: [OnlineOrdersController],
   providers: [OnlineOrdersService, WaOrderingService],
   exports: [OnlineOrdersService, WaOrderingService],

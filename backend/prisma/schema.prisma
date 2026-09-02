@@ -98,6 +98,7 @@ model Business {
   deliveries            Delivery[]
   deliveryPayoutEntries DeliveryPayoutEntry[]
   productReviews        ProductReview[]
+  savedPlaces           SavedPlace[]
   stockAlerts           StockAlert[]
   volumePricingTiers    VolumePricingTier[]
   repackSessions        RepackSession[]
@@ -2228,6 +2229,31 @@ model StorefrontAddress {
 
   @@index([phone])
   @@map("storefront_address")
+}
+
+// Auto-logged history of every confirmed pin a customer has used (search
+// selection, GPS fix, or manual drag) — distinct from the curated, capped
+// StorefrontAddress list above. Written server-side from existing write
+// paths (address save, order placement, staff-created delivery), never a
+// direct client-facing "save" action. Re-using the same pin bumps
+// useCount/lastUsedAt instead of duplicating (see @@unique below).
+model SavedPlace {
+  id         String   @id @default(cuid())
+  businessId String
+  phone      String
+  lat        Float
+  lng        Float
+  label      String?
+  source     String // which flow recorded this use: 'checkout' | 'address-save' | 'staff-dispatch'
+  useCount   Int      @default(1)
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, phone, lat, lng])
+  @@index([businessId, phone, lastUsedAt])
+  @@map("saved_place")
 }
 
 // Multi-turn state for the WhatsApp quick-reorder flow (task #99) — carries a

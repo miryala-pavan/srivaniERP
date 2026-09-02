@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { EventsModule } from '../events/events.module';
+import { GeocodingModule } from '../geocoding/geocoding.module';
 
 import { DeliveryBoyAuthService } from './delivery-boy-auth.service';
 import { DeliveryBoyJwtGuard } from './guards/delivery-boy-jwt.guard';
@@ -26,6 +27,7 @@ import { DeliverySettingsController } from './delivery-settings.controller';
     PrismaModule,
     NotificationsModule,
     EventsModule,
+    GeocodingModule,
     // Deliberately a separate JwtModule instance/secret from AuthModule's and
     // StorefrontAuthModule's — a leaked rider token must never be replayable
     // against ERP staff routes or storefront customer routes, or vice versa.

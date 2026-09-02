@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import PlaceSearchBox from './PlaceSearchBox';
+import { fetchRecentPlaces, type RecentPlace } from '../lib/geocoding';
 
 // Leaflet touches `window` at import time — must never run during SSR/build.
 const DraggablePinMap = dynamic(() => import('./DraggablePinMap'), { ssr: false });
@@ -23,6 +25,17 @@ export default function LocationPicker({
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [status, setStatus] = useState<'idle' | 'locating' | 'ready' | 'error'>('idle');
   const [error, setError] = useState('');
+  const [recent, setRecent] = useState<RecentPlace[]>([]);
+
+  // Silently a no-op if the customer hasn't verified their phone yet —
+  // fetchRecentPlaces() returns [] rather than throwing in that case.
+  useEffect(() => { fetchRecentPlaces().then(setRecent); }, []);
+
+  function usePlace(next: { lat: number; lng: number }) {
+    setCoords(next);
+    setStatus('ready');
+    onChange(next);
+  }
 
   function useCurrentLocation() {
     if (!navigator.geolocation) {
@@ -56,18 +69,42 @@ export default function LocationPicker({
   return (
     <div style={{ border: '1.5px solid var(--line)', borderRadius: '10px', padding: '12px', background: 'var(--paper-2)' }}>
       {status !== 'ready' && (
-        <button
-          type="button"
-          onClick={useCurrentLocation}
-          disabled={status === 'locating'}
-          style={{
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-            fontSize: '13px', fontWeight: 600, color: '#2563eb',
-            opacity: status === 'locating' ? 0.5 : 1,
-          }}
-        >
-          {status === 'locating' ? 'Getting your location…' : '📍 Use my current location (optional)'}
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <PlaceSearchBox onSelect={(r) => usePlace({ lat: r.lat, lng: r.lng })} />
+
+          {recent.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {recent.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => usePlace({ lat: p.lat, lng: p.lng })}
+                  style={{
+                    padding: '5px 10px', fontSize: '11px', fontWeight: 600, color: 'var(--ink)',
+                    background: 'var(--paper)', border: '1.5px solid var(--line)', borderRadius: '999px',
+                    cursor: 'pointer', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}
+                  title={p.label ?? undefined}
+                >
+                  📍 {p.label ?? `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={useCurrentLocation}
+            disabled={status === 'locating'}
+            style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              fontSize: '13px', fontWeight: 600, color: '#2563eb',
+              opacity: status === 'locating' ? 0.5 : 1, alignSelf: 'flex-start',
+            }}
+          >
+            {status === 'locating' ? 'Getting your location…' : '📍 Or use my current location'}
+          </button>
+        </div>
       )}
 
       {status === 'ready' && coords && (

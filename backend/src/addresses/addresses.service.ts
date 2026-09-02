@@ -2,10 +2,14 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
+import { SavedPlacesService } from '../geocoding/saved-places.service';
 
 @Injectable()
 export class AddressesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly savedPlaces: SavedPlacesService,
+  ) {}
 
   async list(phone: string) {
     return this.prisma.storefrontAddress.findMany({
@@ -14,7 +18,7 @@ export class AddressesService {
     });
   }
 
-  async create(phone: string, dto: CreateAddressDto) {
+  async create(phone: string, dto: CreateAddressDto, businessId?: string) {
     const count = await this.prisma.storefrontAddress.count({
       where: { phone },
     });
@@ -31,7 +35,7 @@ export class AddressesService {
       });
     }
 
-    return this.prisma.storefrontAddress.create({
+    const created = await this.prisma.storefrontAddress.create({
       data: {
         phone,
         label: dto.label ?? 'Home',
@@ -45,6 +49,12 @@ export class AddressesService {
         isDefault: makeDefault,
       },
     });
+
+    if (businessId && dto.lat != null && dto.lng != null) {
+      this.savedPlaces.recordUse(businessId, phone, dto.lat, dto.lng, 'address-save', dto.line1);
+    }
+
+    return created;
   }
 
   private async findOwned(id: string, phone: string) {
