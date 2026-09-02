@@ -24,6 +24,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "storefront", "run", "dev"],
       "port": 4002
+    },
+    {
+      "name": "rider-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "rider", "run", "dev"],
+      "port": 4003
     }
   ]
 }

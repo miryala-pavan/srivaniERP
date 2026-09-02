@@ -17,6 +17,7 @@ import { WhatsAppService } from '../notifications/whatsapp.service';
 import { PushService } from '../notifications/push.service';
 import { OrderPhotosService } from '../order-photos/order-photos.service';
 import { HistoryService } from '../history/history.service';
+import { DeliveryDispatchService } from '../delivery/delivery-dispatch.service';
 import * as crypto from 'crypto';
 
 // Matches the short Ref: code embedded in the wa.me pre-filled message
@@ -43,6 +44,7 @@ export class WebhookController implements OnModuleInit {
     private push: PushService,
     private orderPhotos: OrderPhotosService,
     private history: HistoryService,
+    private deliveryDispatch: DeliveryDispatchService,
   ) {}
 
   onModuleInit() {
@@ -282,6 +284,7 @@ export class WebhookController implements OnModuleInit {
         const customer = await this.findCustomerByPhone(businessId, senderPhone);
         if (customer) {
           await this.history.sendHistoryLink(customer.id, businessId)
+            .then(() => this.whatsapp.sendBackToMenuButton(businessId, senderPhone))
             .catch(err => this.logger.error(`History link send failed for ${senderPhone}: ${err}`));
         }
         return;
@@ -307,14 +310,14 @@ export class WebhookController implements OnModuleInit {
       }).catch(err => this.logger.error(`Auto-reply failed for ${senderPhone}: ${err}`));
 
       if (msg.type === 'interactive' && msg.interactive?.type === 'button_reply') {
-        await this.handleButtonReply(msg.interactive.button_reply.id as string, senderPhone);
+        await this.handleButtonReply(businessId, msg.interactive.button_reply.id as string, senderPhone);
         return;
       }
 
       // A tap on a TEMPLATE's quick-reply button (e.g. post_delivery_feedback)
       // arrives with this shape, not the "interactive" shape above.
       if (msg.type === 'button' && msg.button?.payload) {
-        await this.handleButtonReply(msg.button.payload as string, senderPhone);
+        await this.handleButtonReply(businessId, msg.button.payload as string, senderPhone);
         return;
       }
 
@@ -355,7 +358,7 @@ export class WebhookController implements OnModuleInit {
   // verify the tapper actually owns the order (confirmDelivery checks it
   // matches the order's customerPhone), since Meta only tells us who sent
   // the button tap, not which order it's "supposed" to be for.
-  private async handleButtonReply(buttonId: string, senderPhone: string) {
+  private async handleButtonReply(businessId: string, buttonId: string, senderPhone: string) {
     const [action, param] = buttonId.split(':');
     if (action === 'CONFIRM_DELIVERY' && param) {
       await this.onlineOrders.confirmDelivery(param, senderPhone).catch(err =>
@@ -369,6 +372,36 @@ export class WebhookController implements OnModuleInit {
       await this.handleNegativeFeedback(param).catch(err =>
         this.logger.error(`Negative feedback handling failed for ${param}: ${err}`),
       );
+    } else if (action === 'ACCEPT_DELIVERY' && param) {
+      await this.handleDeliveryOfferReply(businessId, param, senderPhone, 'accept');
+    } else if (action === 'DECLINE_DELIVERY' && param) {
+      await this.handleDeliveryOfferReply(businessId, param, senderPhone, 'decline');
+    }
+  }
+
+  // Rider tapping Accept/Decline on the WhatsApp backup channel for a
+  // broadcast (see DeliveryDispatchService.broadcast) — looked up by phone
+  // since Meta only tells us who sent the tap, not which DeliveryBoy row
+  // that is. Always replies so the rider isn't left wondering whether the
+  // tap registered, e.g. after losing a race to another rider's accept.
+  private async handleDeliveryOfferReply(businessId: string, deliveryId: string, senderPhone: string, action: 'accept' | 'decline') {
+    const digits = senderPhone.replace(/\D/g, '').slice(-10);
+    const rider = await this.prisma.deliveryBoy.findFirst({
+      where: { businessId, OR: [{ phone: digits }, { phone: `91${digits}` }, { phone: senderPhone }] },
+    });
+    if (!rider) return;
+
+    try {
+      if (action === 'accept') {
+        await this.deliveryDispatch.acceptOffer(deliveryId, rider.id);
+        await this.whatsapp.sendTextMessage(businessId, senderPhone, "You're assigned! Open the rider app to see the customer's location and start delivery.");
+      } else {
+        await this.deliveryDispatch.rejectOffer(deliveryId, rider.id);
+        await this.whatsapp.sendTextMessage(businessId, senderPhone, 'No problem — you were removed from this delivery.');
+      }
+    } catch (err) {
+      await this.whatsapp.sendTextMessage(businessId, senderPhone, 'This delivery has already been taken by another rider.').catch(() => {});
+      this.logger.warn(`Delivery offer ${action} via WA button failed for rider ${rider.id}, delivery ${deliveryId}: ${err instanceof Error ? err.message : err}`);
     }
   }
 

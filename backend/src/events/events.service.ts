@@ -8,13 +8,16 @@ export class EventsService {
   constructor(private gateway: EventsGateway) {}
 
   emitToBusiness(businessId: string, event: string, payload: any) {
+    this.emitToRoom(`business:${businessId}`, event, payload);
+  }
+
+  /** Generic room emit — used for the per-rider (`rider:<id>`) and per-delivery (`delivery:<id>`) rooms. */
+  emitToRoom(room: string, event: string, payload: any) {
     try {
       if (!this.gateway.server) return;
-      this.gateway.server
-        .to(`business:${businessId}`)
-        .emit(event, payload);
+      this.gateway.server.to(room).emit(event, payload);
     } catch (err) {
-      this.logger.error(`emitToBusiness failed for ${event}: ${err instanceof Error ? err.message : err}`);
+      this.logger.error(`emitToRoom(${room}) failed for ${event}: ${err instanceof Error ? err.message : err}`);
     }
   }
 }

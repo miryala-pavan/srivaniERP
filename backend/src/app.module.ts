@@ -58,6 +58,7 @@ import { HistoryModule } from './history/history.module';
 import { WalletModule } from './wallet/wallet.module';
 import { StorefrontAuthModule } from './storefront-auth/storefront-auth.module';
 import { OrderPhotosModule } from './order-photos/order-photos.module';
+import { DeliveryModule } from './delivery/delivery.module';
 
 @Module({
   controllers: [AppController],
@@ -106,6 +107,7 @@ import { OrderPhotosModule } from './order-photos/order-photos.module';
     WalletModule,
     StorefrontAuthModule,
     OrderPhotosModule,
+    DeliveryModule,
 
     // Platform Core (Phase 0)
     HelpModule,

@@ -54,6 +54,8 @@ import {
   Banknote,
   Camera,
   ImagePlus,
+  Navigation,
+  Bike,
 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
 import type { User } from '@/types';
@@ -93,6 +95,7 @@ const GROUPS: NavGroup[] = [
       { href: '/dashboard/shifts',       label: 'Shifts',         icon: UserCheck,      roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/day-closure',    label: 'Day Closure',    icon: CalendarCheck,  roles: ['SUPER_ADMIN', 'BRANCH_MANAGER'] },
       { href: '/dashboard/online-orders',  label: 'Online Orders',  icon: ShoppingBag,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'ACCOUNTS_PERSON'] },
+      { href: '/dashboard/deliveries',     label: 'Deliveries',     icon: Navigation,     roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR', 'ACCOUNTS_PERSON'] },
     ],
   },
   {
@@ -124,6 +127,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/dashboard/customers', label: 'Customers',    icon: Users,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON', 'SALES_REP', 'CASHIER', 'FLOOR_SUPERVISOR'] },
       { href: '/dashboard/suppliers', label: 'Suppliers',    icon: Truck,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
+      { href: '/dashboard/delivery-boys', label: 'Delivery Boys', icon: Bike, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'FLOOR_SUPERVISOR'] },
       { href: '/dashboard/payments',  label: 'Sup. Payments',icon: CreditCard,roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/expenses',  label: 'Expenses',     icon: Wallet,    roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },
       { href: '/dashboard/bank',      label: 'Bank & Accounts', icon: Building2, roles: ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ACCOUNTS_PERSON'] },

@@ -11,6 +11,8 @@ export interface DeliveryAddress {
   city: string;
   pincode: string;
   state?: string;
+  lat?: number;
+  lng?: number;
 }
 
 export interface OrderItem {

@@ -7,9 +7,10 @@ import { EventsModule } from '../events/events.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrderPhotosModule } from '../order-photos/order-photos.module';
 import { HistoryModule } from '../history/history.module';
+import { DeliveryModule } from '../delivery/delivery.module';
 
 @Module({
-  imports:     [PrismaModule, OnlineOrdersModule, EventsModule, NotificationsModule, OrderPhotosModule, HistoryModule],
+  imports:     [PrismaModule, OnlineOrdersModule, EventsModule, NotificationsModule, OrderPhotosModule, HistoryModule, DeliveryModule],
   providers:   [ListsService],
   controllers: [ListsController, WebhookController],
   exports:     [ListsService],

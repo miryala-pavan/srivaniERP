@@ -371,6 +371,36 @@ export default function SettingsPage() {
     return `${h12} ${period}`;
   };
 
+  // ─── Delivery Dispatch (own-built rider broadcast system) ─────
+  interface DeliveryDispatchSettings {
+    feeAmount: number; maxConcurrentPerRider: number;
+    rebroadcastMinutes: number; staffAlertMinutes: number;
+    photoRetentionDays: number; managerAlertPhone: string | null;
+  }
+  const [dispatchSettings, setDispatchSettings] = useState<DeliveryDispatchSettings | null>(null);
+  const [dispatchLoading, setDispatchLoading]    = useState(false);
+  const [dispatchSaving,  setDispatchSaving]     = useState(false);
+
+  const loadDispatchSettings = useCallback(async () => {
+    setDispatchLoading(true);
+    try {
+      const { data } = await api.get('/settings/delivery-dispatch');
+      setDispatchSettings(data);
+    } catch { toast.error('Failed to load delivery dispatch settings'); }
+    finally { setDispatchLoading(false); }
+  }, []);
+
+  const saveDispatchSettings = async () => {
+    if (!dispatchSettings) return;
+    setDispatchSaving(true);
+    try {
+      const { data } = await api.put('/settings/delivery-dispatch', dispatchSettings);
+      setDispatchSettings(data);
+      toast.success('Delivery dispatch settings saved');
+    } catch { toast.error('Failed to save delivery dispatch settings'); }
+    finally { setDispatchSaving(false); }
+  };
+
   // Bill starting numbers
   const [taxInvoiceStart, setTaxInvoiceStart]       = useState('');
   const [retailInvoiceStart, setRetailInvoiceStart] = useState('');
@@ -676,7 +706,7 @@ export default function SettingsPage() {
   ];
 
   useEffect(() => { if (activeTab === 'loyalty') loadLoyaltySettings(); }, [activeTab, loadLoyaltySettings]);
-  useEffect(() => { if (activeTab === 'delivery') { loadPincodes(); loadSlots(); } }, [activeTab, loadPincodes, loadSlots]);
+  useEffect(() => { if (activeTab === 'delivery') { loadPincodes(); loadSlots(); loadDispatchSettings(); } }, [activeTab, loadPincodes, loadSlots, loadDispatchSettings]);
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -1536,6 +1566,80 @@ export default function SettingsPage() {
             >
               {slotsSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {slotsSaving ? 'Saving...' : 'Save Slots'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'delivery' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mt-6">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Delivery Dispatch</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              Configuration for the rider broadcast-and-claim system — what riders are paid per delivery, how many
+              active deliveries one rider can juggle at once, and how quickly an unaccepted delivery escalates to staff.
+            </p>
+
+            {dispatchLoading || !dispatchSettings ? (
+              <div className="flex items-center justify-center py-10 text-gray-400">
+                <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading...
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Rider fee per delivery (₹)</span>
+                  <input type="number" min={0} value={dispatchSettings.feeAmount}
+                    onChange={(e) => setDispatchSettings({ ...dispatchSettings, feeAmount: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Max concurrent deliveries per rider</span>
+                  <input type="number" min={1} value={dispatchSettings.maxConcurrentPerRider}
+                    onChange={(e) => setDispatchSettings({ ...dispatchSettings, maxConcurrentPerRider: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Re-broadcast after (minutes, no accept)</span>
+                  <input type="number" min={1} value={dispatchSettings.rebroadcastMinutes}
+                    onChange={(e) => setDispatchSettings({ ...dispatchSettings, rebroadcastMinutes: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Alert staff after (minutes, still unassigned)</span>
+                  <input type="number" min={1} value={dispatchSettings.staffAlertMinutes}
+                    onChange={(e) => setDispatchSettings({ ...dispatchSettings, staffAlertMinutes: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Delivery photo retention (days)</span>
+                  <input type="number" min={1} value={dispatchSettings.photoRetentionDays}
+                    onChange={(e) => setDispatchSettings({ ...dispatchSettings, photoRetentionDays: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Manager alert phone (optional)</span>
+                  <input type="tel" value={dispatchSettings.managerAlertPhone ?? ''}
+                    onChange={(e) => setDispatchSettings({ ...dispatchSettings, managerAlertPhone: e.target.value || null })}
+                    placeholder="10-digit number"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </label>
+              </div>
+            )}
+          </div>
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <button
+              onClick={loadDispatchSettings}
+              className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Discard changes
+            </button>
+            <button
+              onClick={saveDispatchSettings}
+              disabled={dispatchSaving || !dispatchSettings}
+              className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {dispatchSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {dispatchSaving ? 'Saving...' : 'Save Dispatch Settings'}
             </button>
           </div>
         </div>

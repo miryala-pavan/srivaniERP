@@ -11,6 +11,8 @@ export interface SavedAddress {
   city: string;
   pincode: string;
   state: string;
+  lat: number | null;
+  lng: number | null;
   isDefault: boolean;
   createdAt: string;
 }
@@ -22,6 +24,8 @@ export interface CreateAddressPayload {
   city: string;
   pincode: string;
   state?: string;
+  lat?: number;
+  lng?: number;
   isDefault?: boolean;
 }
 

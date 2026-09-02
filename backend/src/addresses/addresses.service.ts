@@ -40,6 +40,8 @@ export class AddressesService {
         city: dto.city,
         pincode: dto.pincode,
         state: dto.state ?? 'Telangana',
+        lat: dto.lat ?? null,
+        lng: dto.lng ?? null,
         isDefault: makeDefault,
       },
     });
@@ -70,6 +72,8 @@ export class AddressesService {
         ...(dto.city !== undefined && { city: dto.city }),
         ...(dto.pincode !== undefined && { pincode: dto.pincode }),
         ...(dto.state !== undefined && { state: dto.state }),
+        ...(dto.lat !== undefined && { lat: dto.lat }),
+        ...(dto.lng !== undefined && { lng: dto.lng }),
         ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
       },
     });

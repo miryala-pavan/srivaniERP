@@ -41,6 +41,14 @@ export const Events = {
   WA_CONVERSATION_ESCALATED: 'wa.conversation.escalated',
   SOCIAL_MESSAGE_RECEIVED:    'social.message.received',
   SOCIAL_MESSAGE_SENT:        'social.message.sent',
+  DELIVERY_BROADCAST:         'delivery.broadcast',
+  DELIVERY_OFFER_EXPIRED:     'delivery.offer_expired',
+  DELIVERY_ASSIGNED:          'delivery.assigned',
+  DELIVERY_LOCATION_UPDATE:   'delivery.location_update',
+  DELIVERY_ESCALATED:         'delivery.escalated',
+  DELIVERY_DELIVERED:         'delivery.delivered',
+  DELIVERY_FAILED:            'delivery.failed',
+  DELIVERY_CANCELLED:         'delivery.cancelled',
 } as const;
 
 export type EventName = typeof Events[keyof typeof Events];
@@ -77,3 +85,11 @@ export interface OnlineOrderPlacedPayload       { orderNumber: string; customerN
 export interface OnlineOrderStatusChangedPayload { orderNumber: string; status: string; customerName: string }
 export interface WaMessagePayload { phone: string; direction: 'INBOUND' | 'OUTBOUND'; bodyPreview: string | null; messageType: string; createdAt: string }
 export interface WaConversationEscalatedPayload { phone: string; tier: number; assignedToUserId: string | null }
+export interface DeliveryBroadcastPayload { deliveryId: string; round: number; riderCount: number; deliveryLat?: number; deliveryLng?: number; deliveryAddressText?: string | null; codAmount?: number | null }
+export interface DeliveryOfferExpiredPayload { deliveryId: string }
+export interface DeliveryAssignedPayload { deliveryId: string; deliveryBoyId?: string; riderName?: string; cancelled?: boolean }
+export interface DeliveryLocationUpdatePayload { lat: number; lng: number }
+export interface DeliveryEscalatedPayload { deliveryId: string }
+export interface DeliveryDeliveredPayload { deliveryId: string }
+export interface DeliveryFailedPayload { deliveryId: string; reason: string }
+export interface DeliveryCancelledPayload { deliveryId: string }

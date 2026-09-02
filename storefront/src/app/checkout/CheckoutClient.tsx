@@ -16,6 +16,7 @@ import {
 import { fetchAddresses, createAddress, type SavedAddress } from '@/lib/addresses';
 import { checkPincodeServiceable, getDeliverySlots, type DeliverySlotOption } from '@/lib/shop';
 import { useStoreConfig } from '@/context/StoreConfigContext';
+import LocationPicker from '@/components/LocationPicker';
 
 declare global {
   interface Window {
@@ -220,6 +221,8 @@ export default function CheckoutClient() {
           setAddrCity(def.city);
           setAddrPincode(def.pincode);
           setAddrState(def.state);
+          setAddrLat(def.lat ?? null);
+          setAddrLng(def.lng ?? null);
         }
       }).catch(() => {});
     }
@@ -228,6 +231,7 @@ export default function CheckoutClient() {
   function applyAddress(a: SavedAddress) {
     setAddrLine1(a.line1); setAddrLine2(a.line2 ?? '');
     setAddrCity(a.city); setAddrPincode(a.pincode); setAddrState(a.state);
+    setAddrLat(a.lat ?? null); setAddrLng(a.lng ?? null);
   }
 
   // Delivery
@@ -237,6 +241,10 @@ export default function CheckoutClient() {
   const [addrCity, setAddrCity] = useState('Sangareddy');
   const [addrPincode, setAddrPincode] = useState('502001');
   const [addrState, setAddrState] = useState('Telangana');
+  // Optional exact drop pin from LocationPicker — null unless the customer
+  // opted in; checkout still works fine with just the postal address above.
+  const [addrLat, setAddrLat] = useState<number | null>(null);
+  const [addrLng, setAddrLng] = useState<number | null>(null);
 
   // Delivery slot
   const [deliveryDay, setDeliveryDay] = useState<'today' | 'tomorrow'>('today');
@@ -312,6 +320,8 @@ export default function CheckoutClient() {
                 city: addrCity.trim(),
                 pincode: addrPincode.trim(),
                 state: addrState.trim(),
+                lat: addrLat ?? undefined,
+                lng: addrLng ?? undefined,
               }
             : undefined,
         deliverySlot:
@@ -337,6 +347,7 @@ export default function CheckoutClient() {
           line1: addrLine1.trim(),
           line2: addrLine2.trim() || undefined,
           city: addrCity.trim(), pincode: addrPincode.trim(), state: addrState.trim(),
+          lat: addrLat ?? undefined, lng: addrLng ?? undefined,
           isDefault: savedAddresses.length === 0,
         }).catch(() => {});
       }
@@ -547,6 +558,8 @@ export default function CheckoutClient() {
                     <input style={inp} value={addrState} onChange={(e) => setAddrState(e.target.value)}
                       placeholder="Telangana" title="State" autoComplete="address-level1" />
                   </Field>
+
+                  <LocationPicker onChange={(coords) => { setAddrLat(coords?.lat ?? null); setAddrLng(coords?.lng ?? null); }} />
 
                   {/* Delivery slot */}
                   <div>

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Srivani Rider</string>
+    <string name="title_activity_main">Srivani Rider</string>
+    <string name="package_name">com.srivanistores.rider</string>
+    <string name="custom_url_scheme">com.srivanistores.rider</string>
+</resources>

@@ -54,51 +54,54 @@ model Business {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  branches            Branch[]
-  users               User[]
-  products            Product[]
-  suppliers           Supplier[]
-  customers           Customer[]
-  taxes               Tax[]
-  departments         Department[]
-  categories          Category[]
-  brands              Brand[]
-  financialYears      FinancialYear[]
-  posCounters         PosCounter[]
-  expenses            Expense[]
-  notifications       Notification[]
-  dayClosures         DayClosure[]
-  productPlus         ProductPlu[]
-  supplierItemAliases SupplierItemAlias[]
-  supplierAdvances    SupplierAdvance[]
-  supplierCreditNotes SupplierCreditNote[]
-  supplierPayments    SupplierPayment[]
-  bankAccounts        BankAccount[]
-  bankTransactions    BankTransaction[]
-  onlineOrders        OnlineOrder[]
-  waIncomingLists     WaIncomingList[]
-  customerListEntries CustomerListEntry[]
-  waMessages          WaMessage[]
-  waPhoneNumbers      WaPhoneNumber[]
-  waConversations     WaConversation[]
-  waCannedReplies     WaCannedReply[]
-  waInternalNotes     WaInternalNote[]
-  waCampaigns         WaCampaign[]
-  waReminderRules     WaReminderRule[]
-  orderPhotos         OrderPhoto[]
-  socialMessages      SocialMessage[]
-  socialConversations SocialConversation[]
-  commentCampaigns    CommentCampaign[]
-  socialPageAccounts  SocialPageAccount[]
-  googleContactSyncs  CustomerGoogleSync[]
-  pushSubscriptions   PushSubscription[]
-  serviceablePincodes ServiceablePincode[]
-  systemSettings      SystemSetting[]
-  productReviews      ProductReview[]
-  stockAlerts         StockAlert[]
-  volumePricingTiers  VolumePricingTier[]
-  repackSessions      RepackSession[]
-  purchaseOrders      PurchaseOrder[]
+  branches              Branch[]
+  users                 User[]
+  products              Product[]
+  suppliers             Supplier[]
+  customers             Customer[]
+  taxes                 Tax[]
+  departments           Department[]
+  categories            Category[]
+  brands                Brand[]
+  financialYears        FinancialYear[]
+  posCounters           PosCounter[]
+  expenses              Expense[]
+  notifications         Notification[]
+  dayClosures           DayClosure[]
+  productPlus           ProductPlu[]
+  supplierItemAliases   SupplierItemAlias[]
+  supplierAdvances      SupplierAdvance[]
+  supplierCreditNotes   SupplierCreditNote[]
+  supplierPayments      SupplierPayment[]
+  bankAccounts          BankAccount[]
+  bankTransactions      BankTransaction[]
+  onlineOrders          OnlineOrder[]
+  waIncomingLists       WaIncomingList[]
+  customerListEntries   CustomerListEntry[]
+  waMessages            WaMessage[]
+  waPhoneNumbers        WaPhoneNumber[]
+  waConversations       WaConversation[]
+  waCannedReplies       WaCannedReply[]
+  waInternalNotes       WaInternalNote[]
+  waCampaigns           WaCampaign[]
+  waReminderRules       WaReminderRule[]
+  orderPhotos           OrderPhoto[]
+  socialMessages        SocialMessage[]
+  socialConversations   SocialConversation[]
+  commentCampaigns      CommentCampaign[]
+  socialPageAccounts    SocialPageAccount[]
+  googleContactSyncs    CustomerGoogleSync[]
+  pushSubscriptions     PushSubscription[]
+  serviceablePincodes   ServiceablePincode[]
+  systemSettings        SystemSetting[]
+  deliveryBoys          DeliveryBoy[]
+  deliveries            Delivery[]
+  deliveryPayoutEntries DeliveryPayoutEntry[]
+  productReviews        ProductReview[]
+  stockAlerts           StockAlert[]
+  volumePricingTiers    VolumePricingTier[]
+  repackSessions        RepackSession[]
+  purchaseOrders        PurchaseOrder[]
 
   // IT Accounting Module
   itProfile          ItProfile?
@@ -636,6 +639,7 @@ model Customer {
   listEntries CustomerListEntry[]
   walletTxns  WalletTransaction[]
   orderPhotos OrderPhoto[]
+  deliveries  Delivery[]
 
   @@unique([businessId, customerCode])
   @@index([businessId, phone])
@@ -668,11 +672,172 @@ model OrderPhoto {
   createdById   String?
   createdAt     DateTime @default(now())
 
-  business Business @relation(fields: [businessId], references: [id])
-  customer Customer @relation(fields: [customerId], references: [id])
+  // Delivery-confirmation photo fields (rider-captured proof of delivery) —
+  // optional so the model still serves its original staff-upload-and-share
+  // use case unchanged when these are null.
+  deliveryId    String?
+  deliveryBoyId String?
+  lat           Float?
+  lng           Float?
+  watermarked   Boolean   @default(false)
+  expiresAt     DateTime?
+
+  business Business  @relation(fields: [businessId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  delivery Delivery? @relation(fields: [deliveryId], references: [id])
 
   @@index([businessId, token])
+  @@index([expiresAt])
   @@map("order_photo")
+}
+
+// ─── DELIVERY DISPATCH (broadcast-and-claim, single-pickup-point) ───────────
+
+enum DeliveryBoyStatus {
+  OFFLINE
+  AVAILABLE
+  BUSY
+}
+
+model DeliveryBoy {
+  id             String            @id @default(cuid())
+  businessId     String
+  name           String
+  phone          String
+  vehicleType    String?
+  vehicleNumber  String?
+  status         DeliveryBoyStatus @default(OFFLINE)
+  lastLat        Float?
+  lastLng        Float?
+  lastLocationAt DateTime?
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  business      Business              @relation(fields: [businessId], references: [id])
+  deliveries    Delivery[]
+  offers        DeliveryOffer[]
+  payoutEntries DeliveryPayoutEntry[]
+  otpCodes      DeliveryBoyOtp[]
+
+  @@unique([businessId, phone])
+  @@map("delivery_boy")
+}
+
+// Same shape as StorefrontOtp (argon2-hashed code, bounded attempts, TTL) —
+// see StorefrontAuthService for the exact flow this mirrors.
+model DeliveryBoyOtp {
+  id            String   @id @default(cuid())
+  deliveryBoyId String
+  codeHash      String
+  attempts      Int      @default(0)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  deliveryBoy DeliveryBoy @relation(fields: [deliveryBoyId], references: [id])
+
+  @@index([deliveryBoyId])
+  @@map("delivery_boy_otp")
+}
+
+enum DeliveryStatus {
+  BROADCASTING
+  ASSIGNED
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+model Delivery {
+  id            String  @id @default(cuid())
+  businessId    String
+  customerId    String
+  salesBillId   String?
+  onlineOrderId String?
+
+  status       DeliveryStatus @default(BROADCASTING)
+  assignedToId String?
+  assignedAt   DateTime?
+
+  deliveryLat         Float
+  deliveryLng         Float
+  deliveryAddressText String?
+
+  codAmount       Decimal?  @db.Decimal(12, 2)
+  cashCollectedAt DateTime?
+
+  otpCode       String
+  otpVerifiedAt DateTime?
+
+  deliveredAt  DateTime?
+  failedReason String?
+  cancelledAt  DateTime?
+
+  broadcastRound Int       @default(1)
+  escalatedAt    DateTime?
+
+  trackingToken String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business    Business             @relation(fields: [businessId], references: [id])
+  customer    Customer             @relation(fields: [customerId], references: [id])
+  assignedTo  DeliveryBoy?         @relation(fields: [assignedToId], references: [id])
+  offers      DeliveryOffer[]
+  events      DeliveryEvent[]
+  payoutEntry DeliveryPayoutEntry?
+  photos      OrderPhoto[]
+
+  @@index([businessId, status])
+  @@map("delivery")
+}
+
+model DeliveryOffer {
+  id            String    @id @default(cuid())
+  deliveryId    String
+  deliveryBoyId String
+  round         Int
+  status        String    @default("PENDING") // PENDING | ACCEPTED | DECLINED | EXPIRED
+  respondedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  delivery    Delivery    @relation(fields: [deliveryId], references: [id])
+  deliveryBoy DeliveryBoy @relation(fields: [deliveryBoyId], references: [id])
+
+  @@unique([deliveryId, deliveryBoyId, round])
+  @@map("delivery_offer")
+}
+
+model DeliveryEvent {
+  id         String   @id @default(cuid())
+  deliveryId String
+  type       String // BROADCAST | ACCEPTED | REJECTED | RE_BROADCAST | ESCALATED | OTP_VERIFIED | CASH_COLLECTED | DELIVERED | FAILED | CANCELLED
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id])
+
+  @@index([deliveryId])
+  @@map("delivery_event")
+}
+
+model DeliveryPayoutEntry {
+  id            String    @id @default(cuid())
+  businessId    String
+  deliveryBoyId String
+  deliveryId    String    @unique
+  amount        Decimal   @db.Decimal(12, 2)
+  settled       Boolean   @default(false)
+  settledAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  business    Business    @relation(fields: [businessId], references: [id])
+  deliveryBoy DeliveryBoy @relation(fields: [deliveryBoyId], references: [id])
+  delivery    Delivery    @relation(fields: [deliveryId], references: [id])
+
+  @@index([businessId, deliveryBoyId, settled])
+  @@map("delivery_payout_entry")
 }
 
 // ─── CUSTOMER WALLET ─────────────────────────────────
@@ -2055,6 +2220,8 @@ model StorefrontAddress {
   city      String
   pincode   String
   state     String   @default("Telangana")
+  lat       Float?
+  lng       Float?
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2327,8 +2494,8 @@ model WaMessage {
   buttonId     String? // set when direction=INBOUND and it's a button-reply tap
   mediaId      String? // Meta media object id, for IMAGE/DOCUMENT messages (either direction)
   mediaUrl     String? // set instead of mediaId for outbound images sent via a public link
-                        // (e.g. order-photo share) — already publicly reachable, so the chat
-                        // UI can render it directly without proxying through Meta's media API
+  // (e.g. order-photo share) — already publicly reachable, so the chat
+  // UI can render it directly without proxying through Meta's media API
 
   status       WaMessageStatus @default(QUEUED)
   errorMessage String?
@@ -2466,16 +2633,16 @@ enum WaConversationStatus {
 // separate from Customer since a phone can have an active conversation before
 // it's ever saved as a named Customer.
 model WaConversation {
-  id               String               @id @default(cuid())
-  businessId       String
-  phone            String
-  status           WaConversationStatus @default(OPEN)
-  pinned           Boolean              @default(false)
-  labels           String[]             @default([])
-  assignedToUserId String?
+  id                 String               @id @default(cuid())
+  businessId         String
+  phone              String
+  status             WaConversationStatus @default(OPEN)
+  pinned             Boolean              @default(false)
+  labels             String[]             @default([])
+  assignedToUserId   String?
   snoozedUntil       DateTime?
-  lastEscalationTier Int                @default(0)
-  updatedAt        DateTime             @updatedAt
+  lastEscalationTier Int                  @default(0)
+  updatedAt          DateTime             @updatedAt
 
   business   Business @relation(fields: [businessId], references: [id])
   assignedTo User?    @relation(fields: [assignedToUserId], references: [id])
