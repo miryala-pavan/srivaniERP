@@ -843,12 +843,24 @@ export class OnlineOrdersService {
       ];
     }
 
-    return this.prisma.onlineOrder.findMany({
+    const orders = await this.prisma.onlineOrder.findMany({
       where,
       include: { items: true },
       orderBy: { createdAt: 'desc' },
       take: 500,
     });
+
+    // Delivery.onlineOrderId is a plain soft-linked string (no Prisma
+    // relation declared on either model), so this can't be an `include` -
+    // one extra query, batched, not per-row. Lets the list page gate the
+    // "Assign Rider" quick action without a round-trip per order.
+    const withDeliveries = await this.prisma.delivery.findMany({
+      where: { onlineOrderId: { in: orders.map(o => o.id) } },
+      select: { onlineOrderId: true },
+    });
+    const hasDeliverySet = new Set(withDeliveries.map(d => d.onlineOrderId));
+
+    return orders.map(order => ({ ...order, hasDelivery: hasDeliverySet.has(order.id) }));
   }
 
   async cancelOrder(orderNumber: string, customerPhone: string, reason?: string) {

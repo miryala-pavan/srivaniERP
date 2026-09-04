@@ -6,12 +6,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShoppingBag, Search, RefreshCw, Eye,
   Clock, CheckCircle2, Truck, XCircle, Package, RotateCw, Printer, CalendarRange,
-  ArrowUp, ArrowDown, ArrowUpDown,
+  ArrowUp, ArrowDown, ArrowUpDown, Bike,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Tabs } from '@/components/shared/Tabs';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import DispatchToRiderModal from '@/components/orders/DispatchToRiderModal';
 
 type OrderStatus =
   | 'PENDING_PAYMENT' | 'PENDING_COD' | 'CONFIRMED'
@@ -34,6 +35,8 @@ interface DeliveryAddress {
   city: string;
   pincode: string;
   state: string;
+  lat?: number;
+  lng?: number;
 }
 
 interface OnlineOrder {
@@ -53,6 +56,7 @@ interface OnlineOrder {
   customerNotes: string | null;
   createdAt: string;
   items: OnlineOrderItem[];
+  hasDelivery: boolean;
 }
 
 function toNum(v: Decimal): number {
@@ -157,6 +161,7 @@ export default function OnlineOrdersPage() {
   const [dateTo,   setDateTo]   = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('createdAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [dispatchOrder, setDispatchOrder] = useState<OnlineOrder | null>(null);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -362,6 +367,8 @@ export default function OnlineOrdersPage() {
                     const canConfirm = order.status === 'PENDING_COD';
                     const canProcess = order.status === 'CONFIRMED';
                     const canDeliver = order.status === 'CONFIRMED' || order.status === 'PROCESSING' || order.status === 'READY';
+                    const canAssignRider = order.deliveryType === 'HOME_DELIVERY' && !order.hasDelivery
+                      && order.status !== 'CANCELLED' && order.status !== 'PAYMENT_FAILED' && order.status !== 'DELIVERED';
                     const canCancel = order.status !== 'DELIVERED' && order.status !== 'CANCELLED';
                     return (
                       <tr
@@ -449,6 +456,15 @@ export default function OnlineOrdersPage() {
                                 <XCircle className="w-4 h-4" />
                               </button>
                             )}
+                            {canAssignRider && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setDispatchOrder(order); }}
+                                className="p-1.5 text-gray-400 hover:text-[#1B4F8A] hover:bg-blue-50 rounded-md transition-colors"
+                                title="Assign a rider"
+                              >
+                                <Bike className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={(e) => { e.stopPropagation(); printOrderSlip(order); }}
                               className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-md transition-colors"
@@ -474,6 +490,16 @@ export default function OnlineOrdersPage() {
           )}
         </div>
       </div>
+      {dispatchOrder && (
+        <DispatchToRiderModal
+          orderId={dispatchOrder.id}
+          orderNumber={dispatchOrder.orderNumber}
+          customerPhone={dispatchOrder.customerPhone}
+          lat={dispatchOrder.deliveryAddress?.lat}
+          lng={dispatchOrder.deliveryAddress?.lng}
+          onClose={() => { setDispatchOrder(null); refetch(); }}
+        />
+      )}
     </div>
   );
 }

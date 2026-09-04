@@ -18,6 +18,7 @@ import { PushService } from '../notifications/push.service';
 import { OrderPhotosService } from '../order-photos/order-photos.service';
 import { HistoryService } from '../history/history.service';
 import { DeliveryDispatchService } from '../delivery/delivery-dispatch.service';
+import { SavedPlacesService } from '../geocoding/saved-places.service';
 import * as crypto from 'crypto';
 
 // Matches the short Ref: code embedded in the wa.me pre-filled message
@@ -45,6 +46,7 @@ export class WebhookController implements OnModuleInit {
     private orderPhotos: OrderPhotosService,
     private history: HistoryService,
     private deliveryDispatch: DeliveryDispatchService,
+    private savedPlaces: SavedPlacesService,
   ) {}
 
   onModuleInit() {
@@ -345,6 +347,14 @@ export class WebhookController implements OnModuleInit {
           mediaId:   msg.document?.id as string,
           mediaMime: mime,
         });
+
+      } else if (location) {
+        // Saved, not acted on - shows up as a quick-pick the next time staff
+        // open the Assign Rider modal for this phone. Never auto-dispatches
+        // or attaches to an order on its own.
+        this.savedPlaces
+          .recordUse(businessId, senderPhone, location.latitude, location.longitude, 'whatsapp-location', location.name ?? location.address)
+          .catch(err => this.logger.error(`Saving WhatsApp-shared location failed for ${senderPhone}: ${err}`));
       }
     } catch (err) {
       // Log but always return 200 to Meta

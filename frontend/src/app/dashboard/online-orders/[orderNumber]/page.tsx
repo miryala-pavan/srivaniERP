@@ -2,10 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import dynamic from 'next/dynamic';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-
-const PinPicker = dynamic(() => import('@/components/maps/PinPicker'), { ssr: false });
 import {
   ArrowLeft, Package, User, MapPin, CreditCard,
   CheckCircle2, XCircle, Truck, RefreshCw, Clock, Printer,
@@ -15,6 +12,7 @@ import {
 import Header from '@/components/layout/Header';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { DispatchToRiderSection } from '@/components/orders/DispatchToRiderModal';
 
 type OrderStatus =
   | 'PENDING_PAYMENT' | 'PENDING_COD' | 'CONFIRMED'
@@ -632,8 +630,9 @@ export default function OnlineOrderDetailPage({
                 )}
               </div>
               {order.deliveryType === 'HOME_DELIVERY' && (
-                <DispatchSection
+                <DispatchToRiderSection
                   orderId={order.id}
+                  customerPhone={order.customerPhone}
                   lat={order.deliveryAddress?.lat}
                   lng={order.deliveryAddress?.lng}
                 />
@@ -919,67 +918,3 @@ export default function OnlineOrderDetailPage({
   );
 }
 
-// "Dispatch to Rider" shortcut — reads the customer + captured checkout pin
-// straight off the order (createDeliveryFromOnlineOrder on the backend does
-// the actual resolve-or-create-customer + broadcast); only asks staff to
-// drop a pin manually for orders placed before that capture existed.
-function DispatchSection({ orderId, lat, lng }: { orderId: string; lat?: number; lng?: number }) {
-  const router = useRouter();
-  const [manualCoords, setManualCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [needsPin, setNeedsPin] = useState(false);
-
-  const { data: existing } = useQuery({
-    queryKey: ['delivery-for-order', orderId],
-    queryFn: () => api.get('/deliveries', { params: { onlineOrderId: orderId, limit: 1 } })
-      .then((r) => r.data?.rows?.[0] ?? null),
-  });
-
-  const dispatchMutation = useMutation({
-    mutationFn: () => api.post(`/deliveries/from-online-order/${orderId}`, manualCoords ?? {}).then((r) => r.data),
-    onSuccess: (delivery) => { toast.success('Broadcast to available riders'); router.push(`/dashboard/deliveries/${delivery.id}`); },
-    onError: (err: any) => {
-      const msg = err?.response?.data?.message ?? 'Could not dispatch';
-      if (msg.includes('No delivery location captured')) setNeedsPin(true);
-      else toast.error(msg);
-    },
-  });
-
-  if (existing) {
-    return (
-      <div className="mt-3 pt-3 border-t border-gray-100">
-        <button
-          onClick={() => router.push(`/dashboard/deliveries/${existing.id}`)}
-          className="w-full flex items-center justify-between px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50"
-        >
-          <span className="font-medium text-gray-700">Delivery: {existing.status}</span>
-          <span className="text-[#1B4F8A] text-xs">View →</span>
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-      {needsPin && (
-        <div>
-          <p className="text-xs text-gray-500 mb-1.5">No location was captured at checkout — drop a pin:</p>
-          <div className="h-40 rounded-lg overflow-hidden border border-gray-200">
-            <PinPicker
-              lat={manualCoords?.lat ?? lat ?? 17.6274}
-              lng={manualCoords?.lng ?? lng ?? 78.0982}
-              onMove={setManualCoords}
-              label="Delivery location"
-            />
-          </div>
-        </div>
-      )}
-      <button
-        onClick={() => dispatchMutation.mutate()}
-        disabled={dispatchMutation.isPending || (needsPin && !manualCoords)}
-        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold text-white bg-[#1B4F8A] rounded-lg hover:bg-[#163f6e] disabled:opacity-50"
-      >
-        🛵 {dispatchMutation.isPending ? 'Dispatching…' : 'Dispatch to Rider'}
-      </button>
-    </div>
-  );
-}

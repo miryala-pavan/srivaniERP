@@ -8,9 +8,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { OrderPhotosModule } from '../order-photos/order-photos.module';
 import { HistoryModule } from '../history/history.module';
 import { DeliveryModule } from '../delivery/delivery.module';
+import { GeocodingModule } from '../geocoding/geocoding.module';
 
 @Module({
-  imports:     [PrismaModule, OnlineOrdersModule, EventsModule, NotificationsModule, OrderPhotosModule, HistoryModule, DeliveryModule],
+  imports:     [PrismaModule, OnlineOrdersModule, EventsModule, NotificationsModule, OrderPhotosModule, HistoryModule, DeliveryModule, GeocodingModule],
   providers:   [ListsService],
   controllers: [ListsController, WebhookController],
   exports:     [ListsService],
