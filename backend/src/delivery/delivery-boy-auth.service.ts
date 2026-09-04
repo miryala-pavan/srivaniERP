@@ -7,6 +7,24 @@ import { WhatsAppService } from '../notifications/whatsapp.service';
 const OTP_TTL_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 
+// Dev-only universal code — lets any active rider log in without a real
+// WhatsApp send during development (rider OTP has no Meta-approved
+// AUTHENTICATION template yet, so real sends only work within a 24h
+// session window — see this file's class comment).
+//
+// Gated on TWO independent conditions, not just NODE_ENV: production was
+// found to be running with NODE_ENV unset (confirmed via the live
+// process's actual environment, not just its .env file), which would have
+// silently defeated a NODE_ENV-only guard - the exact bug this second,
+// explicit RIDER_OTP_DEV_MODE flag exists to survive. It must be the
+// literal string 'true' and is absent from prod's .env by default, so
+// this stays off even if NODE_ENV is ever misconfigured again. Also gates
+// the [DEV] plaintext-OTP log line below, for the same reason.
+function riderOtpDevModeEnabled(): boolean {
+  return process.env.NODE_ENV !== 'production' && process.env.RIDER_OTP_DEV_MODE === 'true';
+}
+const DEV_BYPASS_CODE = '000000';
+
 export interface DeliveryBoyJwtPayload {
   deliveryBoyId: string;
   businessId: string;
@@ -48,7 +66,7 @@ export class DeliveryBoyAuthService {
       data: { deliveryBoyId: rider.id, codeHash, expiresAt: new Date(Date.now() + OTP_TTL_MS) },
     });
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (riderOtpDevModeEnabled()) {
       this.logger.warn(`[DEV] Rider OTP for ${phone}: ${code}`);
     }
 
@@ -66,6 +84,13 @@ export class DeliveryBoyAuthService {
       where: { businessId, phone, active: true },
     });
     if (!rider) throw new NotFoundException('No active delivery boy registered with this number');
+
+    if (riderOtpDevModeEnabled() && code === DEV_BYPASS_CODE) {
+      this.logger.warn(`[DEV] Rider login via universal bypass code for ${phone}`);
+      await this.prisma.deliveryBoyOtp.deleteMany({ where: { deliveryBoyId: rider.id } });
+      const payload: DeliveryBoyJwtPayload = { deliveryBoyId: rider.id, businessId, type: 'delivery_boy' };
+      return { token: this.jwtService.sign(payload), deliveryBoyId: rider.id, name: rider.name };
+    }
 
     const row = await this.prisma.deliveryBoyOtp.findFirst({
       where: { deliveryBoyId: rider.id },
