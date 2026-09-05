@@ -1960,6 +1960,15 @@ model PurchaseDebitNote {
   // itcReversal: if goods returned, ITC claimed must be reversed
   itcReversal       Boolean  @default(false)
   status            String   @default("DRAFT") // DRAFT | ISSUED | ACCEPTED | REJECTED
+  // How this claim against the supplier gets settled — ADJUST_BALANCE nets
+  // off future payables (settles immediately at creation, same as today's
+  // only behavior); REPLACEMENT and REFUND stay PENDING until the follow-up
+  // action (linking a replacement GRN, or recording the refund) settles them.
+  settlementType    String    @default("ADJUST_BALANCE") // ADJUST_BALANCE | REPLACEMENT | REFUND
+  settlementStatus  String    @default("PENDING") // PENDING | SETTLED
+  settledAt         DateTime?
+  replacementGrnId  String? // Purchase.id of the GRN that fulfilled a REPLACEMENT settlement
+  refundReference   String? // cheque/UTR/reference number for a REFUND settlement
   notes             String?
   createdById       String?
   createdByName     String?
@@ -1968,6 +1977,8 @@ model PurchaseDebitNote {
 
   supplier Supplier                @relation(fields: [supplierId], references: [id])
   items    PurchaseDebitNoteItem[]
+
+  @@index([businessId, settlementStatus])
 
   @@index([businessId, supplierId])
   @@index([businessId, debitNoteDate])

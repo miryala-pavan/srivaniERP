@@ -1627,6 +1627,7 @@ export class GrnService {
       supplierCnNumber?: string;
       debitNoteDate: string;
       reason: string;
+      settlementType?: string;
       itcReversal?: boolean;
       notes?: string;
       items: Array<{
@@ -1760,6 +1761,12 @@ export class GrnService {
       const padLen = updated.numberFormat.length;
       const debitNoteNumber = `${updated.seriesPrefix}${fy.fyCode}/${String(updated.currentNumber).padStart(padLen, '0')}`;
 
+      // Balance-adjustment settles the instant the payable is reduced below —
+      // replacement/refund stay open until the follow-up action (a linked
+      // replacement GRN, or a recorded refund reference) settles them.
+      const settlementType = dto.settlementType ?? 'ADJUST_BALANCE';
+      const settlementStatus = settlementType === 'ADJUST_BALANCE' ? 'SETTLED' : 'PENDING';
+
       const dn = await tx.purchaseDebitNote.create({
         data: {
           businessId,
@@ -1775,6 +1782,9 @@ export class GrnService {
           taxableAmount, cgstAmount, sgstAmount, igstAmount, cessAmount, totalAmount,
           itcReversal:       dto.itcReversal ?? false,
           status:            'ISSUED',
+          settlementType,
+          settlementStatus,
+          settledAt:         settlementStatus === 'SETTLED' ? new Date() : null,
           notes:             dto.notes ?? null,
           createdById:       userId,
           createdByName:     userName,
@@ -1958,6 +1968,57 @@ export class GrnService {
     return updated;
   }
 
+  // Links a REPLACEMENT-settlement debit note to the GRN that brought the
+  // replacement stock in (same or different items — GRN entry doesn't care)
+  // and marks the claim settled. The GRN doesn't have to be tied to the same
+  // supplier's original invoice — some suppliers ship replacements on a
+  // fresh invoice entirely — but it must belong to this supplier and business.
+  async linkReplacementGrn(businessId: string, id: string, grnId: string, userName: string) {
+    const dn = await this.prisma.purchaseDebitNote.findFirst({ where: { id, businessId } });
+    if (!dn) throw new NotFoundException('Debit note not found');
+    if (dn.status === 'CANCELLED') throw new BadRequestException('Debit note is cancelled');
+    if (dn.settlementType !== 'REPLACEMENT') throw new BadRequestException('This debit note is not marked for replacement settlement');
+    if (dn.settlementStatus === 'SETTLED') throw new BadRequestException('This debit note is already settled');
+
+    const grn = await this.prisma.purchase.findFirst({
+      where: { id: grnId, businessId, supplierId: dn.supplierId },
+      select: { id: true, grnNumber: true },
+    });
+    if (!grn) throw new NotFoundException('GRN not found for this supplier');
+
+    return this.prisma.purchaseDebitNote.update({
+      where: { id },
+      data: {
+        replacementGrnId: grn.id,
+        settlementStatus: 'SETTLED',
+        settledAt: new Date(),
+        notes: `${dn.notes ? dn.notes + ' | ' : ''}Replacement received via GRN ${grn.grnNumber ?? grn.id} — settled by ${userName}`,
+      },
+    });
+  }
+
+  // Marks a REFUND-settlement debit note settled once the supplier has
+  // actually paid cash/bank against the claim. No GL posting here — the
+  // debit note's own journal entry already booked the receivable at
+  // creation; this just closes out the open claim with a reference.
+  async markDebitNoteRefunded(businessId: string, id: string, refundReference: string, userName: string) {
+    const dn = await this.prisma.purchaseDebitNote.findFirst({ where: { id, businessId } });
+    if (!dn) throw new NotFoundException('Debit note not found');
+    if (dn.status === 'CANCELLED') throw new BadRequestException('Debit note is cancelled');
+    if (dn.settlementType !== 'REFUND') throw new BadRequestException('This debit note is not marked for refund settlement');
+    if (dn.settlementStatus === 'SETTLED') throw new BadRequestException('This debit note is already settled');
+
+    return this.prisma.purchaseDebitNote.update({
+      where: { id },
+      data: {
+        refundReference,
+        settlementStatus: 'SETTLED',
+        settledAt: new Date(),
+        notes: `${dn.notes ? dn.notes + ' | ' : ''}Refund received (ref: ${refundReference}) — settled by ${userName}`,
+      },
+    });
+  }
+
   async getPurchaseDebitNoteById(businessId: string, id: string) {
     const dn = await this.prisma.purchaseDebitNote.findFirst({
       where: { id, businessId },
@@ -1968,14 +2029,22 @@ export class GrnService {
     });
     if (!dn) throw new NotFoundException('Debit note not found');
 
-    const grn = dn.originalGrnId
-      ? await this.prisma.purchase.findFirst({
-          where: { id: dn.originalGrnId, businessId },
-          select: { id: true, grnNumber: true, invoiceNumber: true },
-        })
-      : null;
+    const [grn, replacementGrn] = await Promise.all([
+      dn.originalGrnId
+        ? this.prisma.purchase.findFirst({
+            where: { id: dn.originalGrnId, businessId },
+            select: { id: true, grnNumber: true, invoiceNumber: true },
+          })
+        : null,
+      dn.replacementGrnId
+        ? this.prisma.purchase.findFirst({
+            where: { id: dn.replacementGrnId, businessId },
+            select: { id: true, grnNumber: true, invoiceNumber: true },
+          })
+        : null,
+    ]);
 
-    return { ...dn, grn };
+    return { ...dn, grn, replacementGrn };
   }
 
   async getPurchaseDebitNotes(
@@ -1985,8 +2054,13 @@ export class GrnService {
       originalGrnId?: string;
       dateFrom?: string;
       dateTo?: string;
+      settlementType?: string;
+      settlementStatus?: string;
+      reason?: string;
       page?: number;
       limit?: number;
+      sortBy?: string;
+      sortDir?: 'asc' | 'desc';
     },
   ) {
     const page  = Math.max(1, filters.page  ?? 1);
@@ -1996,16 +2070,23 @@ export class GrnService {
     const where: any = { businessId };
     if (filters.supplierId)    where.supplierId    = filters.supplierId;
     if (filters.originalGrnId) where.originalGrnId = filters.originalGrnId;
+    if (filters.settlementType)   where.settlementType   = filters.settlementType;
+    if (filters.settlementStatus) where.settlementStatus = filters.settlementStatus;
+    if (filters.reason)        where.reason        = { contains: filters.reason, mode: 'insensitive' };
     if (filters.dateFrom || filters.dateTo) {
       where.debitNoteDate = {};
       if (filters.dateFrom) where.debitNoteDate.gte = new Date(filters.dateFrom);
       if (filters.dateTo)   where.debitNoteDate.lte = new Date(filters.dateTo + 'T23:59:59');
     }
 
+    const SORTABLE = new Set(['debitNoteDate', 'debitNoteNumber', 'totalAmount', 'settlementStatus', 'settlementType', 'createdAt']);
+    const sortBy  = filters.sortBy && SORTABLE.has(filters.sortBy) ? filters.sortBy : 'debitNoteDate';
+    const sortDir = filters.sortDir === 'asc' ? 'asc' : 'desc';
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.purchaseDebitNote.findMany({
         where,
-        orderBy: { debitNoteDate: 'desc' },
+        orderBy: { [sortBy]: sortDir },
         skip,
         take: limit,
         include: { supplier: { select: { id: true, name: true } }, items: true },

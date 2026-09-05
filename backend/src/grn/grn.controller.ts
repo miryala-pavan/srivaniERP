@@ -10,6 +10,7 @@ import { UpdateGrnDto } from './dto/update-grn.dto';
 import { GrnQueryDto } from './dto/grn-query.dto';
 import { CreateSupplierCreditNoteDto } from './dto/create-credit-note.dto';
 import { CreatePurchaseDebitNoteDto } from './dto/create-debit-note.dto';
+import { LinkReplacementGrnDto, MarkDebitNoteRefundedDto } from './dto/settle-debit-note.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -120,6 +121,28 @@ export class GrnController {
     );
   }
 
+  @Patch('debit-notes/:id/link-replacement-grn')
+  @Roles(...APPROVE_ROLES)
+  linkReplacementGrn(@Request() req: any, @Param('id') id: string, @Body() dto: LinkReplacementGrnDto) {
+    return this.grnService.linkReplacementGrn(
+      req.user.businessId,
+      id,
+      dto.grnId,
+      req.user.fullName ?? req.user.username ?? 'Unknown',
+    );
+  }
+
+  @Patch('debit-notes/:id/mark-refunded')
+  @Roles(...APPROVE_ROLES)
+  markDebitNoteRefunded(@Request() req: any, @Param('id') id: string, @Body() dto: MarkDebitNoteRefundedDto) {
+    return this.grnService.markDebitNoteRefunded(
+      req.user.businessId,
+      id,
+      dto.refundReference,
+      req.user.fullName ?? req.user.username ?? 'Unknown',
+    );
+  }
+
   @Get('debit-notes')
   @Roles(...GRN_ROLES)
   getDebitNotes(
@@ -128,6 +151,11 @@ export class GrnController {
     @Query('originalGrnId') originalGrnId?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('settlementType') settlementType?: string,
+    @Query('settlementStatus') settlementStatus?: string,
+    @Query('reason') reason?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -136,6 +164,11 @@ export class GrnController {
       originalGrnId,
       dateFrom,
       dateTo,
+      settlementType,
+      settlementStatus,
+      reason,
+      sortBy,
+      sortDir,
       page:  page  ? Number(page)  : 1,
       limit: limit ? Number(limit) : 20,
     });

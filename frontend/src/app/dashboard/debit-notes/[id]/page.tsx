@@ -1,14 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { Undo2, Ban, Package } from 'lucide-react';
+import { Undo2, Ban, Package, Truck, Banknote } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
 import { BackButton } from '@/components/shared/BackButton';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
 import { EntityLink } from '@/components/shared/EntityLink';
+import { SettlementBadge } from '@/components/shared/SettlementBadge';
 
 const n = (v: unknown) => Number(v) || 0;
 const inr = (v: number) =>
@@ -19,11 +21,20 @@ const fmtDate = (d: string | null | undefined) =>
 export default function DebitNoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  const [selectedGrnId, setSelectedGrnId] = useState('');
+  const [refundRef, setRefundRef] = useState('');
 
   const { data: dn, isLoading } = useQuery({
     queryKey: ['debit-note', id],
     queryFn: () => api.get(`/grn/debit-notes/${id}`).then(r => r.data),
     enabled: !!id,
+  });
+
+  const supplierId = dn?.supplier?.id;
+  const { data: grnPickerData } = useQuery({
+    queryKey: ['supplier', supplierId, 'grns-for-replacement'],
+    queryFn: () => api.get(`/suppliers/${supplierId}/grns`, { params: { page: 1, limit: 50, status: 'APPROVED' } }).then(r => r.data),
+    enabled: !!supplierId && dn?.settlementType === 'REPLACEMENT' && dn?.settlementStatus === 'PENDING',
   });
 
   const cancelMutation = useMutation({
@@ -33,6 +44,26 @@ export default function DebitNoteDetailPage() {
       qc.invalidateQueries({ queryKey: ['debit-note', id] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to cancel debit note'),
+  });
+
+  const linkGrnMutation = useMutation({
+    mutationFn: () => api.patch(`/grn/debit-notes/${id}/link-replacement-grn`, { grnId: selectedGrnId }),
+    onSuccess: () => {
+      toast.success('Replacement GRN linked — claim settled');
+      setSelectedGrnId('');
+      qc.invalidateQueries({ queryKey: ['debit-note', id] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to link replacement GRN'),
+  });
+
+  const markRefundedMutation = useMutation({
+    mutationFn: () => api.patch(`/grn/debit-notes/${id}/mark-refunded`, { refundReference: refundRef }),
+    onSuccess: () => {
+      toast.success('Refund recorded — claim settled');
+      setRefundRef('');
+      qc.invalidateQueries({ queryKey: ['debit-note', id] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record refund'),
   });
 
   if (isLoading) {
@@ -116,6 +147,74 @@ export default function DebitNoteDetailPage() {
               </EntityLink>
             ) : <p className="text-sm text-gray-400">Not linked to a GRN</p>}
           </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                {dn.settlementType === 'REFUND' ? <Banknote className="w-4 h-4 text-gray-500" /> : <Truck className="w-4 h-4 text-gray-500" />}
+              </div>
+              <h3 className="text-sm font-semibold text-gray-800">Settlement</h3>
+            </div>
+            <SettlementBadge type={dn.settlementType} status={dn.settlementStatus} />
+          </div>
+
+          {dn.settlementStatus === 'SETTLED' && dn.settledAt && (
+            <p className="text-xs text-gray-400 mt-2">Settled on {fmtDate(dn.settledAt)}</p>
+          )}
+          {dn.settlementStatus === 'SETTLED' && dn.replacementGrn && (
+            <p className="text-sm text-gray-600 mt-2">
+              Replacement received via <EntityLink type="grn" id={dn.replacementGrn.id} className="font-mono font-medium">
+                {dn.replacementGrn.grnNumber ?? dn.replacementGrn.invoiceNumber}
+              </EntityLink>
+            </p>
+          )}
+          {dn.settlementStatus === 'SETTLED' && dn.refundReference && (
+            <p className="text-sm text-gray-600 mt-2">Refund reference: <span className="font-mono">{dn.refundReference}</span></p>
+          )}
+
+          {active && dn.settlementStatus === 'PENDING' && dn.settlementType === 'REPLACEMENT' && (
+            <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+              <label className="text-xs font-medium text-gray-600">Link the GRN the replacement stock arrived on</label>
+              <div className="flex gap-2">
+                <select value={selectedGrnId} onChange={(e) => setSelectedGrnId(e.target.value)}
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]">
+                  <option value="">Select a GRN…</option>
+                  {(grnPickerData?.data ?? []).map((g: any) => (
+                    <option key={g.id} value={g.id}>
+                      {g.grnNumber ?? g.id.slice(-8)} — {g.invoiceNumber} — Rs.{inr(n(g.grandTotal))}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => linkGrnMutation.mutate()}
+                  disabled={!selectedGrnId || linkGrnMutation.isPending}
+                  className="px-4 py-2 text-sm bg-[#1B4F8A] text-white rounded-lg hover:bg-[#163f6f] disabled:opacity-50 font-medium whitespace-nowrap"
+                >
+                  {linkGrnMutation.isPending ? 'Linking…' : 'Mark Settled'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {active && dn.settlementStatus === 'PENDING' && dn.settlementType === 'REFUND' && (
+            <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+              <label className="text-xs font-medium text-gray-600">Refund reference (cheque / UTR / transaction ID)</label>
+              <div className="flex gap-2">
+                <input value={refundRef} onChange={(e) => setRefundRef(e.target.value)}
+                  placeholder="e.g. UTR1234567890"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A]" />
+                <button
+                  onClick={() => markRefundedMutation.mutate()}
+                  disabled={!refundRef.trim() || markRefundedMutation.isPending}
+                  className="px-4 py-2 text-sm bg-[#1B4F8A] text-white rounded-lg hover:bg-[#163f6f] disabled:opacity-50 font-medium whitespace-nowrap"
+                >
+                  {markRefundedMutation.isPending ? 'Saving…' : 'Mark Settled'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">

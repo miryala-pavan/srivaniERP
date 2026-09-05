@@ -14,6 +14,7 @@ import Header from '@/components/layout/Header';
 import { BackButton } from '@/components/shared/BackButton';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
 import { EntityLink } from '@/components/shared/EntityLink';
+import { SettlementBadge } from '@/components/shared/SettlementBadge';
 import { useWebSocket } from '@/providers/WebSocketProvider';
 import { useWebSocketEvent } from '@/hooks/useWebSocketEvent';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
@@ -100,8 +101,14 @@ const EMPTY_DN_LINE: ReturnLineItem = {
 
 const EMPTY_DN = {
   grnId: '', debitNoteDate: todayISO(), reason: '', description: '',
-  supplierCnNumber: '', itcReversal: false, notes: '',
+  supplierCnNumber: '', itcReversal: false, notes: '', settlementType: 'ADJUST_BALANCE',
 };
+
+const SETTLEMENT_TYPES: { value: string; label: string; hint: string }[] = [
+  { value: 'ADJUST_BALANCE', label: 'Adjust Balance', hint: 'Deducted from what you owe the supplier — settles immediately' },
+  { value: 'REPLACEMENT',    label: 'Replacement Stock', hint: 'Supplier will send replacement goods — link the GRN when it arrives' },
+  { value: 'REFUND',         label: 'Cash / Bank Refund', hint: 'Supplier will pay you back directly — mark it once received' },
+];
 
 // ─── Pager ───────────────────────────────────────────────────────────────────
 
@@ -931,6 +938,7 @@ export default function SupplierDetailPage() {
                                   <th className="px-4 py-2.5 text-left font-medium">Items</th>
                                   <th className="px-4 py-2.5 text-right font-medium">Amount</th>
                                   <th className="px-4 py-2.5 text-left font-medium">Status</th>
+                                  <th className="px-4 py-2.5 text-left font-medium">Settlement</th>
                                   <th className="px-4 py-2.5 w-10"></th>
                                 </tr>
                               </thead>
@@ -945,9 +953,12 @@ export default function SupplierDetailPage() {
                                     <td className="px-4 py-2.5 text-gray-500 text-xs">{dn.items?.length ?? 0} item{(dn.items?.length ?? 0) !== 1 ? 's' : ''}</td>
                                     <td className="px-4 py-2.5 text-right font-medium">Rs. {inr(n(dn.totalAmount))}</td>
                                     <td className="px-4 py-2.5">
-                                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${dn.status === 'ISSUED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${dn.status === 'ISSUED' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                                         {dn.status}
                                       </span>
+                                    </td>
+                                    <td className="px-4 py-2.5">
+                                      <SettlementBadge type={dn.settlementType} status={dn.settlementStatus} />
                                     </td>
                                     <td className="px-4 py-2.5">
                                       {dn.status === 'ISSUED' && (
@@ -1339,6 +1350,25 @@ export default function SupplierDetailPage() {
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#1B4F8A] resize-none" />
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-600">How will this be settled? *</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {SETTLEMENT_TYPES.map((s) => (
+                    <label key={s.value}
+                      className={`flex items-start gap-2.5 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+                        dnForm.settlementType === s.value ? 'border-[#1B4F8A] bg-blue-50/50' : 'border-gray-200 hover:bg-gray-50'
+                      }`}>
+                      <input type="radio" name="settlementType" className="mt-0.5" checked={dnForm.settlementType === s.value}
+                        onChange={() => setDnForm(f => ({ ...f, settlementType: s.value }))} />
+                      <span>
+                        <span className="block text-sm font-medium text-gray-800">{s.label}</span>
+                        <span className="block text-xs text-gray-400">{s.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               {/* Item lines */}
               <div className="border border-gray-200 rounded-xl p-4 space-y-3 bg-gray-50">
                 <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Returned Items</p>
@@ -1466,6 +1496,7 @@ export default function SupplierDetailPage() {
                     supplierCnNumber:  dnForm.supplierCnNumber || undefined,
                     debitNoteDate:     dnForm.debitNoteDate,
                     reason:            dnForm.reason + (dnForm.description ? ` — ${dnForm.description}` : ''),
+                    settlementType:    dnForm.settlementType,
                     itcReversal:       dnForm.itcReversal,
                     notes:             dnForm.notes || undefined,
                     items: dnItems,

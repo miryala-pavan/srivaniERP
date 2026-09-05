@@ -1,6 +1,6 @@
 import {
   IsString, IsNotEmpty, IsOptional, IsDateString, IsBoolean, IsNumber, Min,
-  ValidateNested, ArrayNotEmpty,
+  ValidateNested, ArrayNotEmpty, IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -31,6 +31,9 @@ export class CreatePurchaseDebitNoteDto {
 
   @IsDateString() debitNoteDate: string;
   @IsString() @IsNotEmpty() reason: string;
+
+  @IsOptional() @IsIn(['ADJUST_BALANCE', 'REPLACEMENT', 'REFUND'])
+  settlementType?: string;
 
   @IsOptional() @IsBoolean() itcReversal?: boolean;
   @IsOptional() @IsString() notes?: string;
