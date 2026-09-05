@@ -32,4 +32,14 @@ export class GeocodingSearchController {
     if (!resolved) throw new BadRequestException('Could not resolve this place');
     return resolved;
   }
+
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Get('resolve-maps-link')
+  async resolveMapsLink(@Query('url') url: string) {
+    if (!url?.trim()) throw new BadRequestException('url is required');
+    const resolved = await this.geocoding.resolveMapsLink(url.trim());
+    if (!resolved) throw new BadRequestException('Could not read a location from that link');
+    return resolved;
+  }
 }

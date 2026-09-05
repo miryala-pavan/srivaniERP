@@ -7,6 +7,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import MapsLinkInput from '@/components/maps/MapsLinkInput';
 
 const PinPicker = dynamic(() => import('@/components/maps/PinPicker'), { ssr: false });
 
@@ -106,6 +107,7 @@ export function DispatchToRiderSection({
           </div>
         </div>
       )}
+      <MapsLinkInput onResolve={(coords) => { setManualCoords(coords); setNeedsPin(true); }} />
       {needsPin && (
         <div>
           <p className="text-xs text-gray-500 mb-1.5">Drag to fine-tune the exact spot:</p>

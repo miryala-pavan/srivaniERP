@@ -30,3 +30,15 @@ export async function resolvePlace(placeId: string, provider: 'ola' | 'google'):
   const res = await api.get(`/geocoding/place/${encodeURIComponent(placeId)}`, { params: { provider } });
   return res.data;
 }
+
+// A pasted Google Maps link — how customers actually share a location most
+// of the time. Returns null on a bad/unparseable link rather than throwing,
+// since this is typed by hand and a mistake shouldn't look like a crash.
+export async function resolveMapsLink(url: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const res = await api.get('/geocoding/resolve-maps-link', { params: { url } });
+    return res.data;
+  } catch {
+    return null;
+  }
+}

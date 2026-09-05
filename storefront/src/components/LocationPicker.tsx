@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import PlaceSearchBox from './PlaceSearchBox';
+import MapsLinkInput from './MapsLinkInput';
 import { fetchRecentPlaces, type RecentPlace } from '../lib/geocoding';
 
 // Leaflet touches `window` at import time — must never run during SSR/build.
@@ -71,6 +72,7 @@ export default function LocationPicker({
       {status !== 'ready' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <PlaceSearchBox onSelect={(r) => usePlace({ lat: r.lat, lng: r.lng })} />
+          <MapsLinkInput onResolve={usePlace} />
 
           {recent.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>

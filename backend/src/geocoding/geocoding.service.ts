@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { encrypt, decrypt } from '../common/helpers/credential-encryption.util';
+import { isAllowedMapsHost, isShortMapsLink, parseCoordsFromMapsUrl } from './maps-link.util';
 
 // DB key for the optional per-business Google Places fallback key. Ola's key
 // is a pure global env var (OLA_MAPS_API_KEY) — one platform-wide key is the
@@ -85,6 +86,30 @@ export class GeocodingService {
     const googleKey = await this.getGoogleKey(businessId);
     if (!googleKey) return null;
     return this.googleReverseGeocode(lat, lng, googleKey);
+  }
+
+  /**
+   * Resolves a pasted Google Maps link to coordinates — customers share
+   * locations this way far more often than via WhatsApp's native "share
+   * location" button. isAllowedMapsHost() is the SSRF guard: rejects
+   * anything outside Google's own domains before any request is attempted.
+   * A short link (maps.app.goo.gl/goo.gl) has no coordinates in the URL
+   * itself, so it needs one real request to follow the redirect first.
+   */
+  async resolveMapsLink(url: string): Promise<{ lat: number; lng: number } | null> {
+    if (!isAllowedMapsHost(url)) return null;
+
+    let target = url;
+    if (isShortMapsLink(url)) {
+      try {
+        const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(5000) });
+        target = res.url || url;
+      } catch (err) {
+        this.logger.warn(`Failed to resolve short Maps link: ${err}`);
+        return null;
+      }
+    }
+    return parseCoordsFromMapsUrl(target);
   }
 
   // ── Settings (Google fallback key) ──────────────────────────────────────

@@ -45,6 +45,14 @@ export async function resolvePlace(placeId: string, provider: 'ola' | 'google'):
   return res.json();
 }
 
+// A pasted Google Maps link — how customers actually share a location most
+// of the time, more than the search box above or a GPS fix.
+export async function resolveMapsLink(url: string): Promise<{ lat: number; lng: number } | null> {
+  const res = await fetch(`${API}/geocoding/resolve-maps-link?url=${encodeURIComponent(url)}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
 // Requires a verified phone (StorefrontJwtGuard) — returns [] silently if
 // not signed in yet rather than throwing, since recent-places is a nice-to-
 // have quick-pick, not something checkout should ever block on.

@@ -19,12 +19,19 @@ import { OrderPhotosService } from '../order-photos/order-photos.service';
 import { HistoryService } from '../history/history.service';
 import { DeliveryDispatchService } from '../delivery/delivery-dispatch.service';
 import { SavedPlacesService } from '../geocoding/saved-places.service';
+import { GeocodingService } from '../geocoding/geocoding.service';
 import * as crypto from 'crypto';
 
 // Matches the short Ref: code embedded in the wa.me pre-filled message
 // (see OrderPhotosService's buildCustomerRefMessage) — case-insensitive
 // since a customer could retype it, though normally it arrives untouched.
 const ORDER_PHOTO_REF_RE = /\bRef:?\s*([A-Z0-9]{10})\b/i;
+
+// Customers share a location as a pasted Google Maps link far more often
+// than via WhatsApp's native "share location" button — this just finds the
+// link substring; GeocodingService.resolveMapsLink() does the actual
+// domain-allowlist check before ever fetching anything.
+const MAPS_LINK_RE = /https?:\/\/(?:www\.)?(?:google\.com\/maps\S*|maps\.google\.com\S*|goo\.gl\/maps\S*|maps\.app\.goo\.gl\S*)/i;
 
 const WH_VERIFY_TOKEN = process.env.WA_WEBHOOK_VERIFY_TOKEN ?? 'srivani-wa-verify-2026';
 const WH_APP_SECRET   = process.env.WA_APP_SECRET ?? '';
@@ -47,6 +54,7 @@ export class WebhookController implements OnModuleInit {
     private history: HistoryService,
     private deliveryDispatch: DeliveryDispatchService,
     private savedPlaces: SavedPlacesService,
+    private geocoding: GeocodingService,
   ) {}
 
   onModuleInit() {
@@ -324,6 +332,19 @@ export class WebhookController implements OnModuleInit {
       }
 
       if (msg.type === 'text') {
+        // Layered alongside the normal text handling below, not instead of
+        // it — a customer might paste a link as part of a longer message
+        // ("here's my location: <link>, deliver ASAP"). Same destination as
+        // the native-location branch further down: saved for staff to pick
+        // as a quick-pick, never auto-dispatched.
+        const mapsLink = messageBody?.match(MAPS_LINK_RE)?.[0];
+        if (mapsLink) {
+          this.geocoding.resolveMapsLink(mapsLink).then(coords => {
+            if (!coords) return;
+            this.savedPlaces.recordUse(businessId, senderPhone, coords.lat, coords.lng, 'whatsapp-location');
+          }).catch(err => this.logger.error(`Resolving a pasted Maps link failed for ${senderPhone}: ${err}`));
+        }
+
         await this.lists.handleIncoming(businessId, {
           senderPhone, senderName,
           msgType: 'TEXT',
