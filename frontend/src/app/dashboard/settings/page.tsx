@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Settings, Receipt, Save, RefreshCw, CheckCircle2, Keyboard, AlertCircle, Store, Clock, FileText, Star, Truck, Trash2, Plus, Eye } from 'lucide-react';
+import { Settings, Receipt, Save, RefreshCw, CheckCircle2, Keyboard, AlertCircle, Store, Clock, FileText, Star, Truck, Trash2, Plus, Eye, Bell, BellOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
+import { usePushSubscription } from '@/hooks/usePushSubscription';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -198,6 +199,7 @@ function KeyCapture({
 type TabId = 'billing' | 'shortcuts' | 'pos' | 'gst' | 'system' | 'loyalty' | 'delivery' | 'storefront';
 
 export default function SettingsPage() {
+  const push = usePushSubscription();
   const [activeTab, setActiveTab] = useState<TabId>('billing');
 
   // Billing
@@ -1330,6 +1332,41 @@ export default function SettingsPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {activeTab === 'system' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mt-6">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Browser Notifications</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              Get a notification on this device the moment a customer messages your WhatsApp number — even when this
+              tab isn&apos;t open. This is a per-browser setting; each staff member who wants alerts needs to turn this on
+              on their own device.
+            </p>
+            {!push.isSupported ? (
+              <p className="text-sm text-gray-500 flex items-center gap-2"><BellOff className="w-4 h-4" /> Not supported in this browser.</p>
+            ) : push.subscribed ? (
+              <p className="text-sm text-green-700 flex items-center gap-2 font-medium"><Bell className="w-4 h-4" /> Notifications are on for this device.</p>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  onClick={push.subscribe}
+                  disabled={push.busy || push.permission === 'denied'}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {push.busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+                  {push.busy ? 'Enabling…' : 'Enable Notifications'}
+                </button>
+                {push.permission === 'denied' && (
+                  <p className="text-xs text-amber-600">
+                    Notifications are blocked for this site in your browser settings — enable them there first, then reload this page.
+                  </p>
+                )}
+                {push.lastError && <p className="text-xs text-red-600">{push.lastError}</p>}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
