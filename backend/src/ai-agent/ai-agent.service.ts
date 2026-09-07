@@ -36,6 +36,22 @@ export interface AiAgentSettings {
   providers: AiProviderSettings[];
 }
 
+/**
+ * Result of one handleCustomerMessage() call. Replaces the old `string | null`
+ * return — null used to mean three different things (not configured/capped,
+ * the model escalated, or a hard error), and the caller couldn't tell "the
+ * model handed this to a human" apart from "nothing happened". `escalated`
+ * disambiguates just that one case, since it's the only one the caller
+ * (WhatsAppService.handleAutoReply) needs to react to differently — sending
+ * an acknowledgment + Main Menu instead of staying silent.
+ */
+export interface AiAgentResult {
+  /** Drafted reply text, or null if there's nothing to send (declined/capped/errored/escalated). */
+  reply: string | null;
+  /** True only when the model explicitly called escalate_to_human. */
+  escalated: boolean;
+}
+
 const TOOLS: AiToolDef[] = [
   {
     name: 'search_products',
@@ -151,21 +167,24 @@ export class AiAgentService {
   // ── Core orchestration ──────────────────────────────────────────────────
 
   /**
-   * Drafts a reply to one inbound customer WhatsApp message, or returns null
-   * to silently hand off to the human inbox (unconfigured, daily cap hit,
-   * the model escalated, or any error). Caller (WhatsAppService) is
-   * responsible for actually sending a non-null result via autoReplyText —
-   * this service never sends anything itself.
+   * Drafts a reply to one inbound customer WhatsApp message. `reply` is null
+   * when there's nothing to send (unconfigured, daily cap hit, max
+   * iterations, or any error) OR when the model escalated — check
+   * `escalated` to tell those apart. Caller (WhatsAppService) is responsible
+   * for actually sending a non-null reply via autoReplyText, and for
+   * reacting to `escalated` (acknowledgment + Main Menu) — this service
+   * never sends anything itself.
    */
-  async handleCustomerMessage(businessId: string, phone: string, messageBody: string, storeInfo: StoreInfo): Promise<string | null> {
+  async handleCustomerMessage(businessId: string, phone: string, messageBody: string, storeInfo: StoreInfo): Promise<AiAgentResult> {
+    const declined: AiAgentResult = { reply: null, escalated: false };
     try {
       const settings = await this.getSettings(businessId);
-      if (!settings.enabled || !settings.anyConfigured) return null;
+      if (!settings.enabled || !settings.anyConfigured) return declined;
 
       const count = await this.getDailyCount(businessId);
       if (count >= settings.dailyLimit) {
         this.logger.warn(`AI daily cap reached for business ${businessId} (${count}/${settings.dailyLimit}) — falling back`);
-        return null;
+        return declined;
       }
       await this.incrementDailyCount(businessId, count);
 
@@ -176,10 +195,10 @@ export class AiAgentService {
         const result = await this.gateway.complete({ businessId, systemPrompt, messages, tools: TOOLS });
 
         const escalate = result.toolCalls.find(tc => tc.name === 'escalate_to_human');
-        if (escalate) return null;
+        if (escalate) return { reply: null, escalated: true };
 
         if (result.toolCalls.length === 0) {
-          return result.text?.trim() || null;
+          return { reply: result.text?.trim() || null, escalated: false };
         }
 
         messages.push({ role: 'assistant', content: result.text, toolCalls: result.toolCalls });
@@ -190,10 +209,10 @@ export class AiAgentService {
       }
 
       this.logger.warn(`AI agent hit max tool iterations for business ${businessId} — falling back`);
-      return null;
+      return declined;
     } catch (err) {
       this.logger.error(`AI agent failed for business ${businessId}: ${err instanceof Error ? err.message : String(err)}`);
-      return null;
+      return declined;
     }
   }
 
@@ -225,13 +244,17 @@ export class AiAgentService {
       '',
       'You have two data tools: search_products (product name/price/stock lookups) and get_store_info (hours/location). Always call the relevant tool rather than answering from memory — if you are not sure a product exists, search for it; never state a price or stock status you did not get from search_products.',
       '',
+      'Customers write casually — greetings, spelling mistakes, extra punctuation, and the real question all mixed into one message (e.g. "Good day biscuit bulk stock available?"). Always look past the greeting/small talk and extract the actual product or topic being asked about; never treat a message as "just a greeting" when it also names a product, category, or request. Never let a friendly opener cause you to skip or ignore the real question that follows it.',
+      '',
+      'If the message is too vague to search meaningfully — it names only a broad category or general need (e.g. "biscuits", "bulk stock", "snacks") with no specific brand or product — do not silently fail and do not escalate. Instead ask ONE short, friendly clarifying question to narrow it down (e.g. "Sure! Which biscuit brand are you looking for? 🍪"), in the same bilingual style as your other replies. A broad query on its own is never a reason to escalate.',
+      '',
       'You MUST call escalate_to_human instead of answering, for any of these — do not attempt to handle them yourself:',
       '- A specific order\'s status, delivery, or tracking',
       '- A complaint of any kind',
       '- A refund or return request',
       '- Price negotiation or a discount request',
       '- Payment issues or anything needing account access',
-      '- Anything else you are not confident you can answer correctly from the two tools above',
+      '- Genuine total incomprehension — the message makes no sense at all, not merely a broad or under-specified product query',
       '',
       'If you escalate, do not send any other reply — just call escalate_to_human and stop.',
     ].join('\n');
