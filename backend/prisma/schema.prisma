@@ -2527,7 +2527,8 @@ model WaMessage {
 
   messageType  String // TEXT | TEMPLATE | INTERACTIVE_BUTTON | IMAGE | DOCUMENT | BUTTON_REPLY
   templateName String?
-  bodyPreview  String? // first ~200 chars, for the admin log/chat bubble
+  body         String? // full message text, unbounded — the chat bubble renders this
+  bodyPreview  String? // first ~200 chars, for notification/event previews only
   buttonId     String? // set when direction=INBOUND and it's a button-reply tap
   mediaId      String? // Meta media object id, for IMAGE/DOCUMENT messages (either direction)
   mediaUrl     String? // set instead of mediaId for outbound images sent via a public link

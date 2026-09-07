@@ -133,7 +133,7 @@ export class WebhookController implements OnModuleInit {
   }
 
   private async logInbound(businessId: string, waMessageId: string, data: {
-    phone: string; messageType: string; bodyPreview?: string; buttonId?: string; mediaId?: string;
+    phone: string; messageType: string; fullText?: string; buttonId?: string; mediaId?: string;
   }): Promise<boolean> {
     // Returns false if this message id was already processed (webhook retry).
     try {
@@ -144,7 +144,8 @@ export class WebhookController implements OnModuleInit {
           direction: 'INBOUND',
           phone: data.phone,
           messageType: data.messageType,
-          bodyPreview: data.bodyPreview?.slice(0, 200),
+          body: data.fullText,
+          bodyPreview: data.fullText?.slice(0, 200),
           buttonId: data.buttonId,
           mediaId: data.mediaId,
           status: 'DELIVERED',
@@ -222,7 +223,7 @@ export class WebhookController implements OnModuleInit {
       const isNew = await this.logInbound(businessId, msg.id, {
         phone: senderPhone,
         messageType,
-        bodyPreview,
+        fullText: bodyPreview,
         buttonId: selectionId,
         mediaId,
       });

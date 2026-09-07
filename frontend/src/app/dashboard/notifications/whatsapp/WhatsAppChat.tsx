@@ -54,6 +54,7 @@ interface ThreadMessage {
   phone: string;
   messageType: string;
   templateName: string | null;
+  body: string | null;
   bodyPreview: string | null;
   buttonId: string | null;
   mediaId: string | null;
@@ -196,6 +197,23 @@ function fmtRelative(iso: string) {
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d`;
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
+/** Calendar-day key (not a display string) — used to detect when a day boundary is crossed between messages. */
+function dayKey(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function fmtDateSeparator(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (dayKey(iso) === dayKey(today.toISOString())) return 'Today';
+  if (dayKey(iso) === dayKey(yesterday.toISOString())) return 'Yesterday';
+  const sameYear = d.getFullYear() === today.getFullYear();
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
 }
 
 interface WhatsAppChatProps {
@@ -620,7 +638,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
     const tempId = `temp-${Date.now()}`;
     setMessages(m => [...m, {
       id: tempId, waMessageId: tempId, direction: 'OUTBOUND', phone: selectedPhone,
-      messageType: 'TEXT', templateName: null, bodyPreview: text, buttonId: null,
+      messageType: 'TEXT', templateName: null, body: text, bodyPreview: text, buttonId: null,
       mediaId: null, mediaUrl: null, isAutoReply: false, status: 'QUEUED', errorMessage: null,
       createdAt: new Date().toISOString(),
     }]);
@@ -1215,10 +1233,19 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                   )}
                 </div>
               ) : (
-                messages.map(m => {
-                  const [lat, lng] = m.messageType === 'LOCATION' && m.bodyPreview ? m.bodyPreview.split(',') : [null, null];
+                messages.map((m, i) => {
+                  const [lat, lng] = m.messageType === 'LOCATION' && (m.body ?? m.bodyPreview) ? (m.body ?? m.bodyPreview)!.split(',') : [null, null];
+                  const showDateSeparator = i === 0 || dayKey(m.createdAt) !== dayKey(messages[i - 1].createdAt);
                   return (
-                  <div key={m.id} className={`group flex items-center gap-1.5 ${m.direction === 'OUTBOUND' ? 'justify-end' : 'justify-start'}`}>
+                  <div key={m.id}>
+                  {showDateSeparator && (
+                    <div className="flex justify-center my-2">
+                      <span className="text-[10px] font-medium text-gray-500 bg-gray-100 rounded-full px-2.5 py-1">
+                        {fmtDateSeparator(m.createdAt)}
+                      </span>
+                    </div>
+                  )}
+                  <div className={`group flex items-center gap-1.5 ${m.direction === 'OUTBOUND' ? 'justify-end' : 'justify-start'}`}>
                     {m.direction === 'OUTBOUND' && (
                       <button
                         onClick={() => setReactingTo(r => r === m.id ? null : m.id)}
@@ -1267,7 +1294,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                             onClick={() => openDocument(m.mediaId!)}
                             className="flex items-center gap-2 text-blue-700 hover:underline text-left">
                             <FileText size={16} className="shrink-0" />
-                            <span className="truncate">{m.bodyPreview?.replace('[Document] ', '') || 'Document'}</span>
+                            <span className="truncate">{(m.body ?? m.bodyPreview)?.replace('[Document] ', '') || 'Document'}</span>
                           </button>
                         ) : m.messageType === 'LOCATION' && lat && lng ? (
                           <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noopener noreferrer"
@@ -1278,7 +1305,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                         ) : m.messageType === 'REACTION' ? (
                           <p className="text-lg">{m.bodyPreview}</p>
                         ) : (
-                          <p className="whitespace-pre-wrap break-words leading-relaxed">{m.bodyPreview || `[${m.messageType}]`}</p>
+                          <p className="whitespace-pre-wrap break-words leading-relaxed">{m.body || m.bodyPreview || `[${m.messageType}]`}</p>
                         )}
                         {m.errorMessage && (
                           <p className="text-[10px] text-red-500 mt-1 cursor-help" title={m.errorMessage}>
@@ -1291,6 +1318,7 @@ export default function WhatsAppChat({ onStartNewChat }: WhatsAppChatProps) {
                         </p>
                       </div>
                     </div>
+                  </div>
                   </div>
                   );
                 })

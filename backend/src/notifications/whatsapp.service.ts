@@ -1736,6 +1736,7 @@ export class WhatsAppService {
           phone: meta.phone,
           messageType: meta.messageType,
           templateName: meta.templateName,
+          body: meta.bodyPreview,
           bodyPreview: meta.bodyPreview?.slice(0, 200),
           mediaId: meta.mediaId,
           mediaUrl: meta.mediaUrl,
