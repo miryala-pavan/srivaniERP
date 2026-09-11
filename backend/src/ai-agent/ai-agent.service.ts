@@ -52,6 +52,18 @@ export interface AiAgentResult {
   escalated: boolean;
 }
 
+/**
+ * Light, warmth-only context about the customer messaging in — NOT a
+ * substitute for escalate_to_human on real order questions. Deliberately
+ * carries only a name and a purchase count/date, never order line items,
+ * statuses, or amounts, so the model has nothing specific to get wrong.
+ */
+interface AiCustomerContext {
+  name?: string;
+  orderCount: number;
+  lastOrderAt?: Date;
+}
+
 const TOOLS: AiToolDef[] = [
   {
     name: 'search_products',
@@ -188,8 +200,13 @@ export class AiAgentService {
       }
       await this.incrementDailyCount(businessId, count);
 
-      const systemPrompt = await this.buildSystemPrompt(businessId);
-      const messages: AiMessage[] = [{ role: 'user', content: messageBody }];
+      const [customerContext, history] = await Promise.all([
+        this.getCustomerContext(businessId, phone),
+        this.getRecentHistory(businessId, phone),
+      ]);
+
+      const systemPrompt = await this.buildSystemPrompt(businessId, customerContext);
+      const messages: AiMessage[] = [...history, { role: 'user', content: messageBody }];
 
       for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
         const result = await this.gateway.complete({ businessId, systemPrompt, messages, tools: TOOLS });
@@ -233,11 +250,11 @@ export class AiAgentService {
     }
   }
 
-  private async buildSystemPrompt(businessId: string): Promise<string> {
+  private async buildSystemPrompt(businessId: string, customerContext: AiCustomerContext): Promise<string> {
     const business = await this.prisma.business.findUnique({ where: { id: businessId }, select: { name: true } });
     const storeName = business?.name?.trim() || 'the store';
 
-    return [
+    const lines = [
       `You are a helpful WhatsApp assistant for ${storeName}, a retail store. You answer customers' product/price/stock questions and general store questions (hours, location) using the tools provided — never from memory or guesswork.`,
       '',
       'Reply in the same bilingual style this store already uses with customers: a short line in Telugu, followed by the same line in English in italics (wrap it in single asterisks, e.g. *like this*). Keep the whole reply short — this is a WhatsApp chat reply, not an essay. Use at most one or two relevant emoji, no more.',
@@ -257,7 +274,94 @@ export class AiAgentService {
       '- Genuine total incomprehension — the message makes no sense at all, not merely a broad or under-specified product query',
       '',
       'If you escalate, do not send any other reply — just call escalate_to_human and stop.',
-    ].join('\n');
+    ];
+
+    // Light, warmth-only customer context — see AiCustomerContext's own comment
+    // for why this deliberately never carries order line items/status/amounts.
+    const contextLines: string[] = [];
+    if (customerContext.name) {
+      contextLines.push(`This customer's name is ${customerContext.name} — address them by name where it reads naturally (e.g. in a greeting), not forced into every sentence.`);
+    }
+    if (customerContext.orderCount > 0) {
+      const when = customerContext.lastOrderAt
+        ? customerContext.lastOrderAt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+        : undefined;
+      contextLines.push(
+        `They are a returning customer — ${customerContext.orderCount} past purchase${customerContext.orderCount === 1 ? '' : 's'}` +
+        `${when ? `, most recently on ${when}` : ''}. You may warmly acknowledge this (e.g. "welcome back!"), but you were NOT given ` +
+        `their order items, statuses, or amounts — never state or guess at those. Any real question about a specific order still ` +
+        'goes through escalate_to_human as instructed above.',
+      );
+    }
+    if (contextLines.length) {
+      lines.push('', '--- Customer context ---', ...contextLines);
+    }
+
+    return lines.join('\n');
+  }
+
+  // ── Customer context + conversation memory ──────────────────────────────
+  // Both resolve the customer by phone independently of WhatsAppService's own
+  // lookup (same normalized-last-10-digits matching precedent already used in
+  // whatsapp.service.ts and lists.controller.ts) — no circular dependency,
+  // this service already has its own PrismaService.
+
+  private async getCustomerContext(businessId: string, phone: string): Promise<AiCustomerContext> {
+    const digits = phone.replace(/\D/g, '').slice(-10);
+    if (digits.length < 10) return { orderCount: 0 };
+
+    const [customer, billAgg, orderAgg] = await Promise.all([
+      this.prisma.customer.findFirst({
+        where: { businessId, OR: [{ phone: digits }, { phone: `91${digits}` }] },
+        select: { name: true },
+      }),
+      this.prisma.salesBill.aggregate({
+        where: { businessId, customerPhone: digits, billType: { not: 'ESTIMATE' }, isVoided: false },
+        _count: true,
+        _max: { billDate: true },
+      }),
+      this.prisma.onlineOrder.aggregate({
+        where: { businessId, customerPhone: { in: [digits, `91${digits}`] } },
+        _count: true,
+        _max: { createdAt: true },
+      }),
+    ]);
+
+    const orderCount = billAgg._count + orderAgg._count;
+    const dates = [billAgg._max.billDate, orderAgg._max.createdAt].filter((d): d is Date => d != null);
+    const lastOrderAt = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : undefined;
+
+    return { name: customer?.name?.trim() || undefined, orderCount, lastOrderAt };
+  }
+
+  /**
+   * Last ~10 prior WhatsApp text turns for this phone, oldest first, mapped to
+   * AiMessage history so the model actually sees the conversation instead of
+   * treating every inbound message as the first one ever sent. The current
+   * message has already been logged as a WaMessage row by the time this runs
+   * (see WhatsAppService.handleAutoReply's own comment on the same fact), so
+   * the single most recent row is that same message — dropped here rather
+   * than re-sent as both "history" and the live user turn below it.
+   * messageType:'TEXT' only — interactive/button/media rows carry no useful
+   * free text and would just inject noise (or nothing at all) into context.
+   */
+  private async getRecentHistory(businessId: string, phone: string): Promise<AiMessage[]> {
+    const HISTORY_LIMIT = 10;
+    const rows = await this.prisma.waMessage.findMany({
+      where: { businessId, phone, messageType: 'TEXT' },
+      orderBy: { createdAt: 'desc' },
+      take: HISTORY_LIMIT + 1,
+      select: { direction: true, body: true, bodyPreview: true },
+    });
+
+    return rows
+      .slice(1) // drop the current inbound message (already logged, most recent row)
+      .reverse() // oldest first
+      .map(r => ({ direction: r.direction, text: (r.body ?? r.bodyPreview ?? '').trim() }))
+      .filter(r => r.text.length > 0)
+      .map(r => r.direction === 'INBOUND'
+        ? { role: 'user' as const, content: r.text }
+        : { role: 'assistant' as const, content: r.text });
   }
 
   // ── Daily safety cap ─────────────────────────────────────────────────────

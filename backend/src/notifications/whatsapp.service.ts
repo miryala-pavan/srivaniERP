@@ -1290,6 +1290,11 @@ export class WhatsAppService {
     const inboundCount = await this.prisma.waMessage.count({ where: { businessId, phone: this.e164(phone) ?? phone, direction: 'INBOUND' } });
     const isFirstMessage = inboundCount <= 1;
 
+    // Known-customer name (already-registered POS/online customers, or anyone
+    // who's opted in before) — used to personalize greetings below. Not every
+    // WhatsApp contact has a Customer row, so this is commonly undefined.
+    const customerName = (await this.findCustomerByPhoneNormalized(businessId, this.e164(phone) ?? phone))?.name?.trim() || undefined;
+
     // Broader fallback: does this look like a product query ("do you have X",
     // "price of Y")? Checked after the specific keyword rules above (so e.g.
     // "order status" never gets treated as a product search).
@@ -1312,8 +1317,14 @@ export class WhatsAppService {
         // force a generic welcome — the customer gets the real answer above,
         // then still gets oriented as a first-time contact.
         if (isFirstMessage) {
-          await this.autoReplyWelcomeLine(businessId, phone);
+          await this.autoReplyWelcomeLine(businessId, phone, customerName);
           await this.sendMainMenu(businessId, phone);
+        } else {
+          // Every other reply path in this file (store hours, order status,
+          // bill lookup, keyword product search) ends with a way back to the
+          // menu — this one was the one gap where an AI-answered reply just
+          // stopped, unlike everywhere else.
+          await this.sendBackToMenuButton(businessId, phone);
         }
         return;
       }
@@ -1321,24 +1332,35 @@ export class WhatsAppService {
       // No answer drafted — either a bare greeting, an escalation, or a genuine
       // decline. On a first-ever message, the Welcome text itself serves as the
       // acknowledgment in every one of those cases, so no extra escalation line.
-      if (isFirstMessage) return this.autoReplyWelcome(businessId, phone);
+      if (isFirstMessage) return this.autoReplyWelcome(businessId, phone, customerName);
 
       if (result.escalated) {
         await this.autoReplyText(businessId, phone, "I've let our team know — meanwhile, here's how else I can help:");
         return this.sendMainMenu(businessId, phone);
       }
 
-      // Returning customer, AI declined without escalating (couldn't understand) — bare Main Menu.
+      // Returning customer, AI declined without escalating. If it actually
+      // looked like small talk (same stoplist product-search uses to avoid
+      // misreading "hi"/"good morning" as a product query), acknowledge it by
+      // name/time-of-day instead of jumping straight to a bare menu — every
+      // greeting otherwise collapsed into the exact same robotic response.
+      if (WhatsAppService.SEARCH_STOPLIST.has(exact)) {
+        await this.autoReplyText(businessId, phone, this.greetingReplyFor(exact, customerName));
+      }
       return this.sendMainMenu(businessId, phone);
     }
 
     if (await this.autoReplyProductSearch(businessId, phone, opts.messageBody ?? '')) return;
 
-    if (isFirstMessage) return this.autoReplyWelcome(businessId, phone);
+    if (isFirstMessage) return this.autoReplyWelcome(businessId, phone, customerName);
 
     // Returning customer, nothing matched at all (AI not configured, no product
-    // search hit) — bare Main Menu, no lead-in text since there's no specific
-    // event to acknowledge.
+    // search hit). Same small-talk acknowledgment as the AI branch above —
+    // this path is exactly what runs for every business that hasn't set up
+    // the AI Assistant, so it needs the same fix, not just the AI's version.
+    if (WhatsAppService.SEARCH_STOPLIST.has(exact)) {
+      await this.autoReplyText(businessId, phone, this.greetingReplyFor(exact, customerName));
+    }
     return this.sendMainMenu(businessId, phone);
   }
 
@@ -1448,15 +1470,34 @@ export class WhatsAppService {
   }
 
   /** Plain welcome text only — no menu. Used by autoReplyWelcome() and, on its own, as the lead-in line when a first message also got a real AI answer. */
-  private async autoReplyWelcomeLine(businessId: string, phone: string) {
+  private async autoReplyWelcomeLine(businessId: string, phone: string, customerName?: string) {
     const storeName = await this.getStoreName(businessId);
-    await this.autoReplyText(businessId, phone, `🙏 Welcome to ${storeName}! Here's how else I can help:`);
+    const who = customerName ? `, ${customerName}` : '';
+    await this.autoReplyText(businessId, phone, `🙏 Welcome to ${storeName}${who}! Here's how else I can help:`);
   }
 
-  private async autoReplyWelcome(businessId: string, phone: string) {
+  private async autoReplyWelcome(businessId: string, phone: string, customerName?: string) {
     const storeName = await this.getStoreName(businessId);
-    await this.autoReplyText(businessId, phone, `Hi! 👋 Welcome to ${storeName}. How can we help you today?`);
+    const greet = customerName ? `Hi ${customerName}! 👋` : 'Hi! 👋';
+    await this.autoReplyText(businessId, phone, `${greet} Welcome to ${storeName}. How can we help you today?`);
     await this.sendMainMenu(businessId, phone);
+  }
+
+  /**
+   * One-line acknowledgment for a returning customer's small talk (the same
+   * stoplist product-search already uses, so this only fires for messages
+   * that genuinely looked like a greeting, not an unmatched real question).
+   * Time-of-day greetings get matched back, everything else gets a generic
+   * but personalized "Hi" — either way, replaces what used to be silence
+   * before the bare Main Menu.
+   */
+  private greetingReplyFor(exactLowercased: string, customerName?: string): string {
+    const who = customerName ? ` ${customerName}` : '';
+    if (/^(good\s*morning|gm)$/.test(exactLowercased)) return `Good morning${who}! ☀️`;
+    if (/^good\s*afternoon$/.test(exactLowercased)) return `Good afternoon${who}! 👋`;
+    if (/^good\s*evening$/.test(exactLowercased)) return `Good evening${who}! 👋`;
+    if (/^(good\s*night|gn)$/.test(exactLowercased)) return `Good night${who}! 🌙`;
+    return `Hi${who}! 👋`;
   }
 
   /**
