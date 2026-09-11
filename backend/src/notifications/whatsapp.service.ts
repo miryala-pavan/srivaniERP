@@ -1478,8 +1478,24 @@ export class WhatsAppService {
 
   private async autoReplyWelcome(businessId: string, phone: string, customerName?: string) {
     const storeName = await this.getStoreName(businessId);
-    const greet = customerName ? `Hi ${customerName}! 👋` : 'Hi! 👋';
-    await this.autoReplyText(businessId, phone, `${greet} Welcome to ${storeName}. How can we help you today?`);
+    const { storeHours } = await this.getAutoReplySettings(businessId);
+    const who = customerName ? ` ${customerName}` : '';
+
+    const lines = [
+      `🌟 Welcome${who} to ${storeName}! 🌟`,
+      '',
+      ...(storeHours ? [`⏰ Timings: ${storeHours}`, ''] : []),
+      '📝 Kindly follow these guidelines while placing an order:',
+      '• *Name & Phone Number*: Please mention clearly with every order',
+      '• *Delivery Option*: Type "DELIVERY" and share your full address with a landmark',
+      '• *Order List*: Mention items, quantity & preferred brand',
+      '• *Alternate Option*: Let us know if any alternate brand is acceptable',
+      '• *Exchange Policy*: Exchange available within 48 hours of delivery',
+      '',
+      '🛍️',
+    ];
+
+    await this.autoReplyText(businessId, phone, lines.join('\n'));
     await this.sendMainMenu(businessId, phone);
   }
 
