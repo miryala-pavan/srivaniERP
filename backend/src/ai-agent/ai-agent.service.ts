@@ -18,6 +18,8 @@ export interface StoreInfo {
   storeHours: string;
   locationName: string;
   locationAddr: string;
+  /** Set when today has an active WaSpecialDay override (e.g. a festival the store is too busy to keep up with WhatsApp on) — woven into the system prompt directly, not left to the model to think to ask for. */
+  specialDayMessage?: string;
 }
 
 export interface AiProviderSettings {
@@ -205,7 +207,7 @@ export class AiAgentService {
         this.getRecentHistory(businessId, phone),
       ]);
 
-      const systemPrompt = await this.buildSystemPrompt(businessId, customerContext);
+      const systemPrompt = await this.buildSystemPrompt(businessId, customerContext, storeInfo.specialDayMessage);
       const messages: AiMessage[] = [...history, { role: 'user', content: messageBody }];
 
       for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
@@ -250,7 +252,7 @@ export class AiAgentService {
     }
   }
 
-  private async buildSystemPrompt(businessId: string, customerContext: AiCustomerContext): Promise<string> {
+  private async buildSystemPrompt(businessId: string, customerContext: AiCustomerContext, specialDayMessage?: string): Promise<string> {
     const business = await this.prisma.business.findUnique({ where: { id: businessId }, select: { name: true } });
     const storeName = business?.name?.trim() || 'the store';
 
@@ -281,6 +283,9 @@ export class AiAgentService {
     // Light, warmth-only customer context — see AiCustomerContext's own comment
     // for why this deliberately never carries order line items/status/amounts.
     const contextLines: string[] = [];
+    if (specialDayMessage) {
+      contextLines.push(`Today is a special/busy day for the store — customers are already being told: "${specialDayMessage}". Keep this in mind: replies may be slower than usual today, so briefly acknowledge that if relevant, especially in your first response, without repeating the whole message verbatim.`);
+    }
     if (customerContext.name) {
       contextLines.push(`This customer's name is ${customerContext.name} — address them by name where it reads naturally (e.g. in a greeting), not forced into every sentence.`);
     }

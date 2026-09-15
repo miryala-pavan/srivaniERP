@@ -1069,6 +1069,45 @@ export class WhatsAppService {
     return { cancelled: true };
   }
 
+  // ── Special Days ─────────────────────────────────────────────────────────
+  // Pre-scheduled "we're busy/closed today" override — e.g. a known festival
+  // where staff can't keep up with WhatsApp. No recurrence: most Indian
+  // festivals move year to year on the lunar calendar, so each date is
+  // entered individually rather than repeating a fixed MM-DD.
+
+  async listSpecialDays(businessId: string) {
+    return this.prisma.waSpecialDay.findMany({
+      where: { businessId },
+      orderBy: { date: 'desc' },
+    });
+  }
+
+  async createSpecialDay(businessId: string, dto: { date: string; label: string; message: string }) {
+    return this.prisma.waSpecialDay.upsert({
+      where: { businessId_date: { businessId, date: new Date(dto.date) } },
+      update: { label: dto.label, message: dto.message },
+      create: { businessId, date: new Date(dto.date), label: dto.label, message: dto.message },
+    });
+  }
+
+  async deleteSpecialDay(businessId: string, id: string) {
+    await this.prisma.waSpecialDay.deleteMany({ where: { id, businessId } });
+    return { deleted: true };
+  }
+
+  /**
+   * Today's active special-day override, if any — same CURRENT_DATE-based
+   * matching already trusted for getTodaysBirthdays() above, rather than
+   * doing JS-side UTC/IST date math ourselves.
+   */
+  private async getTodaysSpecialDay(businessId: string): Promise<{ label: string; message: string } | null> {
+    const rows = await this.prisma.$queryRaw<{ label: string; message: string }[]>`
+      SELECT label, message FROM wa_special_day
+      WHERE "businessId" = ${businessId} AND date::date = CURRENT_DATE
+      LIMIT 1`;
+    return rows[0] ?? null;
+  }
+
   // ── Automated reminder rules ────────────────────────────────────────────────
 
   async createReminderRule(businessId: string, dto: {
@@ -1295,6 +1334,9 @@ export class WhatsAppService {
     // WhatsApp contact has a Customer row, so this is commonly undefined.
     const customerName = (await this.findCustomerByPhoneNormalized(businessId, this.e164(phone) ?? phone))?.name?.trim() || undefined;
 
+    // Active "we're busy/closed today" override, if any — see WaSpecialDay.
+    const specialDay = await this.getTodaysSpecialDay(businessId);
+
     // Broader fallback: does this look like a product query ("do you have X",
     // "price of Y")? Checked after the specific keyword rules above (so e.g.
     // "order status" never gets treated as a product search).
@@ -1308,7 +1350,7 @@ export class WhatsAppService {
     if (await this.aiAgent.isEnabled(businessId)) {
       const { storeHours, locationName, locationAddr } = await this.getAutoReplySettings(businessId);
       const result = await this.aiAgent.handleCustomerMessage(businessId, phone, opts.messageBody ?? '', {
-        storeHours, locationName, locationAddr,
+        storeHours, locationName, locationAddr, specialDayMessage: specialDay?.message,
       });
 
       if (result.reply) {
@@ -1344,8 +1386,9 @@ export class WhatsAppService {
       // misreading "hi"/"good morning" as a product query), acknowledge it by
       // name/time-of-day instead of jumping straight to a bare menu — every
       // greeting otherwise collapsed into the exact same robotic response.
+      // A special day takes over that acknowledgment slot instead, if active.
       if (WhatsAppService.SEARCH_STOPLIST.has(exact)) {
-        await this.autoReplyText(businessId, phone, this.greetingReplyFor(exact, customerName));
+        await this.autoReplyText(businessId, phone, specialDay ? specialDay.message : this.greetingReplyFor(exact, customerName));
       }
       return this.sendMainMenu(businessId, phone);
     }
@@ -1359,7 +1402,7 @@ export class WhatsAppService {
     // this path is exactly what runs for every business that hasn't set up
     // the AI Assistant, so it needs the same fix, not just the AI's version.
     if (WhatsAppService.SEARCH_STOPLIST.has(exact)) {
-      await this.autoReplyText(businessId, phone, this.greetingReplyFor(exact, customerName));
+      await this.autoReplyText(businessId, phone, specialDay ? specialDay.message : this.greetingReplyFor(exact, customerName));
     }
     return this.sendMainMenu(businessId, phone);
   }
@@ -1477,6 +1520,13 @@ export class WhatsAppService {
   }
 
   private async autoReplyWelcome(businessId: string, phone: string, customerName?: string) {
+    const specialDay = await this.getTodaysSpecialDay(businessId);
+    if (specialDay) {
+      await this.autoReplyText(businessId, phone, specialDay.message);
+      await this.sendMainMenu(businessId, phone);
+      return;
+    }
+
     const storeName = await this.getStoreName(businessId);
     const { storeHours } = await this.getAutoReplySettings(businessId);
     const who = customerName ? ` ${customerName}` : '';

@@ -12,6 +12,7 @@ import { UpdateCannedReplyDto } from './dto/update-canned-reply.dto';
 import { PushService } from './push.service';
 import { SubscribePushDto } from './dto/subscribe-push.dto';
 import { ScheduleCampaignDto } from './dto/schedule-campaign.dto';
+import { CreateSpecialDayDto } from './dto/create-special-day.dto';
 import { CreateReminderRuleDto, UpdateReminderRuleDto } from './dto/reminder-rule.dto';
 import { SocialMessagingService } from './social-messaging.service';
 import { CreateCommentCampaignDto } from './dto/create-comment-campaign.dto';
@@ -475,6 +476,26 @@ export class NotificationsController {
   @Post('whatsapp/campaigns/:id/cancel')
   cancelCampaign(@Request() req: any, @Param('id') id: string) {
     return this.whatsapp.cancelCampaign(req.user.businessId, id);
+  }
+
+  // ── Special Days (pre-scheduled "we're busy/closed today" auto-reply override) ──
+
+  @Roles('SUPER_ADMIN')
+  @Get('whatsapp/special-days')
+  listSpecialDays(@Request() req: any) {
+    return this.whatsapp.listSpecialDays(req.user.businessId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('whatsapp/special-days')
+  createSpecialDay(@Request() req: any, @Body() dto: CreateSpecialDayDto) {
+    return this.whatsapp.createSpecialDay(req.user.businessId, dto);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Delete('whatsapp/special-days/:id')
+  deleteSpecialDay(@Request() req: any, @Param('id') id: string) {
+    return this.whatsapp.deleteSpecialDay(req.user.businessId, id);
   }
 
   // ── Automated reminder rules ─────────────────────────────────────────────────

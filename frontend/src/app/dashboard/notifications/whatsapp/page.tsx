@@ -7,7 +7,7 @@ import {
   Send, KeyRound, PlayCircle, X, Wifi, WifiOff, AlertCircle,
   CheckCheck, ArrowUpRight, ArrowDownLeft, MousePointerClick,
   MessagesSquare, FileText, Settings as SettingsIcon, Bot, Cake, Phone, MapPin, Megaphone, Building2, Pencil,
-  Contact as ContactIcon, Award, Sparkles,
+  Contact as ContactIcon, Award, Sparkles, CalendarOff, ArrowUpDown, Search,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -181,6 +181,7 @@ const MSG_STATUS_CONFIG = {
 
 interface BirthdayCustomer { id: string; name: string; phone: string | null; dateOfBirth: string }
 interface Segment { id: string; label: string; count: number }
+interface SpecialDay { id: string; date: string; label: string; message: string }
 interface CampaignRow {
   id: string; name: string; segmentId: string; templateName: string;
   status: 'SCHEDULED' | 'SENDING' | 'SENT' | 'FAILED' | 'CANCELLED';
@@ -280,6 +281,12 @@ export default function WhatsAppTemplatesPage() {
   const [locationLng, setLocationLng]           = useState('');
   const [locationName, setLocationName]         = useState('');
   const [locationAddr, setLocationAddr]         = useState('');
+  const [specialDays, setSpecialDays]           = useState<SpecialDay[]>([]);
+  const [specialDaysLoaded, setSpecialDaysLoaded] = useState(false);
+  const [specialDaySort, setSpecialDaySort]     = useState<'asc' | 'desc'>('desc');
+  const [specialDayFilter, setSpecialDayFilter] = useState('');
+  const [newSpecialDay, setNewSpecialDay]       = useState({ date: '', label: '', message: '' });
+  const [savingSpecialDay, setSavingSpecialDay] = useState(false);
   const [feedbackSettings, setFeedbackSettings] = useState({ googleReviewUrl: '' });
   const [feedbackSettingsLoaded, setFeedbackSettingsLoaded] = useState(false);
   const [savingFeedbackSettings, setSavingFeedbackSettings] = useState(false);
@@ -363,7 +370,7 @@ export default function WhatsAppTemplatesPage() {
   useEffect(() => {
     load();
     loadCreds();
-    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); loadFeedbackSettings(); loadGoogleCreds(); loadAiSettings(); }
+    if (isSuperAdmin) { loadAutoReply(); loadBusinessProfile(); loadPhoneNumbers(); loadFeedbackSettings(); loadGoogleCreds(); loadAiSettings(); loadSpecialDays(); }
   }, [load, isSuperAdmin]);
 
   async function loadGoogleCreds() {
@@ -667,6 +674,45 @@ export default function WhatsAppTemplatesPage() {
       setLocationAddr(data?.locationAddr ?? '');
     } catch { /* ignore */ } finally {
       setAutoReplyLoaded(true);
+    }
+  }
+
+  async function loadSpecialDays() {
+    try {
+      const { data } = await api.get('/notifications/whatsapp/special-days');
+      setSpecialDays(Array.isArray(data) ? data : []);
+    } catch { /* ignore */ } finally {
+      setSpecialDaysLoaded(true);
+    }
+  }
+
+  async function addSpecialDay() {
+    if (!newSpecialDay.date || !newSpecialDay.label.trim() || !newSpecialDay.message.trim()) {
+      toast.error('Date, label, and message are all required');
+      return;
+    }
+    setSavingSpecialDay(true);
+    try {
+      await api.post('/notifications/whatsapp/special-days', {
+        date: newSpecialDay.date, label: newSpecialDay.label.trim(), message: newSpecialDay.message.trim(),
+      });
+      toast.success('Special day saved');
+      setNewSpecialDay({ date: '', label: '', message: '' });
+      loadSpecialDays();
+    } catch {
+      toast.error('Failed to save special day');
+    } finally {
+      setSavingSpecialDay(false);
+    }
+  }
+
+  async function deleteSpecialDay(id: string) {
+    try {
+      await api.delete(`/notifications/whatsapp/special-days/${id}`);
+      setSpecialDays(prev => prev.filter(d => d.id !== id));
+      toast.success('Removed');
+    } catch {
+      toast.error('Failed to remove');
     }
   }
 
@@ -1359,6 +1405,71 @@ export default function WhatsAppTemplatesPage() {
                   onBlur={() => { if (storeHours.trim()) saveAutoReply({ storeHours: storeHours.trim() }); }}
                 />
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                  <CalendarOff size={16} className="text-amber-500" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                  Special Days
+                  <span
+                    title="Set a known busy/closed day (a festival, a holiday) in advance with your own message — on that date, every customer's first message and 'hi'/greeting automatically gets this message instead of the usual welcome, no manual switching needed. Reverts to normal automatically the next day. Indian festivals move year to year, so add each date individually rather than a yearly-repeating rule."
+                    className="cursor-help text-gray-400 font-normal">ⓘ</span>
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-2 mb-2">
+                <input type="date" className="px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors"
+                  value={newSpecialDay.date} onChange={e => setNewSpecialDay(p => ({ ...p, date: e.target.value }))} />
+                <input className="px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400"
+                  placeholder="Label, e.g. Vinayaka Chavithi" value={newSpecialDay.label}
+                  onChange={e => setNewSpecialDay(p => ({ ...p, label: e.target.value }))} />
+              </div>
+              <textarea rows={3} className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] focus:ring-2 focus:ring-[#1B4F8A]/10 outline-none transition-colors placeholder:text-gray-400 mb-2"
+                placeholder="Message customers get instead of the usual welcome, e.g. 🙏 We're closed today for Vinayaka Chavithi — replies may be delayed. Thank you for your patience!"
+                value={newSpecialDay.message} onChange={e => setNewSpecialDay(p => ({ ...p, message: e.target.value }))} />
+              <button onClick={addSpecialDay} disabled={savingSpecialDay}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#1B4F8A] hover:bg-[#153f6e] text-white font-medium rounded-lg transition-colors disabled:opacity-50 mb-4">
+                <Plus size={12} /> Add Special Day
+              </button>
+
+              {specialDaysLoaded && specialDays.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between mb-2 gap-2">
+                    <button onClick={() => setSpecialDaySort(s => s === 'desc' ? 'asc' : 'desc')}
+                      className="flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-700">
+                      Date <ArrowUpDown size={11} />
+                    </button>
+                    <div className="relative">
+                      <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input className="pl-7 pr-2 py-1 text-xs rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none w-40"
+                        placeholder="Filter by label…" value={specialDayFilter} onChange={e => setSpecialDayFilter(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {specialDays
+                      .filter(d => d.label.toLowerCase().includes(specialDayFilter.trim().toLowerCase()))
+                      .sort((a, b) => specialDaySort === 'desc'
+                        ? new Date(b.date).getTime() - new Date(a.date).getTime()
+                        : new Date(a.date).getTime() - new Date(b.date).getTime())
+                      .map(d => (
+                        <div key={d.id} className="flex items-start justify-between gap-2 p-2.5 rounded-lg border border-gray-100 bg-gray-50">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-gray-700">
+                              {new Date(d.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })} — {d.label}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">{d.message}</p>
+                          </div>
+                          <button onClick={() => deleteSpecialDay(d.id)} className="text-gray-400 hover:text-red-500 shrink-0">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">

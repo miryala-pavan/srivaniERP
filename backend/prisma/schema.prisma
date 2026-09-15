@@ -103,6 +103,7 @@ model Business {
   volumePricingTiers    VolumePricingTier[]
   repackSessions        RepackSession[]
   purchaseOrders        PurchaseOrder[]
+  waSpecialDays         WaSpecialDay[]
 
   // IT Accounting Module
   itProfile          ItProfile?
@@ -2598,6 +2599,27 @@ model WaCampaign {
 
   @@index([businessId, status, scheduledAt])
   @@map("wa_campaign")
+}
+
+// Pre-scheduled "we're busy/closed today" auto-reply override — e.g. a
+// known festival date where staff can't keep up with WhatsApp. `date` is
+// a specific calendar date (no recurrence — most Indian festivals move
+// year to year on the lunar calendar, so a fixed MM-DD repeat wouldn't
+// stay correct), stored at UTC midnight. When today's date has a row here,
+// `message` replaces the normal auto-reply welcome/greeting entirely —
+// reverts to normal automatically the next day, no manual toggle needed.
+model WaSpecialDay {
+  id         String   @id @default(cuid())
+  businessId String
+  date       DateTime
+  label      String
+  message    String
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, date])
+  @@map("wa_special_day")
 }
 
 enum WaReminderTrigger {
