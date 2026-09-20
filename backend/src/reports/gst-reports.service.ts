@@ -934,7 +934,9 @@ export class GstReportsService {
   private static parseGstDate(s: any): Date | null {
     if (s instanceof Date) return isNaN(s.getTime()) ? null : s;
     if (!s) return null;
-    const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(String(s).trim());
+    // Portal JSON uses dd-mm-yyyy, portal Excel dd/mm/yyyy — new Date() would
+    // read the latter as mm/dd and return Invalid Date for any day > 12.
+    const m = /^(\d{2})[-/](\d{2})[-/](\d{4})$/.exec(String(s).trim());
     if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
     const d = new Date(String(s));
     return isNaN(d.getTime()) ? null : d;
@@ -999,7 +1001,16 @@ export class GstReportsService {
       }
       if (hdr < 0) continue;
 
-      const cols = rows[hdr].map((c) => String(c).toLowerCase().trim());
+      // The portal's sheets use a two-row header: "GSTIN of supplier" / "Invoice
+      // Details" / "Tax Amount" on the first row, "Invoice number" / "Central
+      // Tax(₹)" etc. on the row below. Merge both so column lookup sees every
+      // label; data starts one row later when that sub-header row is present.
+      const subRow = rows[hdr + 1] ?? [];
+      const hasSubHeader = !GSTIN_REGEX.test(String(subRow[0] ?? '').trim())
+        && subRow.some((c) => String(c).trim() !== '');
+      const cols = rows[hdr].map((c, i) =>
+        `${String(c)} ${hasSubHeader ? String(subRow[i] ?? '') : ''}`.toLowerCase().trim());
+      const dataStart = hdr + (hasSubHeader ? 2 : 1);
       const idx = (kw: string) => cols.findIndex((c) => c.includes(kw));
       const ci = {
         gstin: idx('gstin of supplier'),
@@ -1014,7 +1025,7 @@ export class GstReportsService {
       };
       const num = (v: any) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
 
-      for (let i = hdr + 1; i < rows.length; i++) {
+      for (let i = dataStart; i < rows.length; i++) {
         const r = rows[i];
         const gstin = ci.gstin >= 0 ? String(r[ci.gstin] ?? '').trim() : '';
         const inv   = ci.inv >= 0 ? String(r[ci.inv] ?? '').trim() : '';
