@@ -13,6 +13,24 @@ const B2CL_THRESHOLD = 250000; // ₹2.5 lakh — inter-state B2C above this goe
 // Valid GSTIN format: 2-digit state + 5-letter PAN chars + 4-digit PAN + entity + Z + check
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
 
+type TwoBEntry = {
+  gstin: string; supplierName: string; invoiceNo: string; invoiceDate: Date | null;
+  taxable: number; igst: number; cgst: number; sgst: number; cess: number;
+};
+
+/** What was done to the uploaded GSTR-2B file(s) before matching — shown to the user, stored on the run. */
+export type TwoBMergeInfo = {
+  files: { name: string; period: string | null; invoices: number; error: string | null }[];
+  duplicatesRemoved: number;
+  conflicts: { gstin: string; invoiceNo: string; keptFrom: string; droppedFrom: string }[];
+  periods: string[];
+  /** Months the books expect a 2B for (FY start or first purchase → latest 2B the portal has generated) that no uploaded file covers. */
+  missingPeriods: string[];
+  expectedRange: string | null;
+  /** Files whose return period couldn't be read, so they can't count towards coverage. */
+  unknownPeriodFiles: string[];
+};
+
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
@@ -769,13 +787,15 @@ export class GstReportsService {
   // approved purchases (GRNs) in the books, to verify ITC eligibility.
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async reconcile2B(businessId: string, file: { buffer: Buffer; originalname: string }, uploadedBy?: string) {
-    if (!file?.buffer?.length) throw new BadRequestException('No file uploaded');
+  async reconcile2B(businessId: string, files: { buffer: Buffer; originalname: string }[], uploadedBy?: string) {
+    const usable = (files ?? []).filter((f) => f?.buffer?.length);
+    if (usable.length === 0) throw new BadRequestException('No file uploaded');
 
-    const entries = this.parse2B(file);
+    const { entries, merge, periodKeys, detectedKeys } = this.merge2BFiles(usable);
     if (entries.length === 0) {
+      const why = merge.files.filter((f) => f.error).map((f) => `${f.name}: ${f.error}`).join('; ');
       throw new BadRequestException(
-        'No B2B invoices found. Upload a GSTR-2B file downloaded from the GST portal (JSON or Excel).',
+        `No B2B invoices found. Upload GSTR-2B files downloaded from the GST portal (JSON or Excel).${why ? ` (${why})` : ''}`,
       );
     }
 
@@ -794,6 +814,10 @@ export class GstReportsService {
         supplier: { select: { gstin: true } },
       },
     });
+
+    const coverage = this.missing2BPeriods(detectedKeys, purchases.map((p) => new Date(p.invoiceDate)));
+    merge.missingPeriods = coverage.missing;
+    merge.expectedRange = coverage.range;
 
     const normInv = (s: string) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const keyOf = (gstin: string, inv: string) => `${(gstin ?? '').toUpperCase()}|${normInv(inv)}`;
@@ -874,12 +898,21 @@ export class GstReportsService {
       itcMatched:  sum(matched, 'b2bTax'),
       itcAtRisk:   sum(onlyInBooks, 'bookTax'),
       itcUnbooked: sum(onlyIn2B, 'b2bTax'),
+      merge,
     };
 
-    // Derive a human-readable period label from the date window
-    const periodLabel = minDt
-      ? minDt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
-      : file.originalname;
+    // Label by the portal's return period(s) when every file states one — the
+    // earliest invoice date is unreliable (a later 2B often carries invoices
+    // dated the month before), and it made different months collide and
+    // overwrite each other. Falls back to the invoice-date window otherwise.
+    const fileName = usable.length === 1 ? usable[0].originalname : `${usable.length} GSTR-2B files`;
+    const periodLabel = periodKeys.length
+      ? (periodKeys.length === 1
+          ? GstReportsService.periodKeyLabel(periodKeys[0])
+          : `${GstReportsService.periodKeyLabel(periodKeys[0])} – ${GstReportsService.periodKeyLabel(periodKeys[periodKeys.length - 1])}`)
+      : minDt
+        ? minDt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+        : fileName;
 
     // Auto-deduplicate: delete any existing run for the same period so re-uploads replace cleanly
     await this.prisma.gstReconRun.deleteMany({
@@ -890,13 +923,152 @@ export class GstReportsService {
       data: {
         businessId,
         uploadedBy: uploadedBy ?? null,   // stores username (display name)
-        fileName: file.originalname,
+        fileName,
         period: periodLabel,
         window, summary, matched, mismatch, onlyIn2B, onlyInBooks,
       },
     });
 
-    return { runId: run.id, fileName: file.originalname, window, summary, matched, mismatch, onlyIn2B, onlyInBooks };
+    return { runId: run.id, fileName, window, summary, matched, mismatch, onlyIn2B, onlyInBooks };
+  }
+
+  private static periodKeyLabel(key: string): string {
+    const [y, m] = key.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  /**
+   * The portal's return period for a 2B file as 'YYYY-MM': JSON carries it as
+   * data.rtnprd ("082026"), the Excel download only in its filename
+   * (B2B_082026_<GSTIN>_GSTR2B_<ddmmyyyy>.xlsx). Null when neither says.
+   */
+  private detect2BPeriod(file: { buffer: Buffer; originalname: string }): string | null {
+    const fromMmYyyy = (mm: string, yyyy: string) => `${yyyy}-${mm}`;
+    const head = file.buffer.subarray(0, 64).toString('utf8').trimStart();
+    if (head.startsWith('{')) {
+      try {
+        const j = JSON.parse(file.buffer.toString('utf8'));
+        const rp = String(j?.data?.rtnprd ?? j?.rtnprd ?? '');
+        const m = /^(0[1-9]|1[0-2])(20\d{2})$/.exec(rp);
+        if (m) return fromMmYyyy(m[1], m[2]);
+      } catch { /* fall through to filename */ }
+    }
+    const m = /(?:^|[_\-\s])(0[1-9]|1[0-2])(20\d{2})(?=[_\-\s.]|$)/.exec(file.originalname ?? '');
+    return m ? fromMmYyyy(m[1], m[2]) : null;
+  }
+
+  /**
+   * Parse every uploaded 2B file and combine them into one invoice list so the
+   * user can drop in all the months they downloaded and get one reconciliation.
+   *
+   * The same invoice turning up in two different files (a file uploaded twice,
+   * or an invoice re-reported in a later month's 2B) is counted once — the
+   * later return period wins — rather than summed, which would double the ITC.
+   * Repeats inside a single file are left alone: an Excel invoice spanning
+   * several rate rows is already aggregated by the parser, and a credit note
+   * legitimately sharing a number with an invoice must not be dropped.
+   * Unreadable files are skipped and reported, not fatal, unless nothing at
+   * all could be read.
+   */
+  private merge2BFiles(files: { buffer: Buffer; originalname: string }[]): {
+    entries: TwoBEntry[]; merge: TwoBMergeInfo; periodKeys: string[]; detectedKeys: string[];
+  } {
+    const parsed = files.map((f, idx) => {
+      const period = this.detect2BPeriod(f);
+      try {
+        const entries = this.parse2B(f) as TwoBEntry[];
+        return { id: idx, name: f.originalname, period, entries, error: entries.length ? null : 'no B2B or credit-note invoices found in this file' };
+      } catch (e: any) {
+        return { id: idx, name: f.originalname, period, entries: [] as TwoBEntry[], error: String(e?.message ?? 'could not read this file') };
+      }
+    });
+
+    // Oldest return period first so a later re-report overwrites an earlier one; undated files keep upload order, last.
+    const ordered = [...parsed].sort((a, b) =>
+      a.period && b.period ? a.period.localeCompare(b.period) : a.period ? -1 : b.period ? 1 : a.id - b.id);
+
+    const norm = (s: string) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const tax = (e: TwoBEntry) => e.igst + e.cgst + e.sgst + e.cess;
+    const byKey = new Map<string, { file: (typeof parsed)[number]; entries: TwoBEntry[] }>();
+    const conflicts: TwoBMergeInfo['conflicts'] = [];
+    let duplicatesRemoved = 0;
+
+    for (const file of ordered) {
+      for (const e of file.entries) {
+        const k = `${e.gstin.toUpperCase()}|${norm(e.invoiceNo)}`;
+        const cur = byKey.get(k);
+        if (!cur) byKey.set(k, { file, entries: [e] });
+        else if (cur.file.id === file.id) cur.entries.push(e);
+        else {
+          duplicatesRemoved += cur.entries.length;
+          const before = cur.entries[0];
+          if (conflicts.length < 20 && (Math.abs(before.taxable - e.taxable) > 0.5 || Math.abs(tax(before) - tax(e)) > 0.5)) {
+            conflicts.push({ gstin: e.gstin, invoiceNo: e.invoiceNo, keptFrom: file.name, droppedFrom: cur.file.name });
+          }
+          byKey.set(k, { file, entries: [e] });
+        }
+      }
+    }
+
+    const entries = Array.from(byKey.values()).flatMap((v) => v.entries);
+
+    // Return periods the files cover. A run is labelled by them only when every
+    // file states its period; coverage (for the missing-month check) uses
+    // whichever files do. Missing months are filled in by reconcile2B, which
+    // knows what the books expect.
+    const detectedKeys = Array.from(new Set(parsed.filter((p) => p.period).map((p) => p.period as string))).sort();
+    const periodKeys = parsed.filter((p) => !p.error).every((p) => p.period) ? detectedKeys : [];
+
+    return {
+      entries,
+      periodKeys,
+      detectedKeys,
+      merge: {
+        files: parsed.map((p) => ({
+          name: p.name, period: p.period ? GstReportsService.periodKeyLabel(p.period) : null,
+          invoices: p.entries.length, error: p.error,
+        })),
+        duplicatesRemoved,
+        conflicts,
+        periods: detectedKeys.map((k) => GstReportsService.periodKeyLabel(k)),
+        missingPeriods: [] as string[],
+        expectedRange: null as string | null,
+        unknownPeriodFiles: parsed.filter((p) => !p.period && !p.error).map((p) => p.name),
+      },
+    };
+  }
+
+  /**
+   * Which return periods the books expect a 2B for but nothing uploaded covers.
+   * Expected = from the later of the financial-year start and the first
+   * purchase in the books, up to the latest 2B the portal has actually
+   * generated (the 2B for a month appears on the 14th of the next). Without
+   * these months, suppliers who reported late show up as "ITC at risk".
+   */
+  private missing2BPeriods(covered: string[], bookDates: Date[]): { missing: string[]; range: string | null } {
+    if (covered.length === 0 || bookDates.length === 0) return { missing: [], range: null };
+
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .formatToParts(new Date());
+    const num = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+    // Latest generated 2B: previous month once it's the 15th, otherwise the month before that.
+    let ly = num('year'), lm = num('month') - (num('day') >= 15 ? 1 : 2);
+    while (lm < 1) { lm += 12; ly -= 1; }
+
+    const fyStartYear = lm >= 4 ? ly : ly - 1;
+    const earliest = bookDates.reduce((a, b) => (b < a ? b : a));
+    let sy = fyStartYear, sm = 4;
+    const ey = earliest.getUTCFullYear(), em = earliest.getUTCMonth() + 1;
+    if (ey > sy || (ey === sy && em > sm)) { sy = ey; sm = em; }
+    if (sy > ly || (sy === ly && sm > lm)) return { missing: [], range: null };
+
+    const missing: string[] = [];
+    for (let y = sy, m = sm; y < ly || (y === ly && m <= lm); m === 12 ? (m = 1, y++) : m++) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      if (!covered.includes(key)) missing.push(GstReportsService.periodKeyLabel(key));
+    }
+    const lab = (y: number, m: number) => GstReportsService.periodKeyLabel(`${y}-${String(m).padStart(2, '0')}`);
+    return { missing, range: sy === ly && sm === lm ? lab(ly, lm) : `${lab(sy, sm)} – ${lab(ly, lm)}` };
   }
 
   /**

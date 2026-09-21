@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Upload, FileCheck2, AlertTriangle, FileX2, FileQuestion, CheckCircle2,
   X, Loader2, ShieldAlert, ChevronDown, ChevronUp, Download,
   ExternalLink, Info, BookOpen, HelpCircle, History, Clock, Trash2, PlusCircle,
+  ArrowUp, ArrowDown, ArrowUpDown, Search,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Header from '@/components/layout/Header';
@@ -65,6 +66,15 @@ interface Row {
   b2bTaxable?: number; b2bTax?: number; bookTaxable?: number; bookTax?: number;
   taxableDiff?: number; taxDiff?: number;
 }
+interface MergeInfo {
+  files: { name: string; period: string | null; invoices: number; error: string | null }[];
+  duplicatesRemoved: number;
+  conflicts: { gstin: string; invoiceNo: string; keptFrom: string; droppedFrom: string }[];
+  periods: string[];
+  missingPeriods: string[];
+  expectedRange: string | null;
+  unknownPeriodFiles: string[];
+}
 interface Result {
   runId?: string;
   fileName: string;
@@ -72,11 +82,41 @@ interface Result {
   summary: {
     b2bInvoices: number; matched: number; mismatch: number; onlyIn2B: number; onlyInBooks: number;
     itcIn2B: number; itcMatched: number; itcAtRisk: number; itcUnbooked: number;
+    merge?: MergeInfo;   // absent on runs saved before multi-file upload existed
   };
   matched: Row[]; mismatch: Row[]; onlyIn2B: Row[]; onlyInBooks: Row[];
 }
 
 type TabKey = 'matched' | 'mismatch' | 'onlyIn2B' | 'onlyInBooks';
+type SortKey =
+  | 'supplier' | 'invoiceNo' | 'date'
+  | 'b2bTaxable' | 'b2bTax' | 'bookTaxable' | 'bookTax'
+  | 'taxableDiff' | 'taxDiff' | 'reason';
+
+// Month bucket of an invoice date, in the same local time the table displays it in.
+const monthKey = (iso: string | null) => {
+  if (!iso) return 'none';
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const monthLabel = (k: string) =>
+  k === 'none' ? 'No date'
+    : new Date(Number(k.slice(0, 4)), Number(k.slice(5)) - 1, 1)
+        .toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+
+// Tax that matters for a row in a given tab: books' tax for "ITC at risk", the 2B's tax otherwise.
+const rowTax = (r: Row, tab: TabKey) => Number((tab === 'onlyInBooks' ? r.bookTax : r.b2bTax) ?? 0);
+const supplierKey = (r: Row) => r.gstin || r.supplierName;
+
+function sortValue(r: Row, k: SortKey): string | number | null {
+  switch (k) {
+    case 'supplier':    return (r.supplierName || r.gstin || '').toLowerCase();
+    case 'invoiceNo':   return r.invoiceNo ?? '';
+    case 'date':        return r.invoiceDate ? new Date(r.invoiceDate).getTime() : null;
+    case 'reason':      return getMismatchReason(r).badge;
+    default:            return (r[k] as number | undefined) ?? null;
+  }
+}
 
 function downloadAllCsv(result: Result) {
   const parts: string[] = [];
@@ -162,8 +202,8 @@ const GUIDE_STEPS = [
   'Click Services → Returns → View Returns / Filed Returns → OR use Returns Dashboard → View GSTR-2B.',
   'Select the return period (month and year) you want to reconcile.',
   'If the statement says "Generate" — click it and wait a few minutes for it to be generated.',
-  'Once ready, click "Download" → choose JSON format (preferred) or Excel (.xlsx).',
-  'Upload the downloaded file in the box below. Both .json and .xlsx are accepted here.',
+  'Once ready, click "Download" → choose JSON format (preferred) or Excel (.xlsx). Repeat for every month you want checked — earlier months matter, because a supplier often reports an invoice a month or two late.',
+  'Upload all the downloaded files together in the box below (select many at once, or drag them in). Both .json and .xlsx are accepted, and you can mix them. Duplicates across files are removed automatically — no manual merging needed.',
 ];
 
 const TAB_CONFIG: Record<TabKey, {
@@ -217,6 +257,23 @@ export default function GstReconciliationPage() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [deletingRun, setDeletingRun] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [sort, setSort]             = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null);
+  const [fMonth, setFMonth]         = useState('');
+  const [fSupplier, setFSupplier]   = useState('');
+  const [fSearch, setFSearch]       = useState('');
+  const [fMinTax, setFMinTax]       = useState('');
+  const [fReason, setFReason]       = useState('');
+
+  function resetFilters() { setFMonth(''); setFSupplier(''); setFSearch(''); setFMinTax(''); setFReason(''); }
+  // Sorting and the mismatch-reason filter are per-tab (columns differ); the
+  // month/supplier/search filters deliberately carry across tabs.
+  useEffect(() => { setSort(null); setFReason(''); }, [tab]);
+  // A different file or saved run has different months/suppliers.
+  useEffect(() => { resetFilters(); setSort(null); }, [result?.runId, result?.fileName]);
+
+  function toggleSort(key: SortKey) {
+    setSort((cur) => (!cur || cur.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
+  }
 
   useEffect(() => {
     api.get('/reports/gst/recon-runs')
@@ -224,11 +281,11 @@ export default function GstReconciliationPage() {
       .catch(() => {});
   }, []);
 
-  async function runReconcile(f: File) {
+  async function runReconcile(picked: File[]) {
     setLoading(true);
     try {
       const fd = new FormData();
-      fd.append('file', f);
+      picked.forEach((f) => fd.append('files', f));
       const res = await api.post('/reports/gst/reconcile-2b', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -237,7 +294,14 @@ export default function GstReconciliationPage() {
       setActiveRunId(data.runId ?? null);
       const s = data.summary;
       setTab(s.onlyInBooks > 0 ? 'onlyInBooks' : s.mismatch > 0 ? 'mismatch' : s.onlyIn2B > 0 ? 'onlyIn2B' : 'matched');
-      toast.success('Reconciliation complete — saved to history');
+      const m = s.merge;
+      const skipped = m?.files.filter((x) => x.error).length ?? 0;
+      toast.success(
+        picked.length > 1
+          ? `${picked.length - skipped} files merged${m?.duplicatesRemoved ? `, ${m.duplicatesRemoved} duplicate(s) ignored` : ''} — saved to history`
+          : 'Reconciliation complete — saved to history',
+      );
+      if (skipped) toast.error(`${skipped} file(s) could not be read — see details below`);
       api.get('/reports/gst/recon-runs').then((r) => setPastRuns(r.data)).catch(() => {});
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Reconciliation failed');
@@ -291,10 +355,11 @@ export default function GstReconciliationPage() {
     }
   }
 
-  function onPick(f: File | undefined | null) {
-    if (!f) return;
-    setFile(f);
-    runReconcile(f);
+  function onPick(list: FileList | File[] | undefined | null) {
+    const picked = Array.from(list ?? []);
+    if (picked.length === 0) return;
+    setFile(picked[0]);
+    runReconcile(picked);
   }
 
   function reset() {
@@ -307,6 +372,73 @@ export default function GstReconciliationPage() {
   const rows: Row[] = result ? result[tab] : [];
   const cfg = TAB_CONFIG[tab];
 
+  // Options come from every tab so a selected month/supplier stays valid when
+  // switching tabs; counts are for the tab being viewed.
+  const { monthOptions, supplierOptions } = useMemo(() => {
+    if (!result) return { monthOptions: [] as string[], supplierOptions: [] as { key: string; label: string }[] };
+    const months = new Set<string>();
+    const suppliers = new Map<string, string>();
+    (['matched', 'mismatch', 'onlyIn2B', 'onlyInBooks'] as TabKey[]).forEach((k) =>
+      result[k].forEach((r) => {
+        months.add(monthKey(r.invoiceDate));
+        if (!suppliers.has(supplierKey(r))) suppliers.set(supplierKey(r), r.supplierName || r.gstin);
+      }));
+    const monthList = Array.from(months).filter((m) => m !== 'none').sort().reverse();
+    if (months.has('none')) monthList.push('none');
+    const supplierList = Array.from(suppliers, ([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return { monthOptions: monthList, supplierOptions: supplierList };
+  }, [result]);
+
+  const monthCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    rows.forEach((r) => { const k = monthKey(r.invoiceDate); m[k] = (m[k] ?? 0) + 1; });
+    return m;
+  }, [rows]);
+
+  const shownRows = useMemo(() => {
+    const q = fSearch.trim().toLowerCase();
+    const min = fMinTax.trim() === '' ? null : Number(fMinTax);
+    let out = rows.filter((r) => {
+      if (fMonth && monthKey(r.invoiceDate) !== fMonth) return false;
+      if (fSupplier && supplierKey(r) !== fSupplier) return false;
+      if (min !== null && !Number.isNaN(min) && rowTax(r, tab) < min) return false;
+      if (fReason && getMismatchReason(r).badge !== fReason) return false;
+      if (q && ![r.supplierName, r.gstin, r.invoiceNo, r.grnNumber].some((v) => (v ?? '').toLowerCase().includes(q))) return false;
+      return true;
+    });
+    if (sort) {
+      const mult = sort.dir === 'asc' ? 1 : -1;
+      out = [...out].sort((a, b) => {
+        const va = sortValue(a, sort.key), vb = sortValue(b, sort.key);
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;          // blanks always last, regardless of direction
+        if (vb === null) return -1;
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mult;
+        return String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: 'base' }) * mult;
+      });
+    }
+    return out;
+  }, [rows, tab, fMonth, fSupplier, fSearch, fMinTax, fReason, sort]);
+
+  const filtersActive = !!(fMonth || fSupplier || fSearch.trim() || fMinTax.trim() || fReason);
+  const shownTax = shownRows.reduce((sum, r) => sum + rowTax(r, tab), 0);
+
+  const sortTh = (key: SortKey, label: string, opts: { right?: boolean; title?: string; cls?: string } = {}) => (
+    <th className={`px-4 py-2.5 font-semibold ${opts.right ? 'text-right' : 'text-left'} ${opts.cls ?? ''}`} title={opts.title}>
+      <button
+        onClick={() => toggleSort(key)}
+        className={`inline-flex items-center gap-1 hover:text-[#1B4F8A] ${opts.right ? 'flex-row-reverse' : ''}`}
+        title={opts.title ? `${opts.title} — click to sort` : 'Click to sort'}
+      >
+        {label}
+        {sort?.key === key
+          ? (sort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)
+          : <ArrowUpDown size={11} className="opacity-30" />}
+      </button>
+    </th>
+  );
+
   const TABS: { key: TabKey; count: number; itc?: number }[] = result ? [
     { key: 'onlyInBooks', count: s!.onlyInBooks, itc: s!.itcAtRisk   },
     { key: 'mismatch',    count: s!.mismatch                           },
@@ -317,7 +449,7 @@ export default function GstReconciliationPage() {
   return (
     <>
       <Header title="GSTR-2B Reconciliation" />
-      <main className="flex-1 p-6 space-y-4 max-w-5xl">
+      <main className="flex-1 p-6 space-y-4 max-w-6xl">
 
         {/* How to get the file */}
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
@@ -461,28 +593,29 @@ export default function GstReconciliationPage() {
             }`}
             onClick={() => !loading && fileRef.current?.click()}
             onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); onPick(e.dataTransfer.files?.[0]); }}
+            onDrop={(e) => { e.preventDefault(); onPick(e.dataTransfer.files); }}
           >
             {loading ? (
               <div className="flex flex-col items-center gap-2 text-[#1B4F8A]">
                 <Loader2 className="w-8 h-8 animate-spin" />
-                <p className="text-sm font-semibold">Matching against your purchase GRNs…</p>
+                <p className="text-sm font-semibold">Merging files and matching against your purchase GRNs…</p>
                 <p className="text-xs text-gray-500">This takes a few seconds. Do not close the tab.</p>
               </div>
             ) : (
               <div>
                 <Upload size={32} className="mx-auto mb-3 text-gray-400" />
-                <p className="text-sm font-semibold text-gray-700">Click or drag your GSTR-2B file here</p>
-                <p className="text-xs text-gray-500 mt-1">Accepts <strong>.json</strong> (from GST portal) or <strong>.xlsx</strong> · Max 20 MB</p>
-                <p className="text-[11px] text-gray-400 mt-3 max-w-sm mx-auto leading-relaxed">
-                  Not sure how to get the file? Expand the guide above.
+                <p className="text-sm font-semibold text-gray-700">Click or drag your GSTR-2B files here</p>
+                <p className="text-xs text-gray-500 mt-1">Select <strong>all</strong> the files you downloaded — every month, .json or .xlsx, up to 24 files · Max 20 MB each</p>
+                <p className="text-[11px] text-gray-400 mt-3 max-w-md mx-auto leading-relaxed">
+                  Files are merged automatically and duplicate invoices are ignored, so there is nothing to combine by hand.
+                  Not sure how to get the files? Expand the guide above.
                 </p>
               </div>
             )}
             <input
-              ref={fileRef} type="file" accept=".json,.xlsx,.xls,application/json"
+              ref={fileRef} type="file" multiple accept=".json,.xlsx,.xls,application/json"
               className="hidden"
-              onChange={(e) => onPick(e.target.files?.[0])}
+              onChange={(e) => { onPick(e.target.files); e.target.value = ''; }}
             />
           </div>
         )}
@@ -523,6 +656,73 @@ export default function GstReconciliationPage() {
                 </button>
               </div>
             </div>
+
+            {/* What was merged, and whether any month's file is missing */}
+            {s.merge && (() => {
+              const m = s.merge;
+              const unread = m.files.filter((f) => f.error);
+              const many = m.files.length > 1;
+              const hasRange = !!m.expectedRange;
+              if (!many && !unread.length && !m.missingPeriods.length && !m.unknownPeriodFiles.length && !hasRange) return null;
+              return (
+                <div className="space-y-2">
+                  {m.missingPeriods.length > 0 && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                      <p className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
+                        <AlertTriangle size={14} /> Missing GSTR-2B file for: {m.missingPeriods.join(', ')}
+                      </p>
+                      <p className="text-xs text-red-700/80 mt-1 leading-relaxed">
+                        Your books need a 2B for {m.expectedRange}, but nothing uploaded covers {m.missingPeriods.length === 1 ? 'that month' : 'those months'}.
+                        Invoices your suppliers reported in {m.missingPeriods.length === 1 ? 'it' : 'them'} will wrongly show as &ldquo;ITC at risk&rdquo; until you
+                        download {m.missingPeriods.length === 1 ? 'that month' : 'those months'} from the GST portal and upload all the files together again.
+                      </p>
+                    </div>
+                  )}
+                  {m.missingPeriods.length === 0 && hasRange && m.unknownPeriodFiles.length === 0 && (
+                    <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-2 text-xs text-green-700 flex items-center gap-1.5">
+                      <CheckCircle2 size={13} /> Every month covered: {m.expectedRange}
+                    </div>
+                  )}
+                  {m.unknownPeriodFiles.length > 0 && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">
+                      Couldn&apos;t tell which month {m.unknownPeriodFiles.join(', ')} covers, so the missing-month check may be incomplete.
+                      Files downloaded from the portal keep the month in their name — avoid renaming them.
+                    </div>
+                  )}
+                  {unread.length > 0 && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
+                      <strong>Not used:</strong>{' '}
+                      {unread.map((f) => `${f.name} (${f.error})`).join('; ')}
+                    </div>
+                  )}
+                  {(many || m.duplicatesRemoved > 0) && (
+                    <details className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs text-gray-600">
+                      <summary className="cursor-pointer select-none font-medium text-gray-700">
+                        {m.files.length - unread.length} file(s) merged
+                        {m.duplicatesRemoved > 0 && ` · ${m.duplicatesRemoved} duplicate invoice(s) ignored`}
+                        {m.conflicts.length > 0 && ` · ${m.conflicts.length} with differing amounts`}
+                      </summary>
+                      <ul className="mt-2 space-y-1">
+                        {m.files.map((f, i) => (
+                          <li key={i} className="flex justify-between gap-3">
+                            <span className="truncate">{f.name}</span>
+                            <span className="text-gray-400 whitespace-nowrap">
+                              {f.period ?? 'month unknown'} · {f.invoices} invoice(s)
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {m.conflicts.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-gray-100 text-amber-700">
+                          Same invoice in two files with different amounts (the later month&apos;s value was used):{' '}
+                          {m.conflicts.map((c) => `${c.invoiceNo} (${c.gstin})`).join(', ')}
+                        </div>
+                      )}
+                    </details>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Summary cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -612,10 +812,59 @@ export default function GstReconciliationPage() {
               </div>
             ) : (
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50/70">
-                  <p className="text-xs text-gray-500">{rows.length} invoice(s)</p>
+                <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-gray-100 bg-white">
+                  <select value={fMonth} onChange={(e) => setFMonth(e.target.value)}
+                    title="Show only invoices dated in this month (by invoice date, not upload date)"
+                    className="text-xs h-7 px-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none">
+                    <option value="">All months</option>
+                    {monthOptions.map((m) => (
+                      <option key={m} value={m}>{monthLabel(m)} ({monthCounts[m] ?? 0})</option>
+                    ))}
+                  </select>
+                  <select value={fSupplier} onChange={(e) => setFSupplier(e.target.value)}
+                    title="Show only one supplier's invoices"
+                    className="text-xs h-7 px-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none max-w-[200px]">
+                    <option value="">All suppliers</option>
+                    {supplierOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                  </select>
+                  {tab === 'mismatch' && (
+                    <select value={fReason} onChange={(e) => setFReason(e.target.value)}
+                      title="Filter by what differs: taxable value, tax, or both"
+                      className="text-xs h-7 px-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none">
+                      <option value="">All reasons</option>
+                      <option value="Both differ">Both differ</option>
+                      <option value="Taxable diff">Taxable diff</option>
+                      <option value="Tax diff">Tax diff</option>
+                    </select>
+                  )}
+                  <input type="number" min="0" value={fMinTax} onChange={(e) => setFMinTax(e.target.value)}
+                    placeholder="Min tax ₹"
+                    title={tab === 'onlyInBooks' ? 'Hide invoices whose book tax is below this amount' : 'Hide invoices whose 2B tax is below this amount'}
+                    className="text-xs h-7 w-24 px-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none" />
+                  <div className="relative">
+                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input value={fSearch} onChange={(e) => setFSearch(e.target.value)}
+                      placeholder="Supplier, GSTIN, invoice, GRN…"
+                      title="Search by supplier name, GSTIN, invoice number or GRN number"
+                      className="text-xs h-7 w-52 pl-7 pr-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none" />
+                  </div>
+                  {filtersActive && (
+                    <button onClick={resetFilters} className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500">
+                      <X size={12} /> Clear filters
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/70">
+                  <p className="text-xs text-gray-500">
+                    {filtersActive ? `${shownRows.length} of ${rows.length}` : rows.length} invoice(s)
+                    {' · '}
+                    <span title={tab === 'onlyInBooks' ? 'Total tax recorded in your books for the rows shown' : 'Total tax per GSTR-2B for the rows shown'}>
+                      Tax {inr(shownTax)}
+                    </span>
+                  </p>
                   <button
-                    onClick={() => downloadCsv(rows, tab, result.fileName)}
+                    onClick={() => downloadCsv(shownRows, tab, result.fileName)}
+                    title="Downloads the rows currently shown (with your filters and sort applied)"
                     className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-[#1B4F8A] transition-colors"
                   >
                     <Download size={13} /> Download CSV
@@ -625,31 +874,40 @@ export default function GstReconciliationPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
                       <tr>
-                        <th className="text-left px-4 py-2.5 font-semibold">Supplier / GSTIN</th>
-                        <th className="text-left px-4 py-2.5 font-semibold">Invoice</th>
+                        {sortTh('supplier', 'Supplier / GSTIN')}
+                        {sortTh('invoiceNo', 'Invoice', { title: 'Invoice number (and GRN it is linked to)' })}
+                        {sortTh('date', 'Date', { title: 'Invoice date' })}
                         {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyIn2B') && (
                           <>
-                            <th className="text-right px-4 py-2.5 font-semibold cursor-help" title="Taxable value as parsed from the GSTR-2B file uploaded from the GST portal">2B Taxable</th>
-                            <th className="text-right px-4 py-2.5 font-semibold cursor-help" title="Total GST (CGST + SGST + IGST) from the GSTR-2B file — this is the ITC you can claim">2B Tax</th>
+                            {sortTh('b2bTaxable', '2B Taxable', { right: true, title: 'Taxable value as parsed from the GSTR-2B file uploaded from the GST portal' })}
+                            {sortTh('b2bTax', '2B Tax', { right: true, title: 'Total GST (CGST + SGST + IGST) from the GSTR-2B file — this is the ITC you can claim' })}
                           </>
                         )}
                         {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyInBooks') && (
                           <>
-                            <th className="text-right px-4 py-2.5 font-semibold cursor-help" title="Taxable value recorded in your GRN (books)">Book Taxable</th>
-                            <th className="text-right px-4 py-2.5 font-semibold cursor-help" title="Total GST recorded in your GRN (books) — CGST + SGST + IGST">Book Tax</th>
+                            {sortTh('bookTaxable', 'Book Taxable', { right: true, title: 'Taxable value recorded in your GRN (books)' })}
+                            {sortTh('bookTax', 'Book Tax', { right: true, title: 'Total GST recorded in your GRN (books) — CGST + SGST + IGST' })}
                           </>
                         )}
                         {tab === 'mismatch' && (
                           <>
-                            <th className="text-right px-4 py-2.5 font-semibold text-amber-700 cursor-help" title="Book Taxable − 2B Taxable. Positive = your book value is higher than GSTR-2B">Taxable Diff</th>
-                            <th className="text-right px-4 py-2.5 font-semibold text-amber-700 cursor-help" title="Book Tax − 2B Tax. Positive = your book tax is higher than GSTR-2B. Claim only the 2B amount.">Tax Diff</th>
-                            <th className="text-left px-4 py-2.5 font-semibold text-amber-700" title="Why this invoice is mismatched">Reason</th>
+                            {sortTh('taxableDiff', 'Taxable Diff', { right: true, cls: 'text-amber-700', title: 'Book Taxable − 2B Taxable. Positive = your book value is higher than GSTR-2B' })}
+                            {sortTh('taxDiff', 'Tax Diff', { right: true, cls: 'text-amber-700', title: 'Book Tax − 2B Tax. Positive = your book tax is higher than GSTR-2B. Claim only the 2B amount.' })}
+                            {sortTh('reason', 'Reason', { cls: 'text-amber-700', title: 'Why this invoice is mismatched' })}
                           </>
                         )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {rows.map((r, i) => (
+                      {shownRows.length === 0 && (
+                        <tr>
+                          <td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-400">
+                            No invoices match these filters.{' '}
+                            <button onClick={resetFilters} className="text-[#1B4F8A] hover:underline">Clear filters</button>
+                          </td>
+                        </tr>
+                      )}
+                      {shownRows.map((r, i) => (
                         <tr key={i} className="hover:bg-gray-50 transition-colors">
                           <td className="px-4 py-2.5">
                             <div className="font-medium text-gray-800">{r.supplierName || '—'}</div>
@@ -666,11 +924,9 @@ export default function GstReconciliationPage() {
                             ) : (
                               <span className="text-gray-800 font-medium">{r.invoiceNo}</span>
                             )}
-                            <div className="text-xs text-gray-400 mt-0.5">
-                              {fmtDate(r.invoiceDate)}
-                              {r.grnNumber && <> · <span className="font-mono">{r.grnNumber}</span></>}
-                            </div>
+                            {r.grnNumber && <div className="text-xs text-gray-400 mt-0.5 font-mono">{r.grnNumber}</div>}
                           </td>
+                          <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{fmtDate(r.invoiceDate)}</td>
                           {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyIn2B') && (
                             <>
                               <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">

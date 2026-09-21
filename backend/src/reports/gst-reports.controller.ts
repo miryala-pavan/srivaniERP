@@ -1,8 +1,8 @@
 import {
   Controller, Get, Post, Delete, Body, Query, Req, Res, Param, UseGuards, ParseIntPipe,
-  UseInterceptors, UploadedFile, BadRequestException,
+  UseInterceptors, UploadedFiles, BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type { Response } from 'express';
 import { JwtAuthGuard }    from '../auth/guards/jwt-auth.guard';
@@ -135,14 +135,16 @@ export class GstReportsController {
 
   // ─── GSTR-2B Reconciliation ───────────────────────────────────────────────
 
+  // Accepts every GSTR-2B file downloaded from the portal in one go (one per
+  // month, or a portal-split large statement) and merges them server-side.
   @Post('reconcile-2b')
-  @UseInterceptors(FileInterceptor('file', {
+  @UseInterceptors(FilesInterceptor('files', 24, {
     storage: memoryStorage(),
     limits: { fileSize: 20 * 1024 * 1024 },
   }))
-  reconcile2B(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('No file uploaded');
-    return this.gstReports.reconcile2B(req.user.businessId, file, req.user.username);
+  reconcile2B(@Req() req: any, @UploadedFiles() files: Express.Multer.File[]) {
+    if (!files?.length) throw new BadRequestException('No file uploaded');
+    return this.gstReports.reconcile2B(req.user.businessId, files, req.user.username);
   }
 
   @Get('2b-reminder')
