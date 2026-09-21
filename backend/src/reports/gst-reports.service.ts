@@ -899,6 +899,36 @@ export class GstReportsService {
     return { runId: run.id, fileName: file.originalname, window, summary, matched, mismatch, onlyIn2B, onlyInBooks };
   }
 
+  /**
+   * Monthly "download your GSTR-2B" nudge. The portal generates the 2B for a
+   * return period on the 14th of the following month, so from the 15th (IST)
+   * this is due until a reconciliation has been uploaded since that 14th.
+   * Keyed off GstReconRun.runAt rather than its `period` label — that label
+   * comes from the earliest invoice date in the file, which can fall in the
+   * month before the return period and would make "was this month done?"
+   * unreliable.
+   */
+  async get2bReminder(businessId: string): Promise<{ due: boolean; periodLabel: string | null }> {
+    const biz = await this.prisma.business.findUnique({ where: { id: businessId }, select: { gstin: true } });
+    if (!biz?.gstin) return { due: false, periodLabel: null };
+
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .formatToParts(new Date());
+    const num = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+    const year = num('year'), month = num('month'), day = num('day');
+    if (day < 15) return { due: false, periodLabel: null };
+
+    const periodYear  = month === 1 ? year - 1 : year;
+    const periodMonth = month === 1 ? 12 : month - 1;
+    const periodLabel = new Date(Date.UTC(periodYear, periodMonth - 1, 1))
+      .toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+    // 00:00 IST on the 14th, expressed in UTC (IST = UTC+5:30, no DST).
+    const generatedAt = new Date(Date.UTC(year, month - 1, 14) - 5.5 * 3_600_000);
+    const done = await this.prisma.gstReconRun.count({ where: { businessId, runAt: { gte: generatedAt } } });
+    return { due: done === 0, periodLabel };
+  }
+
   async listReconRuns(businessId: string) {
     return this.prisma.gstReconRun.findMany({
       where: { businessId },

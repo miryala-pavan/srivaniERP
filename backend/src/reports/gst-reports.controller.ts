@@ -145,6 +145,11 @@ export class GstReportsController {
     return this.gstReports.reconcile2B(req.user.businessId, file, req.user.username);
   }
 
+  @Get('2b-reminder')
+  get2bReminder(@Req() req: any) {
+    return this.gstReports.get2bReminder(req.user.businessId);
+  }
+
   @Get('recon-runs')
   listReconRuns(@Req() req: any) {
     return this.gstReports.listReconRuns(req.user.businessId);

@@ -16,6 +16,7 @@ import WaSoundAlert from '@/components/layout/WaSoundAlert';
 import WaMessagePopup from '@/components/layout/WaMessagePopup';
 import ServiceWorkerRegister from '@/components/layout/ServiceWorkerRegister';
 import { GstHealthBanner } from '@/components/layout/GstHealthBanner';
+import { Gst2bReminderBanner } from '@/components/layout/Gst2bReminderBanner';
 import { GstToast } from '@/components/layout/GstToast';
 import { AssistantProvider } from '@/components/help/AssistantProvider';
 import { AssistantDrawer } from '@/components/help/AssistantDrawer';
@@ -250,6 +251,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="flex-1 md:ml-56 flex flex-col min-h-screen">
                 <FYSwitcher />
                 <GstHealthBanner />
+                <Gst2bReminderBanner />
                 {children}
               </div>
               {updateAvailable && <UpdateBanner onDismiss={dismiss} />}
