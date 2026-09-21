@@ -65,6 +65,8 @@ interface Row {
   grnNumber?: string | null; grnId?: string | null;
   b2bTaxable?: number; b2bTax?: number; bookTaxable?: number; bookTax?: number;
   taxableDiff?: number; taxDiff?: number;
+  /** Return period ('YYYY-MM') of the 2B file the invoice was reported in; absent for books-only rows and older saved runs. */
+  period?: string | null;
 }
 interface MergeInfo {
   files: { name: string; period: string | null; invoices: number; error: string | null }[];
@@ -103,6 +105,23 @@ const monthLabel = (k: string) =>
   k === 'none' ? 'No date'
     : new Date(Number(k.slice(0, 4)), Number(k.slice(5)) - 1, 1)
         .toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+
+// Indian financial year (Apr–Mar), identified by the calendar year it starts in.
+const fyStartOfDate = (iso: string | null): number | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+};
+const fyStartOfPeriod = (key: string): number => {       // 'YYYY-MM'
+  const y = Number(key.slice(0, 4)), m = Number(key.slice(5));
+  return m >= 4 ? y : y - 1;
+};
+const fyLabel = (start: number) => `FY ${start}-${String((start + 1) % 100).padStart(2, '0')}`;
+const periodLabel = (key: string) =>
+  new Date(Number(key.slice(0, 4)), Number(key.slice(5)) - 1, 1)
+    .toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+// ITC on an FY's invoices can be claimed until 30 Nov after that FY ends (Section 16(4)).
+const itcDeadline = (fyStart: number) => new Date(fyStart + 1, 10, 30);
 
 // Tax that matters for a row in a given tab: books' tax for "ITC at risk", the 2B's tax otherwise.
 const rowTax = (r: Row, tab: TabKey) => Number((tab === 'onlyInBooks' ? r.bookTax : r.b2bTax) ?? 0);
@@ -197,6 +216,103 @@ function downloadCsv(rows: Row[], tab: TabKey, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+// ─── Excel export ─────────────────────────────────────────────────────────────
+// Built in the browser (SheetJS, loaded only on click) so a per-tab export can
+// respect whatever filters and sort the user has applied.
+type Cell = string | number | Date | null;
+type SheetSpec = { name: string; head?: string[]; data: Cell[][] };
+
+const TAB_SHEET_NAME: Record<TabKey, string> = {
+  onlyInBooks: 'ITC at risk', mismatch: 'Mismatches', onlyIn2B: 'Not in books', matched: 'Matched',
+};
+const BASE_HEAD = ['Supplier', 'GSTIN', 'Invoice No', 'Invoice Date', 'Financial Year'];
+
+function tabSheet(tab: TabKey, rows: Row[]): SheetSpec {
+  const base = (r: Row): Cell[] => {
+    const fy = fyStartOfDate(r.invoiceDate);
+    return [r.supplierName, r.gstin, r.invoiceNo, r.invoiceDate ? new Date(r.invoiceDate) : null, fy === null ? '' : fyLabel(fy)];
+  };
+  const in2b = (r: Row) => (r.period ? periodLabel(r.period) : '');
+  const n = (v: number | undefined) => v ?? 0;
+  switch (tab) {
+    case 'onlyInBooks':
+      return { name: TAB_SHEET_NAME[tab], head: [...BASE_HEAD, 'GRN No', 'Book Taxable (₹)', 'Book Tax (₹)'],
+        data: rows.map((r) => [...base(r), r.grnNumber ?? '', n(r.bookTaxable), n(r.bookTax)]) };
+    case 'onlyIn2B':
+      return { name: TAB_SHEET_NAME[tab], head: [...BASE_HEAD, 'Reported in 2B', '2B Taxable (₹)', '2B Tax (₹)'],
+        data: rows.map((r) => [...base(r), in2b(r), n(r.b2bTaxable), n(r.b2bTax)]) };
+    case 'mismatch':
+      return { name: TAB_SHEET_NAME[tab],
+        head: [...BASE_HEAD, 'Reported in 2B', 'GRN No', '2B Taxable (₹)', '2B Tax (₹)', 'Book Taxable (₹)', 'Book Tax (₹)', 'Taxable Diff (₹)', 'Tax Diff (₹)', 'Reason'],
+        data: rows.map((r) => [...base(r), in2b(r), r.grnNumber ?? '', n(r.b2bTaxable), n(r.b2bTax), n(r.bookTaxable), n(r.bookTax), n(r.taxableDiff), n(r.taxDiff), getMismatchReason(r).badge]) };
+    default:
+      return { name: TAB_SHEET_NAME[tab],
+        head: [...BASE_HEAD, 'Reported in 2B', 'GRN No', '2B Taxable (₹)', '2B Tax (₹)', 'Book Taxable (₹)', 'Book Tax (₹)'],
+        data: rows.map((r) => [...base(r), in2b(r), r.grnNumber ?? '', n(r.b2bTaxable), n(r.b2bTax), n(r.bookTaxable), n(r.bookTax)]) };
+  }
+}
+
+function summarySheet(result: Result): SheetSpec {
+  const s = result.summary;
+  const m = s.merge;
+  const d = (iso: string | null) => (iso ? fmtDate(iso) : '—');
+  const data: Cell[][] = [
+    ['GSTR-2B Reconciliation'],
+    ['File(s)', result.fileName],
+    ['Invoice dates covered', `${d(result.window.from)} – ${d(result.window.to)}`],
+    ['Invoices in GSTR-2B', s.b2bInvoices],
+    [],
+    ['Category', 'Invoices', 'Tax (₹)', 'What it means'],
+    ['ITC at risk', s.onlyInBooks, s.itcAtRisk, 'In your books but not in GSTR-2B — supplier has not filed; do not claim yet'],
+    ['Mismatches', s.mismatch, null, 'In both, but amounts differ — claim only the 2B amount'],
+    ['Not in books', s.onlyIn2B, s.itcUnbooked, 'In GSTR-2B but no GRN entered — enter the purchase to claim'],
+    ['Matched', s.matched, s.itcMatched, 'Matches your books — safe to claim'],
+    [],
+    ['Total ITC per GSTR-2B', null, s.itcIn2B],
+  ];
+  if (m) {
+    data.push([]);
+    data.push(['Files merged', m.files.filter((f) => !f.error).length]);
+    data.push(['Duplicate invoices ignored', m.duplicatesRemoved]);
+    if (m.expectedRange) data.push(['Months expected', m.expectedRange]);
+    data.push(['Missing month files', m.missingPeriods.length ? m.missingPeriods.join(', ') : 'None']);
+    m.files.forEach((f) => data.push(['File', f.name, f.period ?? 'month unknown', f.error ?? `${f.invoices} invoice(s)`]));
+  }
+  return { name: 'Summary', data };
+}
+
+async function saveWorkbook(sheets: SheetSpec[], fileName: string) {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+  for (const sh of sheets) {
+    const aoa: Cell[][] = sh.head ? [sh.head, ...sh.data] : sh.data;
+    const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true, dateNF: 'dd-mmm-yyyy' });
+    const cols = Math.max(...aoa.map((r) => r.length), 1);
+    ws['!cols'] = Array.from({ length: cols }, (_, c) => ({
+      wch: Math.min(48, Math.max(10, ...aoa.slice(0, 300).map((r) => (r[c] instanceof Date ? 12 : String(r[c] ?? '').length + 2)))),
+    }));
+    if (sh.head && sh.data.length > 0) {
+      ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: sh.data.length, c: sh.head.length - 1 } }) };
+    }
+    XLSX.utils.book_append_sheet(wb, ws, sh.name.slice(0, 31));
+  }
+  XLSX.writeFile(wb, fileName);
+}
+
+const safeName = (fileName: string) => fileName.replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '_');
+
+async function downloadAllExcel(result: Result) {
+  const order: TabKey[] = ['onlyInBooks', 'mismatch', 'onlyIn2B', 'matched'];
+  await saveWorkbook(
+    [summarySheet(result), ...order.map((k) => tabSheet(k, result[k]))],
+    `GSTR2B_Recon_ALL_${safeName(result.fileName)}.xlsx`,
+  );
+}
+
+async function downloadTabExcel(tab: TabKey, rows: Row[], fileName: string) {
+  await saveWorkbook([tabSheet(tab, rows)], `GSTR2B_${TAB_SHEET_NAME[tab].replace(/ /g, '_')}_${safeName(fileName)}.xlsx`);
+}
+
 const GUIDE_STEPS = [
   'Go to the GST portal: gst.gov.in → Login with your GSTIN and password.',
   'Click Services → Returns → View Returns / Filed Returns → OR use Returns Dashboard → View GSTR-2B.',
@@ -258,18 +374,24 @@ export default function GstReconciliationPage() {
   const [deletingRun, setDeletingRun] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [sort, setSort]             = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null);
+  const [fFy, setFFy]               = useState('');
   const [fMonth, setFMonth]         = useState('');
+  const [fPeriod, setFPeriod]       = useState('');
   const [fSupplier, setFSupplier]   = useState('');
   const [fSearch, setFSearch]       = useState('');
   const [fMinTax, setFMinTax]       = useState('');
   const [fReason, setFReason]       = useState('');
 
-  function resetFilters() { setFMonth(''); setFSupplier(''); setFSearch(''); setFMinTax(''); setFReason(''); }
+  function resetFilters() { setFFy(''); setFMonth(''); setFPeriod(''); setFSupplier(''); setFSearch(''); setFMinTax(''); setFReason(''); }
   // Sorting and the mismatch-reason filter are per-tab (columns differ); the
   // month/supplier/search filters deliberately carry across tabs.
   useEffect(() => { setSort(null); setFReason(''); }, [tab]);
   // A different file or saved run has different months/suppliers.
   useEffect(() => { resetFilters(); setSort(null); }, [result?.runId, result?.fileName]);
+
+  useEffect(() => {
+    if (fFy && fMonth && fMonth !== 'none' && String(fyStartOfPeriod(fMonth)) !== fFy) setFMonth('');
+  }, [fFy, fMonth]);
 
   function toggleSort(key: SortKey) {
     setSort((cur) => (!cur || cur.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
@@ -374,33 +496,61 @@ export default function GstReconciliationPage() {
 
   // Options come from every tab so a selected month/supplier stays valid when
   // switching tabs; counts are for the tab being viewed.
-  const { monthOptions, supplierOptions } = useMemo(() => {
-    if (!result) return { monthOptions: [] as string[], supplierOptions: [] as { key: string; label: string }[] };
+  const { monthOptions, supplierOptions, fyOptions, periodOptions } = useMemo(() => {
+    if (!result) return {
+      monthOptions: [] as string[], supplierOptions: [] as { key: string; label: string }[],
+      fyOptions: [] as number[], periodOptions: [] as string[],
+    };
     const months = new Set<string>();
+    const fys = new Set<number>();
+    const periods = new Set<string>();
     const suppliers = new Map<string, string>();
     (['matched', 'mismatch', 'onlyIn2B', 'onlyInBooks'] as TabKey[]).forEach((k) =>
       result[k].forEach((r) => {
         months.add(monthKey(r.invoiceDate));
+        const fy = fyStartOfDate(r.invoiceDate);
+        if (fy !== null) fys.add(fy);
+        if (r.period) periods.add(r.period);
         if (!suppliers.has(supplierKey(r))) suppliers.set(supplierKey(r), r.supplierName || r.gstin);
       }));
-    const monthList = Array.from(months).filter((m) => m !== 'none').sort().reverse();
-    if (months.has('none')) monthList.push('none');
+    // Months narrow to the chosen financial year, so the two filters never contradict each other.
+    const monthList = Array.from(months)
+      .filter((m) => m !== 'none' && (!fFy || String(fyStartOfPeriod(m)) === fFy))
+      .sort().reverse();
+    if (months.has('none') && !fFy) monthList.push('none');
     const supplierList = Array.from(suppliers, ([key, label]) => ({ key, label }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    return { monthOptions: monthList, supplierOptions: supplierList };
-  }, [result]);
+    return {
+      monthOptions: monthList, supplierOptions: supplierList,
+      fyOptions: Array.from(fys).sort((a, b) => b - a),
+      periodOptions: Array.from(periods).sort().reverse(),
+    };
+  }, [result, fFy]);
 
-  const monthCounts = useMemo(() => {
-    const m: Record<string, number> = {};
-    rows.forEach((r) => { const k = monthKey(r.invoiceDate); m[k] = (m[k] ?? 0) + 1; });
-    return m;
+  const { monthCounts, fyCounts, periodCounts } = useMemo(() => {
+    const m: Record<string, number> = {}, f: Record<string, number> = {}, p: Record<string, number> = {};
+    rows.forEach((r) => {
+      const k = monthKey(r.invoiceDate); m[k] = (m[k] ?? 0) + 1;
+      const fy = fyStartOfDate(r.invoiceDate); if (fy !== null) f[fy] = (f[fy] ?? 0) + 1;
+      if (r.period) p[r.period] = (p[r.period] ?? 0) + 1;
+    });
+    return { monthCounts: m, fyCounts: f, periodCounts: p };
   }, [rows]);
+
+  // Invoices dated in the chosen FY but reported in a later FY's 2B — e.g. March bills the supplier
+  // filed in April. They stay in the FY they are dated in; this just tells the user they are there.
+  const crossFyCount = useMemo(() => {
+    if (!fFy) return 0;
+    return rows.filter((r) => String(fyStartOfDate(r.invoiceDate)) === fFy && r.period && fyStartOfPeriod(r.period) > Number(fFy)).length;
+  }, [rows, fFy]);
 
   const shownRows = useMemo(() => {
     const q = fSearch.trim().toLowerCase();
     const min = fMinTax.trim() === '' ? null : Number(fMinTax);
     let out = rows.filter((r) => {
+      if (fFy && String(fyStartOfDate(r.invoiceDate)) !== fFy) return false;
       if (fMonth && monthKey(r.invoiceDate) !== fMonth) return false;
+      if (fPeriod && (r.period ?? '') !== fPeriod) return false;
       if (fSupplier && supplierKey(r) !== fSupplier) return false;
       if (min !== null && !Number.isNaN(min) && rowTax(r, tab) < min) return false;
       if (fReason && getMismatchReason(r).badge !== fReason) return false;
@@ -419,9 +569,9 @@ export default function GstReconciliationPage() {
       });
     }
     return out;
-  }, [rows, tab, fMonth, fSupplier, fSearch, fMinTax, fReason, sort]);
+  }, [rows, tab, fFy, fMonth, fPeriod, fSupplier, fSearch, fMinTax, fReason, sort]);
 
-  const filtersActive = !!(fMonth || fSupplier || fSearch.trim() || fMinTax.trim() || fReason);
+  const filtersActive = !!(fFy || fMonth || fPeriod || fSupplier || fSearch.trim() || fMinTax.trim() || fReason);
   const shownTax = shownRows.reduce((sum, r) => sum + rowTax(r, tab), 0);
 
   const sortTh = (key: SortKey, label: string, opts: { right?: boolean; title?: string; cls?: string } = {}) => (
@@ -645,10 +795,17 @@ export default function GstReconciliationPage() {
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <button
-                  onClick={() => downloadAllCsv(result)}
+                  onClick={() => downloadAllExcel(result).catch(() => toast.error('Could not create the Excel file'))}
+                  title="One Excel workbook with a Summary sheet plus a sheet each for ITC at risk, Mismatches, Not in books and Matched — everything, ignoring the filters"
                   className="flex items-center gap-1.5 text-xs text-[#1B4F8A] hover:text-[#163d6b] font-medium transition-colors"
                 >
-                  <Download size={13} /> Download All
+                  <Download size={13} /> All (Excel)
+                </button>
+                <button
+                  onClick={() => downloadAllCsv(result)}
+                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#1B4F8A] transition-colors"
+                >
+                  <Download size={13} /> All (CSV)
                 </button>
                 <button onClick={reset}
                   className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 transition-colors">
@@ -813,6 +970,14 @@ export default function GstReconciliationPage() {
             ) : (
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-gray-100 bg-white">
+                  <select value={fFy} onChange={(e) => setFFy(e.target.value)}
+                    title="Financial year (April–March), by invoice date. A March bill that the supplier reported in April's 2B still belongs to the earlier year."
+                    className="text-xs h-7 px-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none">
+                    <option value="">All financial years</option>
+                    {fyOptions.map((y) => (
+                      <option key={y} value={String(y)}>{fyLabel(y)} ({fyCounts[y] ?? 0})</option>
+                    ))}
+                  </select>
                   <select value={fMonth} onChange={(e) => setFMonth(e.target.value)}
                     title="Show only invoices dated in this month (by invoice date, not upload date)"
                     className="text-xs h-7 px-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none">
@@ -821,6 +986,16 @@ export default function GstReconciliationPage() {
                       <option key={m} value={m}>{monthLabel(m)} ({monthCounts[m] ?? 0})</option>
                     ))}
                   </select>
+                  {tab !== 'onlyInBooks' && periodOptions.length > 0 && (
+                    <select value={fPeriod} onChange={(e) => setFPeriod(e.target.value)}
+                      title="Show only invoices that appeared in this month's GSTR-2B (the month the supplier reported them, which can be later than the invoice date)"
+                      className="text-xs h-7 px-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none">
+                      <option value="">Reported in any 2B</option>
+                      {periodOptions.map((k) => (
+                        <option key={k} value={k}>In {periodLabel(k)} 2B ({periodCounts[k] ?? 0})</option>
+                      ))}
+                    </select>
+                  )}
                   <select value={fSupplier} onChange={(e) => setFSupplier(e.target.value)}
                     title="Show only one supplier's invoices"
                     className="text-xs h-7 px-2 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#1B4F8A] outline-none max-w-[200px]">
@@ -853,6 +1028,20 @@ export default function GstReconciliationPage() {
                       <X size={12} /> Clear filters
                     </button>
                   )}
+                  {fFy && (() => {
+                    const dl = itcDeadline(Number(fFy));
+                    const passed = dl < new Date();
+                    return (
+                      <p className={`basis-full text-[11px] leading-relaxed ${passed ? 'text-red-600' : 'text-gray-500'}`}
+                        title="Section 16(4) of the CGST Act: ITC on an invoice can be claimed only up to 30 November following the end of the financial year the invoice belongs to (or the annual return date, if earlier).">
+                        {fyLabel(Number(fFy))}: ITC {passed ? 'claim deadline has passed' : 'can be claimed until'}{' '}
+                        <strong>{dl.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</strong>.
+                        {crossFyCount > 0 && (
+                          <> {crossFyCount} invoice(s) dated in this year were reported in a later year&apos;s 2B (for example March bills filed by the supplier in April) — they are counted here by invoice date.</>
+                        )}
+                      </p>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/70">
                   <p className="text-xs text-gray-500">
@@ -862,13 +1051,22 @@ export default function GstReconciliationPage() {
                       Tax {inr(shownTax)}
                     </span>
                   </p>
-                  <button
-                    onClick={() => downloadCsv(shownRows, tab, result.fileName)}
-                    title="Downloads the rows currently shown (with your filters and sort applied)"
-                    className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-[#1B4F8A] transition-colors"
-                  >
-                    <Download size={13} /> Download CSV
-                  </button>
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={() => downloadTabExcel(tab, shownRows, result.fileName).catch(() => toast.error('Could not create the Excel file'))}
+                      title="Downloads the rows currently shown, in this tab's own Excel file (with your filters and sort applied)"
+                      className="flex items-center gap-1.5 text-xs text-[#1B4F8A] hover:text-[#163d6b] font-medium transition-colors"
+                    >
+                      <Download size={13} /> Download Excel
+                    </button>
+                    <button
+                      onClick={() => downloadCsv(shownRows, tab, result.fileName)}
+                      title="Downloads the rows currently shown as CSV (with your filters and sort applied)"
+                      className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#1B4F8A] transition-colors"
+                    >
+                      <Download size={13} /> CSV
+                    </button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -926,7 +1124,14 @@ export default function GstReconciliationPage() {
                             )}
                             {r.grnNumber && <div className="text-xs text-gray-400 mt-0.5 font-mono">{r.grnNumber}</div>}
                           </td>
-                          <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{fmtDate(r.invoiceDate)}</td>
+                          <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">
+                            {fmtDate(r.invoiceDate)}
+                            {r.period && r.period !== monthKey(r.invoiceDate) && (
+                              <div className="text-[10px] text-blue-600" title="The supplier reported this invoice in a later month than its date">
+                                in {periodLabel(r.period)} 2B
+                              </div>
+                            )}
+                          </td>
                           {(tab === 'matched' || tab === 'mismatch' || tab === 'onlyIn2B') && (
                             <>
                               <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">

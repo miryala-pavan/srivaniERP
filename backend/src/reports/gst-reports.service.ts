@@ -16,6 +16,8 @@ const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
 type TwoBEntry = {
   gstin: string; supplierName: string; invoiceNo: string; invoiceDate: Date | null;
   taxable: number; igst: number; cgst: number; sgst: number; cess: number;
+  /** Return period ('YYYY-MM') of the 2B file this invoice came from — a March bill can arrive in April's 2B. */
+  period?: string | null;
 };
 
 /** What was done to the uploaded GSTR-2B file(s) before matching — shown to the user, stored on the run. */
@@ -815,7 +817,7 @@ export class GstReportsService {
       },
     });
 
-    const coverage = this.missing2BPeriods(detectedKeys, purchases.map((p) => new Date(p.invoiceDate)));
+    const coverage = this.missing2BPeriods(detectedKeys, purchases.map((p) => new Date(p.invoiceDate)), minDt, maxDt);
     merge.missingPeriods = coverage.missing;
     merge.expectedRange = coverage.range;
 
@@ -857,7 +859,7 @@ export class GstReportsService {
           grnNumber: p.grnNumber, grnId: p.id,
           b2bTaxable: r2(e.taxable), b2bTax: e2bTax,
           bookTaxable: r2(bookTaxable), bookTax: r2(bookTax),
-          taxableDiff, taxDiff,
+          taxableDiff, taxDiff, period: e.period ?? null,
         };
         (ok ? matched : mismatch).push(row);
       } else {
@@ -865,7 +867,7 @@ export class GstReportsService {
           gstin: e.gstin,
           supplierName: e.supplierName || gstinToName.get((e.gstin ?? '').toUpperCase()) || '',
           invoiceNo: e.invoiceNo, invoiceDate: e.invoiceDate?.toISOString() ?? null,
-          b2bTaxable: r2(e.taxable), b2bTax: e2bTax,
+          b2bTaxable: r2(e.taxable), b2bTax: e2bTax, period: e.period ?? null,
         });
       }
     }
@@ -995,7 +997,8 @@ export class GstReportsService {
 
     for (const file of ordered) {
       for (const e of file.entries) {
-        const k = `${e.gstin.toUpperCase()}|${norm(e.invoiceNo)}`;
+        e.period = file.period;
+        const k =`${e.gstin.toUpperCase()}|${norm(e.invoiceNo)}`;
         const cur = byKey.get(k);
         if (!cur) byKey.set(k, { file, entries: [e] });
         else if (cur.file.id === file.id) cur.entries.push(e);
@@ -1040,24 +1043,38 @@ export class GstReportsService {
 
   /**
    * Which return periods the books expect a 2B for but nothing uploaded covers.
-   * Expected = from the later of the financial-year start and the first
-   * purchase in the books, up to the latest 2B the portal has actually
-   * generated (the 2B for a month appears on the 14th of the next). Without
-   * these months, suppliers who reported late show up as "ITC at risk".
+   *
+   * Only books invoices inside the 2B's own invoice-date window are ever judged
+   * (see reconcile2B), so the months that matter run from the earliest such
+   * invoice up to the latest 2B the portal has generated (a month's 2B appears
+   * on the 14th of the next). This deliberately ignores the financial-year
+   * boundary: a March-dated bill may sit in March's 2B or, if the supplier
+   * filed late, in April's — so a window reaching back into March asks for
+   * March's file as well as April's. Invoices whose ITC deadline (30 Nov after
+   * their FY ends) has already passed are not asked for.
    */
-  private missing2BPeriods(covered: string[], bookDates: Date[]): { missing: string[]; range: string | null } {
-    if (covered.length === 0 || bookDates.length === 0) return { missing: [], range: null };
+  private missing2BPeriods(
+    covered: string[], bookDates: Date[], from: Date | null, to: Date | null,
+  ): { missing: string[]; range: string | null } {
+    const inWindow = bookDates.filter((d) => (!from || d >= from) && (!to || d <= to));
+    if (covered.length === 0 || inWindow.length === 0) return { missing: [], range: null };
 
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
       .formatToParts(new Date());
     const num = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+    const ty = num('year'), tm = num('month'), td = num('day');
+
     // Latest generated 2B: previous month once it's the 15th, otherwise the month before that.
-    let ly = num('year'), lm = num('month') - (num('day') >= 15 ? 1 : 2);
+    let ly = ty, lm = tm - (td >= 15 ? 1 : 2);
     while (lm < 1) { lm += 12; ly -= 1; }
 
-    const fyStartYear = lm >= 4 ? ly : ly - 1;
-    const earliest = bookDates.reduce((a, b) => (b < a ? b : a));
-    let sy = fyStartYear, sm = 4;
+    // Oldest FY whose ITC can still be claimed: FY N ends in March and its
+    // deadline is 30 Nov that year, so up to and including 30 Nov the FY that
+    // started the April before last is still open.
+    const claimableFrom = tm <= 11 ? ty - 1 : ty;
+
+    const earliest = inWindow.reduce((a, b) => (b < a ? b : a));
+    let sy = claimableFrom, sm = 4;
     const ey = earliest.getUTCFullYear(), em = earliest.getUTCMonth() + 1;
     if (ey > sy || (ey === sy && em > sm)) { sy = ey; sm = em; }
     if (sy > ly || (sy === ly && sm > lm)) return { missing: [], range: null };
